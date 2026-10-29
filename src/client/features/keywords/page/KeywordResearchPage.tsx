@@ -289,7 +289,8 @@ function ResearchErrorCard({
         <ErrorState
           message={message}
           onRetry={
-            errorCode === "UNKNOWN_LOCATION"
+            errorCode === "UNKNOWN_LOCATION" ||
+            errorCode === "DATAFORSEO_NOT_CONFIGURED"
               ? undefined
               : controller.retrySearch
           }

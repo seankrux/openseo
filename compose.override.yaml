@@ -1,0 +1,8 @@
+services:
+  open-seo:
+    image: open-seo-citythrive:review-20261027-verified
+    mem_limit: 4g
+    memswap_limit: 4g
+    volumes:
+      - ./deploy/docker/docker-entrypoint.sh:/app/deploy/docker/docker-entrypoint.sh:ro
+      - ./scripts/selfhost-runtime-bindings.mjs:/app/scripts/selfhost-runtime-bindings.mjs:ro

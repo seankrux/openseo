@@ -1,0 +1,137 @@
+2026-10-19T15:54:08+02:00 deploy open-seo-citythrive:15cc3002 -> open-seo-citythrive:249ade91 (last: 2026-10-19T13:54:06.073Z finished bushnelldrainagesolutions.com completed)
+ Container openseo-open-seo-1 Recreate 
+ Container openseo-open-seo-1 Recreated 
+ Container openseo-open-seo-1 Starting 
+ Container openseo-open-seo-1 Started 
+health ok
+overview 200
+gsc ok
+ga4 ok
+2026-10-19T15:54:29+02:00 DEPLOY OK 249ade91
+2026-10-19T16:17:22+02:00 deploy open-seo-citythrive:249ade91 -> open-seo-citythrive:249ade91 (last: 2026-10-19T13:54:08.467Z started cadizfoundationrepair.com 9d1818fb-7ebc-4812-be15-80f53cc)
+ Container openseo-open-seo-1 Running 
+health ok
+overview 200
+gsc ok
+ga4 ok
+2026-10-19T16:17:30+02:00 DEPLOY OK 249ade91
+2026-10-19T17:07:40+02:00 deploy open-seo-citythrive:249ade91 -> open-seo-citythrive:21d3c335 (last: 2026-10-19T15:07:38.894Z finished clintonvillefoundationrepair.com completed)
+ Container openseo-open-seo-1 Recreate 
+ Container openseo-open-seo-1 Recreated 
+ Container openseo-open-seo-1 Starting 
+ Container openseo-open-seo-1 Started 
+health ok
+overview 200
+gsc ok
+ga4 ok
+2026-10-19T17:08:01+02:00 DEPLOY OK 21d3c335
+2026-10-19T18:15:48+02:00 deploy open-seo-citythrive:21d3c335 -> open-seo-citythrive:c86221de (last: 2026-10-19T16:14:46.124Z started dentonfoundationrepairexperts.com 883ab9d2-bce9-40db-8cab)
+ Container openseo-open-seo-1 Recreate 
+ Container openseo-open-seo-1 Recreated 
+ Container openseo-open-seo-1 Starting 
+ Container openseo-open-seo-1 Started 
+health ok
+overview 200
+gsc ok
+ga4 ok
+2026-10-19T18:16:11+02:00 DEPLOY OK c86221de
+2026-10-19T18:18:57+02:00 deploy open-seo-citythrive:21d3c335 -> open-seo-citythrive:c86221de (last: 2026-10-19T16:18:48.957Z finished dequeenfoundationrepair.com completed)
+ Container openseo-open-seo-1 Recreate 
+ Container openseo-open-seo-1 Recreated 
+ Container openseo-open-seo-1 Starting 
+ Container openseo-open-seo-1 Started 
+health ok
+overview 200
+gsc ok
+ga4 ok
+2026-10-19T18:19:26+02:00 DEPLOY OK c86221de
+2026-10-19T18:20:14+02:00 deploy open-seo-citythrive:c86221de -> open-seo-citythrive:6bf4a566 (last: 2026-10-19T16:18:48.957Z finished dequeenfoundationrepair.com completed)
+ Container openseo-open-seo-1 Recreate 
+ Container openseo-open-seo-1 Recreated 
+ Container openseo-open-seo-1 Starting 
+ Container openseo-open-seo-1 Started 
+health ok
+overview 200
+gsc ok
+ga4 ok
+2026-10-19T18:20:37+02:00 DEPLOY OK 6bf4a566
+2026-10-19T18:28:44+02:00 deploy open-seo-citythrive:6bf4a566 -> open-seo-citythrive:6dd09258 (last: 2026-10-19T16:28:02.116Z started dumasfoundationrepairexperts.com 68fa592a-136c-40e1-bf25-)
+ Container openseo-open-seo-1 Recreate 
+ Container openseo-open-seo-1 Recreated 
+ Container openseo-open-seo-1 Starting 
+ Container openseo-open-seo-1 Started 
+health ok
+overview 200
+gsc ok
+ga4 ok
+2026-10-19T18:29:03+02:00 DEPLOY OK 6dd09258
+2026-10-19T18:31:30+02:00 deploy open-seo-citythrive:6dd09258 -> open-seo-citythrive:399f9dd5 (last: 2026-10-19T16:30:28.119Z started dunlapfoundationrepair.com 313599ae-3390-401a-b0f9-20eeaf)
+ Container openseo-open-seo-1 Recreate 
+ Container openseo-open-seo-1 Recreated 
+ Container openseo-open-seo-1 Starting 
+ Container openseo-open-seo-1 Started 
+health ok
+overview 200
+gsc ok
+ga4 ok
+2026-10-19T18:31:51+02:00 DEPLOY OK 399f9dd5
+2026-10-19T18:41:18+02:00 deploy open-seo-citythrive:399f9dd5 -> open-seo-citythrive:d3de5e1d (last: 2026-10-19T16:39:29.361Z started edmondfoundationrepairexperts.com cb5bc146-eddf-424f-8b90)
+ Container openseo-open-seo-1 Recreate 
+ Container openseo-open-seo-1 Recreated 
+ Container openseo-open-seo-1 Starting 
+ Container openseo-open-seo-1 Started 
+health ok
+overview 200
+gsc ok
+ga4 ok
+2026-10-19T18:41:38+02:00 DEPLOY OK d3de5e1d
+2026-10-19T19:00:10+02:00 deploy open-seo-citythrive:d3de5e1d -> open-seo-citythrive:ae975bfd (last: 2026-10-19T16:58:56.168Z started ferridayfoundationrepair.com 29764414-820e-407d-9d36-b73e)
+ Container openseo-open-seo-1 Recreate 
+ Container openseo-open-seo-1 Recreated 
+ Container openseo-open-seo-1 Starting 
+ Container openseo-open-seo-1 Started 
+health ok
+overview 200
+gsc ok
+ga4 ok
+2026-10-19T19:00:40+02:00 DEPLOY OK ae975bfd
+2026-10-19T19:03:56+02:00 deploy open-seo-citythrive:ae975bfd -> open-seo-citythrive:9419aa97 (last: 2026-10-19T17:02:56.809Z started fonddulacfoundationrepair.com d2cecd9f-cb18-47ca-af0d-568)
+ Container openseo-open-seo-1 Recreate 
+ Container openseo-open-seo-1 Recreated 
+ Container openseo-open-seo-1 Starting 
+ Container openseo-open-seo-1 Started 
+health ok
+overview 200
+gsc ok
+ga4 ok
+2026-10-19T19:04:18+02:00 DEPLOY OK 9419aa97
+2026-10-19T19:11:18+02:00 deploy open-seo-citythrive:9419aa97 -> open-seo-citythrive:31ab9e7b (last: 2026-10-19T17:09:56.904Z started foundationrepairprosofjoplin.com 07adb5c7-d3c9-4136-a40e-)
+ Container openseo-open-seo-1 Recreate 
+ Container openseo-open-seo-1 Recreated 
+ Container openseo-open-seo-1 Starting 
+ Container openseo-open-seo-1 Started 
+health ok
+overview 200
+gsc ok
+ga4 ok
+2026-10-19T19:11:38+02:00 DEPLOY OK 31ab9e7b
+2026-10-19T19:18:39+02:00 deploy open-seo-citythrive:31ab9e7b -> open-seo-citythrive:565f9cf5 (last: 2026-10-19T17:17:54.304Z started fultonfoundationrepair.com 3daddbea-2a64-4d65-ace6-196ec5)
+ Container openseo-open-seo-1 Recreate 
+ Container openseo-open-seo-1 Recreated 
+ Container openseo-open-seo-1 Starting 
+ Container openseo-open-seo-1 Started 
+health ok
+overview 200
+gsc ok
+ga4 ok
+2026-10-19T19:19:01+02:00 DEPLOY OK 565f9cf5
+2026-10-25T16:18:39+01:00 deploy open-seo-citythrive:tools-review-20261021 -> open-seo-citythrive:ux-fleet-20261025 (last: 2026-10-20T05:45:51.302Z runner end started=1312 skipped=0 stillRunning=0 done=1623)
+ Container openseo-open-seo-1 Recreate 
+ Container openseo-open-seo-1 Recreated 
+ Container openseo-open-seo-1 Starting 
+ Container openseo-open-seo-1 Started 
+health ok
+overview 200
+gsc ok
+ga4 ok
+2026-10-25T16:19:02+01:00 DEPLOY OK ux-fleet-20261025

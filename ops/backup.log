@@ -1,0 +1,33 @@
+2026-10-19T15:34:28+02:00 ok 6.5M /home/ubuntu/apps/openseo/backups/daily/openseo-20261019T133416Z.tgz
+2026-10-19T15:53:58+02:00 ok 6.9M /home/ubuntu/apps/openseo/backups/daily/openseo-20261019T135343Z.tgz
+2026-10-19T15:57:20+02:00 ok 6.9M /home/ubuntu/apps/openseo/backups/daily/openseo-20261019T135706Z.tgz
+2026-10-19T17:04:34+02:00 ok 7.3M /home/ubuntu/apps/openseo/backups/daily/openseo-20261019T150408Z.tgz
+2026-10-19T17:45:00+02:00 ok 7.4M /home/ubuntu/apps/openseo/backups/daily/openseo-20261019T154442Z.tgz
+2026-10-19T17:46:09+02:00 ok 7.4M /home/ubuntu/apps/openseo/backups/daily/openseo-20261019T154552Z.tgz
+2026-10-19T18:01:26+02:00 ok 7.5M /home/ubuntu/apps/openseo/backups/daily/openseo-20261019T160101Z.tgz
+2026-10-19T18:06:32+02:00 ok 7.7M /home/ubuntu/apps/openseo/backups/daily/openseo-20261019T160613Z.tgz
+2026-10-19T18:10:08+02:00 ok 7.7M /home/ubuntu/apps/openseo/backups/daily/openseo-20261019T160947Z.tgz
+2026-10-19T18:14:56+02:00 ok 7.8M /home/ubuntu/apps/openseo/backups/daily/openseo-20261019T161437Z.tgz
+2026-10-19T18:20:08+02:00 ok 7.9M /home/ubuntu/apps/openseo/backups/daily/openseo-20261019T161943Z.tgz
+2026-10-19T18:28:08+02:00 ok 8.1M /home/ubuntu/apps/openseo/backups/daily/openseo-20261019T162750Z.tgz
+2026-10-19T18:30:54+02:00 ok 8.2M /home/ubuntu/apps/openseo/backups/daily/openseo-20261019T163027Z.tgz
+2026-10-19T18:39:55+02:00 ok 8.3M /home/ubuntu/apps/openseo/backups/daily/openseo-20261019T163933Z.tgz
+2026-10-19T18:59:01+02:00 ok 8.7M /home/ubuntu/apps/openseo/backups/daily/openseo-20261019T165839Z.tgz
+2026-10-19T19:03:34+02:00 ok 8.8M /home/ubuntu/apps/openseo/backups/daily/openseo-20261019T170303Z.tgz
+2026-10-19T19:10:10+02:00 ok 8.9M /home/ubuntu/apps/openseo/backups/daily/openseo-20261019T170943Z.tgz
+2026-10-19T19:18:34+02:00 ok 9.1M /home/ubuntu/apps/openseo/backups/daily/openseo-20261019T171809Z.tgz
+Unable to find image 'openseo-backup-tool:1' locally
+docker: Error response from daemon: pull access denied for openseo-backup-tool, repository does not exist or may require 'docker login'
+
+Run 'docker run --help' for more information
+2026-10-20T12:18:43+02:00 ok 24M /home/ubuntu/apps/openseo/backups/daily/openseo-20261020T101710Z.tgz
+2026-10-21T03:16:13+02:00 ok 25M /home/ubuntu/apps/openseo/backups/daily/openseo-20261021T011501Z.tgz
+2026-10-22T03:16:29+02:00 ok 26M /home/ubuntu/apps/openseo/backups/daily/openseo-20261022T011501Z.tgz
+2026-10-23T03:16:31+02:00 ok 26M /home/ubuntu/apps/openseo/backups/daily/openseo-20261023T011501Z.tgz
+2026-10-24T03:18:00+02:00 ok 26M /home/ubuntu/apps/openseo/backups/daily/openseo-20261024T011501Z.tgz
+2026-10-25T03:16:12+01:00 ok 27M /home/ubuntu/apps/openseo/backups/daily/openseo-20261025T021501Z.tgz
+2026-10-25T16:18:38+01:00 ok 27M /home/ubuntu/apps/openseo/backups/daily/openseo-20261025T151746Z.tgz
+2026-10-26T03:16:07+01:00 ok 27M /home/ubuntu/apps/openseo/backups/daily/openseo-20261026T021501Z.tgz
+2026-10-27T03:16:22+01:00 ok 27M /home/ubuntu/apps/openseo/backups/daily/openseo-20261027T021502Z.tgz
+2026-10-28T03:16:23+01:00 ok 31M /home/ubuntu/apps/openseo/backups/daily/openseo-20261028T021501Z.tgz
+2026-10-29T03:17:43+01:00 ok 31M /home/ubuntu/apps/openseo/backups/daily/openseo-20261029T021501Z.tgz

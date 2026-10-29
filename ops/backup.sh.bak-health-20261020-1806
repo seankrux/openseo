@@ -1,0 +1,13 @@
+#!/bin/bash
+# Daily sqlite-safe backup of openseo_open_seo_data volume. Keeps 7 days. Output mode 600 under backups/daily.
+set -euo pipefail
+umask 077
+OUT=/home/ubuntu/apps/openseo/backups/daily; mkdir -p $OUT; chmod 700 $OUT
+TS=$(date -u +%Y%m%dT%H%M%SZ)
+nice -n19 ionice -c3 docker run --rm --network none -v openseo_open_seo_data:/d -v $OUT:/o openseo-backup-tool:1 sh -euc "
+  W=/tmp/s; mkdir -p \$W
+  cd /d && find . -type f -name '*.sqlite' | while read f; do mkdir -p \$W/\$(dirname \$f); sqlite3 \"file:\$f?mode=ro\" \".backup '\$W/\$f'\"; sqlite3 \$W/\$f 'pragma integrity_check' | grep -qx ok || { echo BAD \$f; exit 1; }; done
+  cd /d && tar cf - --exclude='*.sqlite' --exclude='*.sqlite-wal' --exclude='*.sqlite-shm' . | tar xf - -C \$W
+  tar czf /o/openseo-$TS.tgz -C \$W . && chown 1000:1000 /o/openseo-$TS.tgz && chmod 600 /o/openseo-$TS.tgz"
+find $OUT -name 'openseo-*.tgz' -mtime +6 -delete
+echo "$(date -Is) ok $(du -h $OUT/openseo-$TS.tgz|cut -f1) $OUT/openseo-$TS.tgz" >> /home/ubuntu/apps/openseo/ops/backup.log

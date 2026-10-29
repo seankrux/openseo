@@ -1,0 +1,3 @@
+ops/deploy.sh: line 12: h: command not found
+2026-10-19T16:17:22+02:00 deploy open-seo-citythrive:249ade91 -> open-seo-citythrive:249ade91 (last: 2026-10-19T13:54:08.467Z started cadizfoundationrepair.com 9d1818fb-7ebc-4812-be15-80f53cc)
+2026-10-19T16:17:30+02:00 DEPLOY OK 249ade91

@@ -1,9 +1,4 @@
-import {
-  Link,
-  linkOptions,
-  useLocation,
-  useMatchRoute,
-} from "@tanstack/react-router";
+import { Link, useLocation, useMatchRoute } from "@tanstack/react-router";
 import type { LinkOptions } from "@tanstack/react-router";
 import { useQuery } from "@tanstack/react-query";
 import { useState, type ComponentType } from "react";
@@ -13,7 +8,6 @@ import {
   Check,
   CircleHelp,
   CreditCard,
-  LayoutDashboard,
   LogOut,
   Settings,
   User,
@@ -26,7 +20,6 @@ import {
   connectNavGroup,
   getProjectNavGroups,
 } from "@/client/navigation/items";
-import { isFleetWorkspaceRoute } from "@/client/navigation/fleetNav";
 import { ProjectSwitcher } from "@/client/features/projects/ProjectSwitcher";
 import {
   SamChatListSkeleton,
@@ -135,28 +128,13 @@ export function Sidebar({
   // the sidebar has its full shape from the first paint instead of growing
   // once projects load. The placeholder rows never render these links.
   const { pathname } = useLocation();
-  const fleetWorkspace = isFleetWorkspaceRoute(pathname);
   const navPlaceholder = projectId === null && projectPending;
+  // Keep the selected project's tools visible on fleet routes too. The
+  // pinned All sites group is additive, not a reason to hide project tools.
   const projectGroups =
-    fleetWorkspace && projectId
-      ? [
-          {
-            label: "This project",
-            items: linkOptions([
-              {
-                to: "/p/$projectId" as const,
-                label: "Project dashboard",
-                icon: LayoutDashboard,
-                params: { projectId },
-                search: {},
-                activeOptions: { exact: true, includeSearch: false },
-              },
-            ]),
-          },
-        ]
-      : projectId !== null || navPlaceholder
-        ? getProjectNavGroups(projectId ?? "")
-        : [connectNavGroup];
+    projectId !== null || navPlaceholder
+      ? getProjectNavGroups(projectId ?? "")
+      : [connectNavGroup];
   // CityThrive fork: the fleet group is pinned first and never a placeholder.
   const navGroups = [
     { ...allSitesNavGroup, pinned: true as const },

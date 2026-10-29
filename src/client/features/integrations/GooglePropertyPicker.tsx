@@ -227,7 +227,7 @@ export function GooglePropertyPicker({
                             className="shrink-0 text-destructive"
                             disabled={saving}
                             onClick={() => setRemoving(account)}
-                            aria-label={`Remove ${accountLabel(account)}`}
+                            aria-label={`Remove account ${accountLabel(account)}`}
                           >
                             Remove account
                           </Button>

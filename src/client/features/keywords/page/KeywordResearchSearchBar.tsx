@@ -57,6 +57,9 @@ export function KeywordResearchSearchBar({ controller }: Props) {
                     placeholder="Enter a keyword"
                     aria-label="Keywords"
                     aria-invalid={keywordError ? true : undefined}
+                    aria-describedby={
+                      keywordError ? "keyword-research-error" : undefined
+                    }
                     value={field.state.value}
                     onChange={(event) => field.handleChange(event.target.value)}
                     onKeyDown={(event) => {
@@ -117,7 +120,11 @@ export function KeywordResearchSearchBar({ controller }: Props) {
             const keywordError = getFieldError(field.state.meta.errors);
 
             return keywordError ? (
-              <p role="alert" className="text-sm text-destructive">
+              <p
+                id="keyword-research-error"
+                role="alert"
+                className="text-sm text-destructive"
+              >
                 {keywordError}
               </p>
             ) : null;

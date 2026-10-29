@@ -1,0 +1,31 @@
+#!/bin/bash
+# Source me. pause_batch: SIGSTOP the runner only when no audit is in flight.
+# The runner calls run_site_audit right after logging "finished", so a
+# "finished" last line alone is not enough: after SIGSTOP we also check D1 for
+# an audit created in the last 3 minutes that is still pending/running (an
+# in-flight start). If one exists we resume and try again at the next gap.
+B=/home/ubuntu/apps/openseo/batch
+RPID=$(cat $B/runner.pid 2>/dev/null)
+D1F=./state/v3/d1/miniflare-D1DatabaseObject/8776b4b8f1ef4325faa1c4edcc1d76726313abcd813c380a6b567bfe699b1f34.sqlite
+recent_inflight(){ # prints count of audits started <3 min ago and not finished
+  docker run --rm --network none -v openseo_open_seo_data:/d:ro openseo-backup-tool:1 \
+    sqlite3 "file:/d/${D1F#./}?mode=ro" \
+    "select count(*) from audits where status in ('pending','running') and started_at >= datetime('now','-3 minutes')" 2>/dev/null || echo 1
+}
+pause_batch(){ # returns 0 when safe (runner paused between audits or not running)
+  kill -0 "$RPID" 2>/dev/null || return 0
+  for i in $(seq 1 ${GATE_TRIES:-360}); do
+    if tail -1 $B/run.log | grep -q " finished \| timeout \| skip"; then
+      kill -STOP "$RPID"; sleep 3
+      if tail -1 $B/run.log | grep -q " finished \| timeout \| skip" && [ "$(recent_inflight)" = 0 ]; then
+        PAUSED=1; echo "$(date -Is) gate: paused runner between audits" >> /home/ubuntu/apps/openseo/ops/gate.log; return 0
+      fi
+      kill -CONT "$RPID"
+      # Let the in-flight start finish before looking for the next gap.
+      sleep 20
+    fi
+    sleep 5
+  done
+  return 1
+}
+resume_batch(){ [ "${PAUSED:-0}" = 1 ] && kill -CONT "$RPID" 2>/dev/null && echo "$(date -Is) gate: resumed runner" >> /home/ubuntu/apps/openseo/ops/gate.log; PAUSED=0; }

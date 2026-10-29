@@ -51,7 +51,7 @@ export function ResearchScopeSelect({
     >
       <SelectTrigger
         className={className}
-        aria-label={ariaLabel}
+        aria-label={`${ariaLabel}: ${RESEARCH_SCOPE_LABELS[value]}`}
         title={disabledReason}
       >
         <SelectValue />

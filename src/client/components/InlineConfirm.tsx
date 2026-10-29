@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { Trash2 } from "lucide-react";
 import { Button } from "@/client/components/ui/button";
 
@@ -25,6 +25,7 @@ export function InlineConfirm({
   onConfirm: () => void;
 }) {
   const [confirming, setConfirming] = useState(false);
+  const triggerRef = useRef<HTMLButtonElement>(null);
   const size = triggerLabel ? "sm" : "xs";
 
   if (confirming) {
@@ -44,7 +45,10 @@ export function InlineConfirm({
         <Button
           variant="ghost"
           size={size}
-          onClick={() => setConfirming(false)}
+          onClick={() => {
+            setConfirming(false);
+            requestAnimationFrame(() => triggerRef.current?.focus());
+          }}
         >
           Cancel
         </Button>
@@ -55,6 +59,7 @@ export function InlineConfirm({
   if (triggerLabel) {
     return (
       <Button
+        ref={triggerRef}
         variant="destructive"
         size={size}
         disabled={pending || disabled}
@@ -67,6 +72,7 @@ export function InlineConfirm({
 
   return (
     <Button
+      ref={triggerRef}
       variant="ghost"
       size="icon-xs"
       className="text-destructive hover:text-destructive"

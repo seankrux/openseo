@@ -34,7 +34,8 @@ function IndexRedirect() {
     // getProjects always returns at least one project.
     const projectId = lastProjectId ?? data?.[0]?.id;
     if (!projectId) return;
-    void navigate({ to: "/p/$projectId", params: { projectId } });
+    // CityThrive fork: home is the all-sites dashboard.
+    void navigate({ to: "/dashboard" });
   }, [lastProjectId, data, navigate]);
 
   useEffect(() => {
