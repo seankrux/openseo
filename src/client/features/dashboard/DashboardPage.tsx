@@ -177,7 +177,7 @@ export function DashboardPage({
             <p className="mb-1 text-xs font-medium uppercase tracking-wider text-muted-foreground">
               Your website
             </p>
-            <h1 className="text-2xl font-semibold [overflow-wrap:anywhere]">
+            <h1 className="text-xl font-semibold [overflow-wrap:anywhere] md:text-2xl">
               {activation.domain || "Dashboard"}
             </h1>
             <p className="mt-1 text-sm text-muted-foreground">
@@ -218,6 +218,13 @@ export function DashboardPage({
           key={projectId}
           projectId={projectId}
           activation={activation}
+          // Competitor and keyword research need DataForSEO; without a key
+          // those steps would open tools that cannot return anything.
+          hiddenSteps={
+            seoKeyQuery.data?.configured === false
+              ? ["competitor", "keywords"]
+              : []
+          }
         />
 
         <Tabs

@@ -34,8 +34,11 @@ import {
   fetchGa4,
   fetchGsc,
   ga4CacheKey,
+  getAuditSummaries,
   windows,
+  type PortfolioGa4,
   type PortfolioGsc,
+  type PortfolioRow,
 } from "./PortfolioService";
 
 const SNAPSHOT_TTL_SECONDS = 6 * 60 * 60;
@@ -79,7 +82,8 @@ async function mapLimit<T, R>(
 
 function snapshotKey(organizationId: string) {
   // v3 adds complete provider inventory, authorization evidence and Bing.
-  return `fleet-dashboard:v3:${organizationId}`;
+  // v4 adds the provider issue summary shown above the dashboard.
+  return `fleet-dashboard:v4:${organizationId}`;
 }
 function queriesKey(projectId: string, siteUrl: string) {
   return `portfolio-gscq:v1:${projectId}:${siteUrl}`;
@@ -162,9 +166,20 @@ export type FleetInventoryRow = {
   }>;
 };
 
+/** One provider failure shared by many sites, for example an expired grant. */
+export type FleetProviderIssue = {
+  provider: "gsc" | "ga4" | "bing";
+  error: string;
+  sites: number;
+  /** A site with this failure, for the reconnect link. */
+  projectId: string;
+};
+
 export type FleetDashboard = {
   generatedAt: string;
   inventory: FleetInventoryRow[];
+  /** Up to three most common failures per provider, most sites first. */
+  providerIssues: FleetProviderIssue[];
   windows: ReturnType<typeof windows>;
   coverage: {
     projects: number;
@@ -601,9 +616,27 @@ async function fetchTopQueries(projectId: string): Promise<SiteQueries> {
  * including uncached Google authorization checks. Coverage fills progressively;
  * missing/stale evidence remains explicit. Top queries use the current reporting date.
  */
+// One warm at a time per isolate: the scheduler and site-table page views both
+// start warms, and two at once would double provider calls for the same keys.
+// A flag older than the warm deadline is treated as stale.
+let warmStartedAt = 0;
 export async function warmFleetCaches(
   organizationId: string,
   budget = WARM_BUDGET_DEFAULT,
+) {
+  if (warmStartedAt && Date.now() - warmStartedAt < WARM_MAX_MS + 20_000)
+    return { ran: 0, pending: 0, budgetUsed: 0, timedOut: false, skipped: true };
+  warmStartedAt = Date.now();
+  try {
+    return await warmFleetCachesOnce(organizationId, budget);
+  } finally {
+    warmStartedAt = 0;
+  }
+}
+
+async function warmFleetCachesOnce(
+  organizationId: string,
+  budget: number,
 ) {
   const deadline = Date.now() + WARM_MAX_MS;
   const limit = Math.max(0, Math.min(WARM_BUDGET_DEFAULT, Math.floor(budget)));
@@ -901,7 +934,30 @@ export async function warmFleetCaches(
     pending: Math.max(0, tasks.length - ran),
     budgetUsed: used,
     timedOut,
+    skipped: false,
   };
+}
+
+/** The most common failures per provider; one expired grant explains a fleet. */
+function providerIssues(inventory: FleetInventoryRow[]): FleetProviderIssue[] {
+  const out: FleetProviderIssue[] = [];
+  for (const provider of ["gsc", "ga4", "bing"] as const) {
+    const byError = new Map<string, { sites: number; projectId: string }>();
+    for (const row of inventory) {
+      const entry = row[provider];
+      if (entry.status !== "error" || !entry.error) continue;
+      const found = byError.get(entry.error);
+      if (found) found.sites++;
+      else byError.set(entry.error, { sites: 1, projectId: row.projectId });
+    }
+    out.push(
+      ...[...byError.entries()]
+        .sort((a, b) => b[1].sites - a[1].sites)
+        .slice(0, 3)
+        .map(([error, v]) => ({ provider, error, ...v })),
+    );
+  }
+  return out.sort((a, b) => b.sites - a.sites);
 }
 
 async function auditRollup(
@@ -1343,6 +1399,7 @@ export async function buildFleetDashboard(
   return {
     generatedAt: new Date().toISOString(),
     inventory,
+    providerIssues: providerIssues(inventory),
     windows: w,
     coverage: {
       projects: rows.length,
@@ -1383,6 +1440,7 @@ function isFreshDashboard(
   return (
     !!snapshot &&
     Array.isArray(snapshot.inventory) &&
+    Array.isArray(snapshot.providerIssues) &&
     ageMs(snapshot.generatedAt) >= 0 &&
     ageMs(snapshot.generatedAt) < SNAPSHOT_MAX_AGE_MS &&
     snapshot.windows?.curStart === w.curStart &&
@@ -1411,6 +1469,86 @@ export async function getFleetDashboard(
   const fresh = await buildFleetDashboard(organizationId);
   await setCached(snapshotKey(organizationId), fresh, SNAPSHOT_TTL_SECONDS);
   return fresh;
+}
+
+/**
+ * Site table rows, read from the fleet snapshot: one cache object instead of
+ * one cache read per site per provider (3,000+ on this fleet, which queued
+ * behind the local R2 emulation and stalled every other request). Audit
+ * summaries are a database read. Numbers lag the caches by up to one snapshot
+ * rebuild (30 minutes).
+ */
+export async function getPortfolioOverview(organizationId: string): Promise<{
+  rows: PortfolioRow[];
+  /** Provider connections with no usable snapshot entry yet (GSC plus GA4). */
+  pending: number;
+  pendingGsc: number;
+  pendingGa4: number;
+  generatedAt: string;
+}> {
+  const snapshot = await getFleetDashboard(organizationId);
+  const auditMap = await getAuditSummaries(
+    snapshot.inventory.map((r) => r.projectId),
+  );
+  const fetchedAt = (entry: { fetchedAt: string | null }) =>
+    entry.fetchedAt ?? snapshot.generatedAt;
+  let pendingGsc = 0;
+  let pendingGa4 = 0;
+  const rows = snapshot.inventory.map((r): PortfolioRow => {
+    let gsc: PortfolioGsc | null = null;
+    if (r.gsc.status === "available" && r.gsc.metrics)
+      gsc = { ...r.gsc.metrics, fetchedAt: fetchedAt(r.gsc) };
+    else if (r.gsc.status === "error")
+      gsc = {
+        clicks: 0,
+        impressions: 0,
+        position: null,
+        prevClicks: 0,
+        prevImpressions: 0,
+        prevPosition: null,
+        fetchedAt: fetchedAt(r.gsc),
+        error: r.gsc.error ?? "GSC error",
+      };
+    else if (r.gsc.status !== "unlinked") pendingGsc++;
+    let ga4: PortfolioGa4 | null = null;
+    if (r.ga4.status === "available" && r.ga4.metrics)
+      ga4 = {
+        sessions: r.ga4.metrics.sessions,
+        activeUsers: r.ga4.metrics.users,
+        prevSessions: r.ga4.metrics.prevSessions,
+        prevActiveUsers: r.ga4.metrics.prevUsers,
+        fetchedAt: fetchedAt(r.ga4),
+      };
+    else if (r.ga4.status === "error")
+      ga4 = {
+        sessions: 0,
+        activeUsers: 0,
+        prevSessions: 0,
+        prevActiveUsers: 0,
+        fetchedAt: fetchedAt(r.ga4),
+        error: r.ga4.error ?? "GA4 error",
+      };
+    else if (r.ga4.status !== "unlinked") pendingGa4++;
+    return {
+      projectId: r.projectId,
+      name: r.name,
+      domain: r.domain,
+      siteUrl: r.gsc.property,
+      gscEmail: r.gsc.email,
+      gsc,
+      ga4PropertyId: r.ga4.property,
+      ga4Email: r.ga4.email,
+      ga4,
+      audit: auditMap.get(r.projectId) ?? null,
+    };
+  });
+  return {
+    rows,
+    pending: pendingGsc + pendingGa4,
+    pendingGsc,
+    pendingGa4,
+    generatedAt: snapshot.generatedAt,
+  };
 }
 
 /**

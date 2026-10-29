@@ -7,8 +7,16 @@ vi.mock("@tanstack/react-router", () => ({
   Link: ({ children }: { children: React.ReactNode }) =>
     createElement("a", {}, children),
 }));
+// Rows are passed in, so the on-demand fetch never runs; the hook still needs
+// a stand-in outside a QueryClientProvider, and the server module must not load.
+vi.mock("@tanstack/react-query", () => ({
+  useQuery: () => ({ data: undefined, isError: false, isFetching: false }),
+}));
+vi.mock("@/serverFunctions/portfolio", () => ({ getFleetInventory: vi.fn() }));
 
-type Inventory = Parameters<typeof FleetProviderInventory>[0]["inventory"];
+type Inventory = NonNullable<
+  Parameters<typeof FleetProviderInventory>[0]["inventory"]
+>;
 const unlinked = {
   status: "unlinked",
   property: null,
@@ -36,7 +44,10 @@ describe("FleetProviderInventory", () => {
       site({ projectId: `site-${i}`, domain: `site-${i}.example` }),
     );
     const html = renderToStaticMarkup(
-      createElement(FleetProviderInventory, { inventory }),
+      createElement(FleetProviderInventory, {
+        total: inventory.length,
+        inventory,
+      }),
     );
     expect(html).toContain("1,628 active websites");
     expect(html).toContain("site-0.example");
@@ -48,6 +59,7 @@ describe("FleetProviderInventory", () => {
   it("distinguishes unavailable account evidence from real zero activity", () => {
     const html = renderToStaticMarkup(
       createElement(FleetProviderInventory, {
+        total: 1,
         inventory: [
           site({
             gsc: {

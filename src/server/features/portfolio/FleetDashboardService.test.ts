@@ -28,6 +28,7 @@ import { GSC_OAUTH_PROVIDER_ID } from "@/shared/gsc";
 import {
   buildFleetDashboard,
   getFleetDashboard,
+  getPortfolioOverview,
   warmFleetCaches,
 } from "./FleetDashboardService";
 import { cacheKey, ga4CacheKey } from "./PortfolioService";
@@ -381,6 +382,30 @@ describe("cache-only complete fleet inventory", () => {
   });
 });
 
+describe("site table from the snapshot", () => {
+  it("maps available and failed evidence to rows and counts the rest as pending, without provider calls", async () => {
+    await seed(3, { ga4: true });
+    await setCached(cacheKey(id(0), site(0)), gsc({ clicks: 7 }), 3600);
+    await setCached(ga4CacheKey(id(0), "1234"), ga4(), 3600);
+    await setCached(
+      cacheKey(id(1), site(1)),
+      gsc({ error: "revoked", clicks: 900 }),
+      3600,
+    );
+    const overview = await getPortfolioOverview(org);
+    expect(overview.rows.map((r) => r.gsc?.clicks ?? null)).toEqual([
+      7,
+      0,
+      null,
+    ]);
+    expect(overview.rows[1]!.gsc?.error).toBe("revoked");
+    expect(overview.rows[0]!.ga4).toMatchObject({ sessions: 0 });
+    expect(overview).toMatchObject({ pendingGsc: 1, pendingGa4: 2, pending: 3 });
+    expect(mocks.performance).not.toHaveBeenCalled();
+    expect(mocks.runReport).not.toHaveBeenCalled();
+  });
+});
+
 describe("Bing inventory", () => {
   it("preserves provider-confirmed zero but leaves empty snapshots and mixed date-window totals unknown", async () => {
     await seed(2, { bing: true, gsc: false });
@@ -408,7 +433,7 @@ describe("Bing inventory", () => {
   it("never exposes or refreshes a Bing binding in hosted mode even with cached provider data", async () => {
     await seed(1, { bing: true, gsc: false });
     mocks.bing.set(id(0), bing(0));
-    await getFleetDashboard(org); // Populate a permitted v3 dashboard first.
+    await getFleetDashboard(org); // Populate a permitted v4 dashboard first.
     mocks.settings.AUTH_MODE = "better_auth";
     const dashboard = await getFleetDashboard(org);
     expect(dashboard.inventory[0]!.bing).toMatchObject({
@@ -498,7 +523,7 @@ describe("bounded resumable warming", () => {
   });
 });
 
-it("ignores old snapshot versions and rebuilds a v3 snapshot past the 30-minute max-age without provider calls", async () => {
+it("ignores old snapshot versions and rebuilds a v4 snapshot past the 30-minute max-age without provider calls", async () => {
   await seed(1);
   await setCached(
     `fleet-dashboard:v2:${org}`,
@@ -517,7 +542,7 @@ it("ignores old snapshot versions and rebuilds a v3 snapshot past the 30-minute 
   expect(second.coverage.projects).toBe(2);
   expect(second.generatedAt).not.toBe(first.generatedAt);
   expect(mocks.performance).not.toHaveBeenCalled();
-  expect(await getCached(`fleet-dashboard:v3:${org}`)).toMatchObject({
+  expect(await getCached(`fleet-dashboard:v4:${org}`)).toMatchObject({
     generatedAt: second.generatedAt,
   });
 });

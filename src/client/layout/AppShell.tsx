@@ -79,10 +79,12 @@ export function AuthenticatedAppLayout({
   const shouldCheckSeoApiKeyStatus =
     location.pathname !== BILLING_ROUTE &&
     location.pathname !== dataforseoHelpLinkOptions.to;
+  // Always loaded once the session is known: the sidebar hides tools that
+  // need a DataForSEO key, on every page, not only where the banner applies.
   const seoApiKeyStatusQuery = useQuery({
     queryKey: ["seoApiKeyStatus"],
     queryFn: () => getSeoApiKeyStatus(),
-    enabled: ready && shouldCheckSeoApiKeyStatus,
+    enabled: ready,
   });
   const isSeoApiKeyConfigured = shouldCheckSeoApiKeyStatus
     ? (seoApiKeyStatusQuery.data?.configured ?? null)
@@ -125,6 +127,7 @@ export function AuthenticatedAppLayout({
         projectId={sidebarProjectId}
         projectPending={sidebarProjectPending}
         ready={ready}
+        dataforseoConfigured={seoApiKeyStatusQuery.data?.configured ?? null}
       />
       <SidebarInset className="min-h-0 overflow-hidden md:!m-0 md:!mt-2 md:!rounded-none md:!rounded-tl-lg md:border-l md:border-t md:border-sidebar-border md:!shadow-none">
         <MobileTopBar />

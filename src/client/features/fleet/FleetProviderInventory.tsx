@@ -1,12 +1,16 @@
 import * as React from "react";
 import { Link } from "@tanstack/react-router";
+import { useQuery } from "@tanstack/react-query";
 import { Globe } from "lucide-react";
 import { CardShell } from "@/client/components/CardShell";
+import { Button } from "@/client/components/ui/button";
 import { Input } from "@/client/components/ui/input";
+import { Skeleton } from "@/client/components/ui/skeleton";
+import { QueryError } from "@/client/components/QueryState";
 import { TablePagination } from "@/client/components/table/TablePagination";
-import type { getFleetDashboard } from "@/serverFunctions/portfolio";
+import { getFleetInventory } from "@/serverFunctions/portfolio";
 
-type Inventory = Awaited<ReturnType<typeof getFleetDashboard>>["inventory"];
+type Inventory = Awaited<ReturnType<typeof getFleetInventory>>["inventory"];
 type Provider = "gsc" | "ga4" | "bing";
 type Entry = Inventory[number][Provider];
 const providers = ["gsc", "ga4", "bing"] as const;
@@ -100,11 +104,71 @@ function ProviderCell({
   );
 }
 
+/**
+ * The per-site provider table is a few megabytes for a large fleet, so it is
+ * fetched only when opened; the dashboard above stays light.
+ */
 export function FleetProviderInventory({
+  total,
   inventory,
 }: {
-  inventory: Inventory;
+  total: number;
+  /** Rows already in hand skip the fetch (exports, tests). */
+  inventory?: Inventory;
 }) {
+  const [open, setOpen] = React.useState(false);
+  const query = useQuery({
+    queryKey: ["fleetInventory"],
+    queryFn: () => getFleetInventory(),
+    enabled: open && !inventory,
+    staleTime: 5 * 60 * 1000,
+  });
+  if (inventory) return <InventoryTable inventory={inventory} />;
+  if (!open)
+    return (
+      <CardShell
+        title="All websites & provider accounts"
+        icon={<Globe className="size-4" />}
+      >
+        <p className="mb-3 text-sm text-muted-foreground">
+          Every active website with the state of its Search Console, GA4 and
+          Bing connection: available, failing, awaiting data or not linked.
+        </p>
+        <Button variant="outline" onClick={() => setOpen(true)}>
+          Show {nf.format(total)} websites
+        </Button>
+      </CardShell>
+    );
+  if (query.isError)
+    return (
+      <CardShell
+        title="All websites & provider accounts"
+        icon={<Globe className="size-4" />}
+      >
+        <QueryError
+          error={query.error}
+          fallback="Failed to load the website list"
+          onRetry={() => void query.refetch()}
+          isRetrying={query.isFetching}
+        />
+      </CardShell>
+    );
+  if (!query.data)
+    return (
+      <CardShell
+        title="All websites & provider accounts"
+        icon={<Globe className="size-4" />}
+      >
+        <div aria-busy className="space-y-3">
+          <Skeleton className="h-24" />
+          <Skeleton className="h-64" />
+        </div>
+      </CardShell>
+    );
+  return <InventoryTable inventory={query.data.inventory} />;
+}
+
+function InventoryTable({ inventory }: { inventory: Inventory }) {
   const [search, setSearch] = React.useState("");
   const [provider, setProvider] = React.useState<Provider | "all">("all");
   const [status, setStatus] = React.useState<Entry["status"] | "all">("all");

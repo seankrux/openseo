@@ -15,6 +15,16 @@ import { getOptionalEnvValue } from "@/server/lib/runtime-env";
 const CHUNK_PER_TICK = 40;
 const CONCURRENCY = 3;
 const TIMEOUT_MS = 10_000;
+/** A transient failure is confirmed once, with more patience, before it is recorded. */
+const CONFIRM_TIMEOUT_MS = 20_000;
+
+/** A slow or aborted answer; one of these alone is not evidence of an outage. */
+function isTransientFailure(result: DomainHealthResult): boolean {
+  return (
+    result.class === "timeout" ||
+    (result.class === "dns_fail" && /timeout|timed out|aborted/i.test(result.error ?? ""))
+  );
+}
 
 /**
  * Intended cross-domain redirects (Sean: atlanticbeachfoundationrepair.com is
@@ -148,10 +158,19 @@ export async function checkAndRecord(
       while (cursor < items.length) {
         const item = items[cursor++]!;
         try {
-          const result = applyRedirectAllowlist(
+          let result = applyRedirectAllowlist(
             await checkDomainHealth(item.domain, { timeoutMs: TIMEOUT_MS, maxBodyBytes: 150_000 }),
             allow,
           );
+          // Checker timeouts used to flip healthy sites to "down" and back on
+          // the next pass, burying real outages in noise. Confirm first.
+          if (isTransientFailure(result)) {
+            const again = applyRedirectAllowlist(
+              await checkDomainHealth(item.domain, { timeoutMs: CONFIRM_TIMEOUT_MS, maxBodyBytes: 150_000 }),
+              allow,
+            );
+            if (!isTransientFailure(again)) result = again;
+          }
           const c = await DomainHealthRepository.recordCheck({
             organizationId,
             projectId: item.projectId,

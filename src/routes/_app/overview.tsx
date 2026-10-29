@@ -225,10 +225,13 @@ function OverviewPage() {
   const search = Route.useSearch();
   const navigate = useNavigate({ from: Route.fullPath });
   const queryClient = useQueryClient();
+  // Rows come from the fleet snapshot, rebuilt by the scheduler every 30
+  // minutes, so polling faster than that cannot show anything new.
   const query = useQuery({
     queryKey: ["portfolioOverview"],
     queryFn: () => getPortfolioOverview(),
-    refetchInterval: (q) => ((q.state.data?.pending ?? 0) > 0 ? 1500 : false),
+    refetchInterval: (q) =>
+      (q.state.data?.pending ?? 0) > 0 ? 5 * 60_000 : false,
     staleTime: 5 * 60_000,
   });
   const refresh = useMutation({
@@ -296,12 +299,16 @@ function OverviewPage() {
       prevImpressions = 0;
     let sessions = 0,
       prevSessions = 0;
+    let gscSites = 0,
+      ga4Sites = 0;
     for (const r of rows) {
       if (r.ga4 && !r.ga4.error) {
+        ga4Sites++;
         sessions += r.ga4.sessions;
         prevSessions += r.ga4.prevSessions;
       }
       if (!r.gsc || r.gsc.error) continue;
+      gscSites++;
       clicks += r.gsc.clicks;
       prevClicks += r.gsc.prevClicks;
       impressions += r.gsc.impressions;
@@ -314,8 +321,54 @@ function OverviewPage() {
       prevImpressions,
       sessions,
       prevSessions,
+      gscSites,
+      ga4Sites,
     };
   }, [rows]);
+
+  // One failed Google grant shows up as the same error on every site. Name it
+  // once, with the way to fix it, instead of 1,600 "GA4 error" cells.
+  const providerIssues = React.useMemo(() => {
+    const all = query.data?.rows ?? [];
+    const out: Array<{
+      provider: "Search Console" | "GA4";
+      error: string;
+      sites: number;
+      projectId: string;
+    }> = [];
+    for (const [provider, pick] of [
+      ["Search Console", (r: Row) => r.gsc?.error],
+      ["GA4", (r: Row) => r.ga4?.error],
+    ] as const) {
+      const byError = new Map<string, { sites: number; projectId: string }>();
+      for (const r of all) {
+        const error = pick(r);
+        if (!error) continue;
+        const found = byError.get(error);
+        if (found) found.sites++;
+        else byError.set(error, { sites: 1, projectId: r.projectId });
+      }
+      for (const [error, v] of byError)
+        if (v.sites >= 5) out.push({ provider, error, ...v });
+    }
+    return out.sort((a, b) => b.sites - a.sites);
+  }, [query.data]);
+
+  // While a provider is failing fleet-wide, its empty cells are not loading.
+  const blocked = {
+    gsc: providerIssues.some((i) => i.provider === "Search Console"),
+    ga4: providerIssues.some((i) => i.provider === "GA4"),
+  };
+
+  // The login beside each check mark only earns its space when the fleet uses
+  // more than one account for that provider.
+  const accounts = React.useMemo(() => {
+    const all = query.data?.rows ?? [];
+    return {
+      gsc: new Set(all.map((r) => r.gscEmail).filter(Boolean)).size > 1,
+      ga4: new Set(all.map((r) => r.ga4Email).filter(Boolean)).size > 1,
+    };
+  }, [query.data]);
 
   const header = (key: SortKey, label: string) => (
     <th
@@ -361,7 +414,14 @@ function OverviewPage() {
               <Button
                 variant="outline"
                 disabled={refresh.isPending}
-                onClick={() => refresh.mutate()}
+                onClick={() => {
+                  if (
+                    window.confirm(
+                      `Clear the cached Search Console and GA4 numbers for ${(data?.rows.length ?? 0).toLocaleString()} sites? They refill in the background, about 90 sites every 10 minutes, and this table shows them on its next rebuild. The full fleet takes a few hours.`,
+                    )
+                  )
+                    refresh.mutate();
+                }}
               >
                 {refresh.isPending ? "Clearing…" : "Refresh GSC/GA4 data"}
               </Button>
@@ -390,6 +450,39 @@ function OverviewPage() {
           </p>
         ) : (
           <>
+            {providerIssues.length > 0 ? (
+              <div
+                role="alert"
+                className="space-y-2 rounded-lg border border-destructive/30 bg-destructive/5 px-4 py-3 text-sm"
+              >
+                {providerIssues.map((issue) => (
+                  <div
+                    key={`${issue.provider}:${issue.error}`}
+                    className="flex flex-wrap items-center gap-x-3 gap-y-1"
+                  >
+                    <AlertTriangle
+                      className="size-4 shrink-0 text-destructive"
+                      aria-hidden
+                    />
+                    <span>
+                      <strong>{issue.provider}</strong> data is unavailable for{" "}
+                      {issue.sites.toLocaleString()} sites: {issue.error}
+                    </span>
+                    <Link
+                      to="/p/$projectId/settings/integrations"
+                      params={{ projectId: issue.projectId }}
+                      className="font-medium text-primary underline underline-offset-4"
+                    >
+                      Reconnect {issue.provider}
+                    </Link>
+                  </div>
+                ))}
+                <p className="text-xs text-muted-foreground">
+                  Reconnecting the Google account once fixes every site that
+                  uses it. Numbers refill in the background afterwards.
+                </p>
+              </div>
+            ) : null}
             {(counts.critical ?? 0) > 0 && coverage !== "critical" ? (
               <div
                 role="status"
@@ -445,6 +538,18 @@ function OverviewPage() {
                 Export all ({data.rows.length.toLocaleString()})
               </Button>
               <span role="status">{rows.length.toLocaleString()} sites</span>
+              <span
+                className="text-muted-foreground"
+                title="Rows come from the fleet snapshot, rebuilt every 30 minutes."
+              >
+                Updated{" "}
+                {new Date(data.generatedAt).toLocaleString(undefined, {
+                  month: "short",
+                  day: "numeric",
+                  hour: "numeric",
+                  minute: "2-digit",
+                })}
+              </span>
               <span>
                 Clicks {totals.clicks.toLocaleString()} (
                 <Delta v={pct(totals.clicks, totals.prevClicks)} suffix="%" />)
@@ -457,20 +562,40 @@ function OverviewPage() {
                 />
                 )
               </span>
-              <span>
-                GA4 sessions {totals.sessions.toLocaleString()} (
-                <Delta
-                  v={pct(totals.sessions, totals.prevSessions)}
-                  suffix="%"
-                />
-                )
-              </span>
+              {totals.ga4Sites > 0 ? (
+                <span>
+                  GA4 sessions {totals.sessions.toLocaleString()} (
+                  <Delta
+                    v={pct(totals.sessions, totals.prevSessions)}
+                    suffix="%"
+                  />
+                  )
+                </span>
+              ) : (
+                <span className="text-muted-foreground">
+                  GA4 sessions unavailable
+                </span>
+              )}
               {data.pending > 0 ? (
                 <span
                   role="status"
                   className="text-amber-800 dark:text-amber-300"
                 >
-                  Fetching GSC/GA4… {data.pending.toLocaleString()} sites left
+                  {[
+                    data.pendingGsc > 0
+                      ? providerIssues.some((i) => i.provider === "Search Console")
+                        ? `Search Console for ${data.pendingGsc.toLocaleString()} sites is blocked until it is reconnected`
+                        : `Search Console for ${data.pendingGsc.toLocaleString()} sites is still being collected`
+                      : null,
+                    data.pendingGa4 > 0
+                      ? providerIssues.some((i) => i.provider === "GA4")
+                        ? `GA4 for ${data.pendingGa4.toLocaleString()} sites is blocked until it is reconnected`
+                        : `GA4 for ${data.pendingGa4.toLocaleString()} sites is still being collected`
+                      : null,
+                  ]
+                    .filter(Boolean)
+                    .join("; ")}
+                  . This table refreshes with each snapshot.
                 </span>
               ) : null}
             </div>
@@ -566,7 +691,7 @@ function OverviewPage() {
                                 ? "GSC connected"
                                 : "GSC not connected"}
                             </span>
-                            {r.gscEmail ? (
+                            {r.gscEmail && accounts.gsc ? (
                               <span className="ml-1 text-xs text-muted-foreground">
                                 {login(r.gscEmail)}
                               </span>
@@ -595,7 +720,7 @@ function OverviewPage() {
                                 ? "GA4 connected"
                                 : "GA4 not connected"}
                             </span>
-                            {r.ga4Email ? (
+                            {r.ga4Email && accounts.ga4 ? (
                               <span className="ml-1 text-xs text-muted-foreground">
                                 {login(r.ga4Email)}
                               </span>
@@ -621,7 +746,7 @@ function OverviewPage() {
                               colSpan={6}
                               className="px-2 text-muted-foreground"
                             >
-                              Pending…
+                              {blocked.gsc ? "Unavailable" : "Loading…"}
                             </td>
                           ) : g.error ? (
                             <td
@@ -673,7 +798,7 @@ function OverviewPage() {
                               colSpan={3}
                               className="px-2 text-muted-foreground"
                             >
-                              Pending…
+                              {blocked.ga4 ? "Unavailable" : "Loading…"}
                             </td>
                           ) : r.ga4.error ? (
                             <td

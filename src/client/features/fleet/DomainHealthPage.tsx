@@ -28,6 +28,34 @@ export const HEALTH_LABELS: Record<string, string> = {
 
 const OK = new Set(["live_ok", "redirect_intended"]);
 
+const CHANGE_LABELS: Record<string, string> = {
+  went_down: "went down",
+  came_back: "came back",
+  class_changed: "status changed",
+  ssl_expiring_soon: "SSL certificate expiring soon",
+  ga4_tag_removed: "GA4 tag removed",
+  gtm_tag_removed: "GTM tag removed",
+};
+
+type Change = { domain: string; kind: string; detectedAt: string };
+
+/**
+ * A site going down or coming back is also recorded as a status change; the
+ * list shows the event once, keeping the plain status change only when it is
+ * the whole story (for example a redirect that became an SSL error).
+ */
+function dedupeChanges<T extends Change>(changes: T[]): T[] {
+  const covered = new Set(
+    changes
+      .filter((c) => c.kind === "went_down" || c.kind === "came_back")
+      .map((c) => `${c.domain}@${c.detectedAt}`),
+  );
+  return changes.filter(
+    (c) =>
+      c.kind !== "class_changed" || !covered.has(`${c.domain}@${c.detectedAt}`),
+  );
+}
+
 function when(iso: string | null) {
   if (!iso) return "never";
   const t = Date.parse(iso);
@@ -245,7 +273,7 @@ export function DomainHealthPage() {
               <div>
                 <h2 className="mb-2 text-sm font-semibold">Recent changes</h2>
                 <ul className="divide-y divide-border rounded-md border border-border text-sm">
-                  {d.changes.slice(0, 30).map((c, i) => (
+                  {dedupeChanges(d.changes).slice(0, 30).map((c, i) => (
                     <li
                       key={i}
                       className="flex flex-col gap-1 px-3 py-1.5 sm:flex-row sm:justify-between sm:gap-3"
@@ -253,7 +281,7 @@ export function DomainHealthPage() {
                       <span className="min-w-0 break-words">
                         <span className="font-medium">{c.domain}</span>{" "}
                         <span className="text-muted-foreground">
-                          {c.kind.replace(/_/g, " ")}
+                          {CHANGE_LABELS[c.kind] ?? c.kind.replace(/_/g, " ")}
                           {c.fromClass || c.toClass
                             ? `: ${HEALTH_LABELS[c.fromClass ?? ""] ?? c.fromClass ?? "new"} to ${HEALTH_LABELS[c.toClass ?? ""] ?? c.toClass}`
                             : ""}

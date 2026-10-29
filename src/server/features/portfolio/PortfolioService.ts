@@ -1,18 +1,16 @@
-// CityThrive fork: cross-project overview. GSC totals are cached per project
-// in the R2 cache (12h TTL) and filled progressively, a bounded batch per
-// request, so the GSC API is never hit for all sites at once. GA4 sessions
-// (all channels, last 28 days) are cached and filled the same way.
-import { and, eq, inArray, isNull, sql } from "drizzle-orm";
+// CityThrive fork: per-project Search Console and GA4 fetchers and the audit
+// summary query behind the fleet pages. Results are cached per project in the
+// R2 cache (12h TTL); FleetDashboardService warms them on a budget and serves
+// the site table and dashboard from one assembled snapshot.
+import { eq, inArray, sql } from "drizzle-orm";
 import { db } from "@/db";
 import {
-  projects,
   gscConnections,
   ga4Connections,
   audits,
   auditIssues,
   auditLighthouseResults,
 } from "@/db/schema";
-import { getCached, setCached } from "@/server/lib/r2-cache";
 import { GscService } from "@/server/features/gsc/services/GscService";
 import { createGa4DataClient } from "@/server/lib/ga4Client";
 import { ga4CacheKey } from "./PortfolioCacheKeys";
@@ -20,8 +18,6 @@ import { ga4CacheKey } from "./PortfolioCacheKeys";
 export { ga4CacheKey } from "./PortfolioCacheKeys";
 
 export const TTL_SECONDS = 12 * 60 * 60;
-const BATCH_PER_REQUEST = 40;
-const CONCURRENCY = 4;
 
 export type PortfolioGsc = {
   clicks: number;
@@ -275,109 +271,6 @@ export async function getAuditSummaries(projectIds: string[]) {
   return out;
 }
 
-async function getOverview(input: {
-  organizationId: string;
-  refresh?: boolean;
-}): Promise<{ rows: PortfolioRow[]; pending: number; generatedAt: string }> {
-  const rows = await db
-    .select({
-      projectId: projects.id,
-      name: projects.name,
-      domain: projects.domain,
-      siteUrl: gscConnections.siteUrl,
-      gscEmail: gscConnections.connectedAccountEmail,
-      ga4Email: ga4Connections.connectedAccountEmail,
-      ga4PropertyId: ga4Connections.propertyId,
-      ga4UserId: ga4Connections.connectedByUserId,
-      ga4AccountId: ga4Connections.ga4AccountId,
-    })
-    .from(projects)
-    .leftJoin(gscConnections, eq(gscConnections.projectId, projects.id))
-    .leftJoin(ga4Connections, eq(ga4Connections.projectId, projects.id))
-    .where(
-      and(
-        eq(projects.organizationId, input.organizationId),
-        isNull(projects.archivedAt),
-      ),
-    );
-
-  const [cached, cachedGa4] = await Promise.all([
-    Promise.all(
-      rows.map(async (r) =>
-        r.siteUrl
-          ? ((await getCached(cacheKey(r.projectId, r.siteUrl))) as PortfolioGsc | null)
-          : null,
-      ),
-    ),
-    Promise.all(
-      rows.map(async (r) =>
-        r.ga4PropertyId
-          ? ((await getCached(
-              ga4CacheKey(r.projectId, r.ga4PropertyId),
-            )) as PortfolioGa4 | null)
-          : null,
-      ),
-    ),
-  ]);
-  type Task = { kind: "gsc" | "ga4"; i: number };
-  const missing: Task[] = [];
-  rows.forEach((r, i) => {
-    if (r.siteUrl && !cached[i]) missing.push({ kind: "gsc", i });
-    if (r.ga4PropertyId && !cachedGa4[i]) missing.push({ kind: "ga4", i });
-  });
-  const batch = missing.slice(0, BATCH_PER_REQUEST);
-  let cursor = 0;
-  await Promise.all(
-    Array.from({ length: CONCURRENCY }, async () => {
-      while (cursor < batch.length) {
-        const { kind, i } = batch[cursor++]!;
-        const r = rows[i]!;
-        if (kind === "gsc") {
-          const value = await fetchGsc(r.projectId);
-          cached[i] = value;
-          // Errors get a short TTL so they are retried soon.
-          await setCached(
-            cacheKey(r.projectId, r.siteUrl!),
-            value,
-            value.error ? 30 * 60 : TTL_SECONDS,
-          );
-        } else {
-          const value = await fetchGa4({
-            projectId: r.projectId,
-            propertyId: r.ga4PropertyId!,
-            userId: r.ga4UserId!,
-            ga4AccountId: r.ga4AccountId!,
-          });
-          cachedGa4[i] = value;
-          await setCached(
-            ga4CacheKey(r.projectId, r.ga4PropertyId!),
-            value,
-            value.error ? 30 * 60 : TTL_SECONDS,
-          );
-        }
-      }
-    }),
-  );
-
-  const auditMap = await getAuditSummaries(rows.map((r) => r.projectId));
-  return {
-    rows: rows.map((r, i) => ({
-      projectId: r.projectId,
-      name: r.name,
-      domain: r.domain,
-      siteUrl: r.siteUrl,
-      gscEmail: r.gscEmail ?? null,
-      gsc: cached[i] ?? null,
-      ga4PropertyId: r.ga4PropertyId,
-      ga4Email: r.ga4Email ?? null,
-      ga4: cachedGa4[i] ?? null,
-      audit: auditMap.get(r.projectId) ?? null,
-    })),
-    pending: missing.length - batch.length,
-    generatedAt: new Date().toISOString(),
-  };
-}
-
 async function clearCache(organizationId: string) {
   const rows = await db
     .select({ projectId: gscConnections.projectId, siteUrl: gscConnections.siteUrl })
@@ -399,4 +292,4 @@ async function clearCache(organizationId: string) {
   }
 }
 
-export const PortfolioService = { getOverview, clearCache };
+export const PortfolioService = { clearCache };

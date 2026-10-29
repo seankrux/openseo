@@ -133,6 +133,12 @@ const issuesConfig = {
   count: { label: "Issues", color: "var(--color-primary)" },
 } satisfies ChartConfig;
 
+const PROVIDER_LABELS = {
+  gsc: "Search Console",
+  ga4: "GA4",
+  bing: "Bing Webmaster",
+} as const;
+
 const HEALTH_LABELS: Record<string, string> = {
   live_ok: "Live",
   redirect_intended: "Intended redirect",
@@ -584,6 +590,42 @@ function FleetBody({ d }: { d: Fleet }) {
           fleet.
         </p>
       </div>
+      {d.providerIssues.length > 0 ? (
+        <div
+          role="alert"
+          className="space-y-2 rounded-lg border border-destructive/30 bg-destructive/5 p-4 text-sm"
+        >
+          {d.providerIssues.map((issue) => (
+            <div
+              key={`${issue.provider}:${issue.error}`}
+              className="flex flex-wrap items-center gap-x-3 gap-y-1"
+            >
+              <AlertTriangle
+                className="size-4 shrink-0 text-destructive"
+                aria-hidden
+              />
+              <span>
+                <strong>{PROVIDER_LABELS[issue.provider]}</strong> data is
+                unavailable for {fmt(issue.sites)} sites: {issue.error}
+              </span>
+              {issue.provider === "bing" ? null : (
+                <Link
+                  to="/p/$projectId/settings/integrations"
+                  params={{ projectId: issue.projectId }}
+                  className="font-medium text-primary underline underline-offset-4"
+                >
+                  Reconnect {PROVIDER_LABELS[issue.provider]}
+                </Link>
+              )}
+            </div>
+          ))}
+          <p className="text-xs text-muted-foreground">
+            Reconnecting a Google account once fixes every site that uses it.
+            The dashboard picks the numbers up on its next rebuild.
+          </p>
+        </div>
+      ) : null}
+
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
         <Kpi
           label="GSC clicks"
@@ -816,7 +858,7 @@ function FleetBody({ d }: { d: Fleet }) {
         ))}
       </CardShell>
 
-      <FleetProviderInventory inventory={d.inventory} />
+      <FleetProviderInventory total={d.coverage.projects} />
 
       <div className="grid gap-5 lg:grid-cols-3">
         <CardShell

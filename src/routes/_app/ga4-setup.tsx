@@ -31,6 +31,21 @@ export const Route = createFileRoute("/_app/ga4-setup")({
 });
 
 type Step = { step: string; status: string; detail?: string };
+/** Human labels for the stored setup states (the raw values are enum-like). */
+const STATUS_LABELS: Record<string, string> = {
+  pending: "Not started",
+  preview: "Previewed",
+  created: "Property created",
+  tagged: "Tag installed, not yet live",
+  live: "Tag live",
+  linked: "Linked",
+  blocked: "Blocked",
+  waiting: "Waiting for reconnect",
+  error: "Error",
+};
+const statusLabel = (status: string) => STATUS_LABELS[status] ?? status;
+/** States that need a person: a failed, blocked or waiting setup attempt. */
+const ATTENTION = new Set(["error", "blocked", "waiting"]);
 type Result = {
   domain: string;
   final: string;
@@ -50,6 +65,10 @@ function Ga4SetupPage() {
   const [results, setResults] = useState<Result[]>([]);
   const [filter, setFilter] = useState("");
   const [page, setPage] = useState(1);
+  // "missing": sites with no GA4 property link yet. "attention": sites whose
+  // last setup attempt failed, was blocked or is waiting, which used to be
+  // visible only as a count.
+  const [view, setView] = useState<"missing" | "attention">("missing");
   const tableRegion = useRef<HTMLDivElement>(null);
   const site = useMutation({
     mutationFn: (v: { projectId: string; apply: boolean }) =>
@@ -82,9 +101,12 @@ function Ga4SetupPage() {
   const scopeMissing = (data?.missing ?? []).filter(
     (entry) => !projectId || entry.projectId === projectId,
   );
+  const scopeAttention = states
+    .filter((state) => ATTENTION.has(state.status))
+    .map((state) => ({ projectId: state.projectId, domain: state.domain }));
   const needle = filter.trim().toLowerCase();
-  const missing = scopeMissing.filter((entry) =>
-    entry.domain.toLowerCase().includes(needle),
+  const missing = (view === "missing" ? scopeMissing : scopeAttention).filter(
+    (entry) => entry.domain.toLowerCase().includes(needle),
   );
   const currentPage = Math.min(
     page,
@@ -148,14 +170,52 @@ function Ga4SetupPage() {
               shows only sites still missing a GA4 property link.
             </p>
             <div className="flex flex-wrap gap-2">
-              {Object.entries(counts).map(([status, count]) => (
-                <span key={status} className="rounded bg-muted px-2 py-1">
-                  {status}: {count.toLocaleString()}
-                </span>
-              ))}
+              {Object.entries(counts)
+                .sort((a, b) => b[1] - a[1])
+                .map(([status, count]) => (
+                  <span
+                    key={status}
+                    className={
+                      "rounded px-2 py-1 " +
+                      (ATTENTION.has(status)
+                        ? "bg-destructive/10 text-destructive"
+                        : "bg-muted")
+                    }
+                  >
+                    {statusLabel(status)}: {count.toLocaleString()}
+                  </span>
+                ))}
             </div>
           </section>
         ) : null}
+        <div
+          role="group"
+          aria-label="Which sites to list"
+          className="flex flex-wrap gap-2 text-sm"
+        >
+          <Button
+            size="sm"
+            variant={view === "missing" ? "default" : "outline"}
+            aria-pressed={view === "missing"}
+            onClick={() => {
+              setView("missing");
+              setPage(1);
+            }}
+          >
+            Missing a GA4 link ({scopeMissing.length.toLocaleString()})
+          </Button>
+          <Button
+            size="sm"
+            variant={view === "attention" ? "default" : "outline"}
+            aria-pressed={view === "attention"}
+            onClick={() => {
+              setView("attention");
+              setPage(1);
+            }}
+          >
+            Setup needs attention ({scopeAttention.length.toLocaleString()})
+          </Button>
+        </div>
         {error ? (
           <p role="alert" className="break-words text-sm text-destructive">
             {getStandardErrorMessage(error)}
@@ -173,7 +233,7 @@ function Ga4SetupPage() {
               : results.length > 0
                 ? `Setup finished for ${results.length.toLocaleString()} ${results.length === 1 ? "site" : "sites"}. Review the results below.`
                 : data
-                  ? `${missing.length.toLocaleString()} ${missing.length === 1 ? "site" : "sites"}${needle ? " match this filter" : " missing a GA4 link"}.`
+                  ? `${missing.length.toLocaleString()} ${missing.length === 1 ? "site" : "sites"}${needle ? " match this filter" : view === "missing" ? " missing a GA4 link" : " with a failed, blocked or waiting setup"}.`
                   : ""}
         </p>
         {!projectId ? (
@@ -209,9 +269,7 @@ function Ga4SetupPage() {
           </section>
         ) : null}
         <div className="max-w-md space-y-2">
-          <Label htmlFor="ga4-domain-filter">
-            Filter missing sites by domain
-          </Label>
+          <Label htmlFor="ga4-domain-filter">Filter sites by domain</Label>
           <Input
             id="ga4-domain-filter"
             type="search"
@@ -229,7 +287,9 @@ function Ga4SetupPage() {
           className="min-w-0 space-y-3"
         >
           <h2 id="ga4-missing-heading" className="text-lg font-semibold">
-            Sites missing a GA4 link
+            {view === "missing"
+              ? "Sites missing a GA4 link"
+              : "Sites whose setup needs attention"}
           </h2>
           {visibleRows.length > 0 ? (
             <p className="text-sm text-muted-foreground">
@@ -243,10 +303,12 @@ function Ga4SetupPage() {
                 {q.isError && !data
                   ? "Unable to load sites. Please try again."
                   : needle
-                    ? "No missing sites match this domain filter."
-                    : projectId
-                      ? "This project has no missing GA4 link."
-                      : "Every project with a domain has a GA4 link."}
+                    ? "No sites match this domain filter."
+                    : view === "attention"
+                      ? "No setup attempt needs attention."
+                      : projectId
+                        ? "This project has no missing GA4 link."
+                        : "Every project with a domain has a GA4 link."}
               </p>
             ) : (
               <div
@@ -261,8 +323,9 @@ function Ga4SetupPage() {
                   className="w-full min-w-[56rem] text-sm"
                 >
                   <TableCaption className="sr-only">
-                    Missing GA4 links, with the latest setup attempt and
-                    per-site actions.
+                    {view === "missing"
+                      ? "Missing GA4 links, with the latest setup attempt and per-site actions."
+                      : "Sites whose last GA4 setup attempt failed, was blocked or is waiting, with per-site actions."}
                   </TableCaption>
                   <TableHeader>
                     <TableRow>
@@ -282,7 +345,7 @@ function Ga4SetupPage() {
                             {entry.domain}
                           </TableCell>
                           <TableCell>
-                            {state?.status ?? "Not attempted"}
+                            {state ? statusLabel(state.status) : "Not attempted"}
                           </TableCell>
                           <TableCell className="whitespace-nowrap">
                             {state?.measurementId ?? "—"}
@@ -336,10 +399,12 @@ function Ga4SetupPage() {
                             : q.isError && !data
                               ? "Unable to load sites. Please try again."
                               : needle
-                                ? "No missing sites match this domain filter."
-                                : projectId
-                                  ? "This project has no missing GA4 link."
-                                  : "Every project with a domain has a GA4 link."}
+                                ? "No sites match this domain filter."
+                                : view === "attention"
+                                  ? "No setup attempt needs attention."
+                                  : projectId
+                                    ? "This project has no missing GA4 link."
+                                    : "Every project with a domain has a GA4 link."}
                         </TableCell>
                       </TableRow>
                     ) : null}

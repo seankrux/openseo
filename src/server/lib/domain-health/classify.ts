@@ -16,7 +16,13 @@ export function classifyDomainHealth(input: {
   const { dns, https } = input;
 
   if (!dns.ok) {
-    return { class: "dns_fail", parked: false, defaultHostPage: false };
+    return {
+      class: /timeout|timed out|aborted/i.test(dns.error ?? "")
+        ? "timeout"
+        : "dns_fail",
+      parked: false,
+      defaultHostPage: false,
+    };
   }
 
   if (https.timedOut) {

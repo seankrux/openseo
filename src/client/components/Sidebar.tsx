@@ -117,12 +117,15 @@ export function Sidebar({
   projectId,
   projectPending,
   ready,
+  dataforseoConfigured = null,
 }: {
   projectId: string | null;
   /** No project is known yet, but the projects list may still name one. */
   projectPending: boolean;
   /** The session is confirmed, so the sidebar's own data can load. */
   ready: boolean;
+  /** `false` hides the tools that need a DataForSEO key; `null` is unknown. */
+  dataforseoConfigured?: boolean | null;
 }) {
   // Until a project is known, show the project nav as rows without links, so
   // the sidebar has its full shape from the first paint instead of growing
@@ -133,7 +136,7 @@ export function Sidebar({
   // pinned All sites group is additive, not a reason to hide project tools.
   const projectGroups =
     projectId !== null || navPlaceholder
-      ? getProjectNavGroups(projectId ?? "")
+      ? getProjectNavGroups(projectId ?? "", { dataforseoConfigured })
       : [connectNavGroup];
   // CityThrive fork: the fleet group is pinned first and never a placeholder.
   const navGroups = [

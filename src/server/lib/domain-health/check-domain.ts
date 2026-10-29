@@ -43,7 +43,11 @@ export async function checkDomainHealth(
   if (!dns.ok) {
     return {
       domain,
-      class: "dns_fail",
+      // A resolver that did not answer in time is a slow check, not a missing
+      // record; only a definite lookup failure is a DNS failure.
+      class: /timeout|timed out|aborted/i.test(dns.error ?? "")
+        ? "timeout"
+        : "dns_fail",
       httpStatus: null,
       finalUrl: null,
       redirectHops: 0,
