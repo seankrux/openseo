@@ -328,9 +328,11 @@ describe("cache-only complete fleet inventory", () => {
       "missing",
     ]);
     expect(dashboard.inventory[0]!.gsc.metrics?.clicks).toBe(0);
+    // Stale evidence keeps its earlier numbers for display only: the 900
+    // clicks must not reach the totals below.
     expect(dashboard.inventory[1]!.gsc).toMatchObject({
       fetchedAt: "2026-10-26T23:00:00Z",
-      metrics: null,
+      metrics: { clicks: 900 },
     });
     expect(dashboard.gsc).toMatchObject({ sites: 1, clicks: 0, errors: 2 });
     expect(dashboard.ga4).toMatchObject({
@@ -403,6 +405,62 @@ describe("site table from the snapshot", () => {
     expect(overview).toMatchObject({ pendingGsc: 1, pendingGa4: 2, pending: 3 });
     expect(mocks.performance).not.toHaveBeenCalled();
     expect(mocks.runReport).not.toHaveBeenCalled();
+  });
+
+  it("keeps showing earlier numbers and failures while expired entries refresh", async () => {
+    await seed(3, { ga4: true });
+    const hoursAgo = (h: number) =>
+      new Date(Date.now() - h * 3600_000).toISOString();
+    // Past the 12-hour lifetime: shown, marked as refreshing, not in totals.
+    await setCached(
+      cacheKey(id(0), site(0)),
+      gsc({ clicks: 7, fetchedAt: hoursAgo(13) }),
+      3600,
+    );
+    // A failure due for retry is still the last thing Google said.
+    await setCached(
+      ga4CacheKey(id(1), "1234"),
+      ga4({
+        error: "Could not mint a Google Analytics access token.",
+        fetchedAt: hoursAgo(2),
+      }),
+      3600,
+    );
+
+    const overview = await getPortfolioOverview(org);
+
+    expect(overview.rows[0]!.gsc).toMatchObject({ clicks: 7, stale: true });
+    expect(overview.rows[1]!.ga4?.error).toBe(
+      "Could not mint a Google Analytics access token.",
+    );
+    expect(overview).toMatchObject({
+      pendingGsc: 2,
+      pendingGa4: 2,
+      refreshingGsc: 1,
+      refreshingGa4: 0,
+    });
+    const dashboard = await getFleetDashboard(org);
+    expect(dashboard.providerIssues).toContainEqual(
+      expect.objectContaining({ provider: "ga4", sites: 1 }),
+    );
+  });
+
+  it("never shows numbers fetched before the site was re-bound to another account", async () => {
+    await seed(1);
+    await setCached(
+      cacheKey(id(0), site(0)),
+      gsc({ clicks: 7, fetchedAt: "2026-10-27T10:00:00Z" }),
+      3600,
+    );
+    await client.execute({
+      sql: "UPDATE gsc_connections SET updated_at = ? WHERE project_id = ?",
+      args: ["2026-10-27 11:00:00", id(0)],
+    });
+
+    const overview = await getPortfolioOverview(org);
+
+    expect(overview.rows[0]!.gsc).toBeNull();
+    expect(overview).toMatchObject({ pendingGsc: 1, refreshingGsc: 0 });
   });
 });
 

@@ -30,6 +30,8 @@ export type PortfolioGsc = {
   /** [date, clicks, impressions] per day over both windows (fleet chart). */
   daily?: Array<[string, number, number]>;
   error?: string;
+  /** Earlier numbers shown while a refresh is due; not counted in totals. */
+  stale?: true;
 };
 
 export type PortfolioGa4 = {
@@ -39,6 +41,8 @@ export type PortfolioGa4 = {
   prevActiveUsers: number;
   fetchedAt: string;
   error?: string;
+  /** Earlier numbers shown while a refresh is due; not counted in totals. */
+  stale?: true;
 };
 
 export type PortfolioRow = {

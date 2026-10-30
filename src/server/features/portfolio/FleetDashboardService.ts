@@ -132,7 +132,10 @@ export type FleetProviderEntry<Metrics> = {
   email: string | null;
   fetchedAt: string | null;
   error: string | null;
-  /** Only available evidence contributes metrics; failed/missing is not zero. */
+  /**
+   * Only available evidence contributes to totals; failed/missing is not zero.
+   * A stale entry keeps its earlier metrics for display while it refreshes.
+   */
   metrics: Metrics | null;
 };
 export type FleetInventoryRow = {
@@ -512,14 +515,20 @@ function providerEntry<Metrics>(
     age > (cached.error ? ERROR_RETRY_MS : maxAgeMs) ||
     !currentWindow ||
     beforeBinding
-  )
+  ) {
+    // Until a retry succeeds, the last answer for this binding is the failure.
+    if (cached.error && !beforeBinding)
+      return { ...entry, status: "error", error: cached.error };
     return {
       ...entry,
       status: "stale",
       error:
         cached.error ??
         "Stored snapshot is stale or covers a previous reporting window.",
+      // Another account's numbers must not show against this binding.
+      metrics: beforeBinding ? null : metrics,
     };
+  }
   if (cached.error) return { ...entry, status: "error", error: cached.error };
   return { ...entry, status: "available", metrics };
 }
@@ -1484,6 +1493,9 @@ export async function getPortfolioOverview(organizationId: string): Promise<{
   pending: number;
   pendingGsc: number;
   pendingGa4: number;
+  /** Connections showing earlier numbers while a refresh is due. */
+  refreshingGsc: number;
+  refreshingGa4: number;
   generatedAt: string;
 }> {
   const snapshot = await getFleetDashboard(organizationId);
@@ -1494,11 +1506,16 @@ export async function getPortfolioOverview(organizationId: string): Promise<{
     entry.fetchedAt ?? snapshot.generatedAt;
   let pendingGsc = 0;
   let pendingGa4 = 0;
+  let refreshingGsc = 0;
+  let refreshingGa4 = 0;
   const rows = snapshot.inventory.map((r): PortfolioRow => {
     let gsc: PortfolioGsc | null = null;
     if (r.gsc.status === "available" && r.gsc.metrics)
       gsc = { ...r.gsc.metrics, fetchedAt: fetchedAt(r.gsc) };
-    else if (r.gsc.status === "error")
+    else if (r.gsc.status === "stale" && r.gsc.metrics) {
+      gsc = { ...r.gsc.metrics, fetchedAt: fetchedAt(r.gsc), stale: true };
+      refreshingGsc++;
+    } else if (r.gsc.status === "error")
       gsc = {
         clicks: 0,
         impressions: 0,
@@ -1511,15 +1528,20 @@ export async function getPortfolioOverview(organizationId: string): Promise<{
       };
     else if (r.gsc.status !== "unlinked") pendingGsc++;
     let ga4: PortfolioGa4 | null = null;
-    if (r.ga4.status === "available" && r.ga4.metrics)
+    if (
+      (r.ga4.status === "available" || r.ga4.status === "stale") &&
+      r.ga4.metrics
+    ) {
       ga4 = {
         sessions: r.ga4.metrics.sessions,
         activeUsers: r.ga4.metrics.users,
         prevSessions: r.ga4.metrics.prevSessions,
         prevActiveUsers: r.ga4.metrics.prevUsers,
         fetchedAt: fetchedAt(r.ga4),
+        ...(r.ga4.status === "stale" && { stale: true as const }),
       };
-    else if (r.ga4.status === "error")
+      if (r.ga4.status === "stale") refreshingGa4++;
+    } else if (r.ga4.status === "error")
       ga4 = {
         sessions: 0,
         activeUsers: 0,
@@ -1547,6 +1569,8 @@ export async function getPortfolioOverview(organizationId: string): Promise<{
     pending: pendingGsc + pendingGa4,
     pendingGsc,
     pendingGa4,
+    refreshingGsc,
+    refreshingGa4,
     generatedAt: snapshot.generatedAt,
   };
 }

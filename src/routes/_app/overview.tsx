@@ -93,6 +93,16 @@ function isStaleAudit(r: Row): boolean {
   return !(Date.now() - at <= STALE_AUDIT_MS);
 }
 
+/** Props for a metric cell; earlier numbers shown while refreshing are greyed. */
+function staleCell(m: { stale?: true; fetchedAt: string } | null) {
+  return m?.stale
+    ? {
+        className: "px-2 text-muted-foreground",
+        title: `From ${m.fetchedAt.slice(0, 10)}; refreshing`,
+      }
+    : { className: "px-2" };
+}
+
 function login(email: string | null | undefined): string {
   return email ? email.split("@")[0]! : "";
 }
@@ -119,6 +129,8 @@ function exportCsv(rows: Row[], filename: string) {
     "ga4_zero_sessions",
     "gsc_error",
     "ga4_error",
+    "gsc_fetched_at",
+    "ga4_fetched_at",
     "audit_status",
     "audit_completed_at",
     "audit_pages",
@@ -149,6 +161,8 @@ function exportCsv(rows: Row[], filename: string) {
       ga4Zero(r) ? "yes" : "",
       g?.error ?? "",
       a?.error ?? "",
+      g?.fetchedAt ?? "",
+      a?.fetchedAt ?? "",
       r.audit?.status,
       r.audit?.completedAt,
       r.audit?.pagesCrawled,
@@ -321,12 +335,13 @@ function OverviewPage() {
     let gscSites = 0,
       ga4Sites = 0;
     for (const r of rows) {
-      if (r.ga4 && !r.ga4.error) {
+      // Earlier numbers shown while refreshing stay out of the totals.
+      if (r.ga4 && !r.ga4.error && !r.ga4.stale) {
         ga4Sites++;
         sessions += r.ga4.sessions;
         prevSessions += r.ga4.prevSessions;
       }
-      if (!r.gsc || r.gsc.error) continue;
+      if (!r.gsc || r.gsc.error || r.gsc.stale) continue;
       gscSites++;
       clicks += r.gsc.clicks;
       prevClicks += r.gsc.prevClicks;
@@ -596,7 +611,7 @@ function OverviewPage() {
                   GA4 sessions unavailable
                 </span>
               )}
-              {data.pending > 0 ? (
+              {data.pending + data.refreshingGsc + data.refreshingGa4 > 0 ? (
                 <span
                   role="status"
                   className="text-amber-800 dark:text-amber-300"
@@ -611,6 +626,9 @@ function OverviewPage() {
                       ? providerIssues.some((i) => i.provider === "GA4")
                         ? `GA4 for ${data.pendingGa4.toLocaleString()} sites is blocked until it is reconnected`
                         : `GA4 for ${data.pendingGa4.toLocaleString()} sites is still being collected`
+                      : null,
+                    data.refreshingGsc + data.refreshingGa4 > 0
+                      ? `${Math.max(data.refreshingGsc, data.refreshingGa4).toLocaleString()} sites show earlier numbers in grey while they refresh, and are left out of the totals`
                       : null,
                   ]
                     .filter(Boolean)
@@ -673,6 +691,8 @@ function OverviewPage() {
                   <tbody>
                     {visibleRows.map((r) => {
                       const g = r.gsc;
+                      const gscCell = staleCell(g);
+                      const ga4Cell = staleCell(r.ga4);
                       const mapsQuery = mapsSearchQuery(r.domain, r.name);
                       const mapsUrl = googleMapsSearchUrl(mapsQuery);
                       const siteLabel = r.domain ?? r.name;
@@ -778,24 +798,24 @@ function OverviewPage() {
                             </td>
                           ) : (
                             <>
-                              <td className="px-2">
+                              <td {...gscCell}>
                                 {g.clicks.toLocaleString()}
                               </td>
-                              <td className="px-2">
+                              <td {...gscCell}>
                                 <Delta v={g.clicks - g.prevClicks} />
                               </td>
-                              <td className="px-2">
+                              <td {...gscCell}>
                                 {g.impressions.toLocaleString()}
                               </td>
-                              <td className="px-2">
+                              <td {...gscCell}>
                                 <Delta v={g.impressions - g.prevImpressions} />
                               </td>
-                              <td className="px-2">
+                              <td {...gscCell}>
                                 {g.position == null
                                   ? "–"
                                   : g.position.toFixed(1)}
                               </td>
-                              <td className="px-2">
+                              <td {...gscCell}>
                                 <Delta
                                   v={
                                     g.position != null && g.prevPosition != null
@@ -830,15 +850,15 @@ function OverviewPage() {
                             </td>
                           ) : (
                             <>
-                              <td className="px-2">
+                              <td {...ga4Cell}>
                                 {r.ga4.sessions.toLocaleString()}
                               </td>
-                              <td className="px-2">
+                              <td {...ga4Cell}>
                                 <Delta
                                   v={r.ga4.sessions - r.ga4.prevSessions}
                                 />
                               </td>
-                              <td className="px-2">
+                              <td {...ga4Cell}>
                                 {r.ga4.activeUsers.toLocaleString()}
                               </td>
                             </>
