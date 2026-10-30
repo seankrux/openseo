@@ -14,8 +14,10 @@ import {
 } from "@/types/schemas/portfolio-overview";
 import {
   getPortfolioOverview,
+  queueFleetReaudit,
   refreshPortfolioOverview,
 } from "@/serverFunctions/portfolio";
+import { FleetReauditPanel } from "@/client/features/fleet/FleetReauditPanel";
 import {
   fleetChartsLabel,
   fleetSiteTableLabel,
@@ -49,6 +51,7 @@ const COVERAGE_CHIPS: Array<{ key: Coverage; label: string }> = [
   { key: "ga4Zero", label: "GA4 linked, 0 sessions" },
   { key: "noGoogle", label: "No GSC and no GA4" },
   { key: "noAudit", label: "Never audited" },
+  { key: "staleAudit", label: "Audit older than 7 days" },
   { key: "critical", label: "Has critical issues" },
 ];
 
@@ -74,9 +77,20 @@ function matchesCoverage(r: Row, c: Coverage): boolean {
       return !r.siteUrl && !r.ga4PropertyId;
     case "noAudit":
       return !r.audit;
+    case "staleAudit":
+      return isStaleAudit(r);
     case "critical":
       return (r.audit?.critical ?? 0) > 0;
   }
+}
+
+// Matches the server's re-audit rule (FLEET_REAUDIT_STALE_DAYS).
+const STALE_AUDIT_MS = 7 * 86_400_000;
+function isStaleAudit(r: Row): boolean {
+  if (!r.audit) return true;
+  if (r.audit.status === "running") return false;
+  const at = r.audit.completedAt ? Date.parse(r.audit.completedAt) : NaN;
+  return !(Date.now() - at <= STALE_AUDIT_MS);
 }
 
 function login(email: string | null | undefined): string {
@@ -238,6 +252,11 @@ function OverviewPage() {
     mutationFn: () => refreshPortfolioOverview({ data: {} }),
     onSuccess: () =>
       void queryClient.invalidateQueries({ queryKey: ["portfolioOverview"] }),
+  });
+  const reauditOne = useMutation({
+    mutationFn: (projectId: string) =>
+      queueFleetReaudit({ data: { projectIds: [projectId] } }),
+    onSuccess: (status) => queryClient.setQueryData(["fleetReaudit"], status),
   });
   const sortKey = search.sort ?? "clicks";
   const desc = search.order !== "asc";
@@ -483,6 +502,7 @@ function OverviewPage() {
                 </p>
               </div>
             ) : null}
+            <FleetReauditPanel viewProjectIds={rows.map((r) => r.projectId)} />
             {(counts.critical ?? 0) > 0 && coverage !== "critical" ? (
               <div
                 role="status"
@@ -849,7 +869,13 @@ function OverviewPage() {
                               : "–"}
                           </td>
                           <td className="whitespace-nowrap px-2 py-1">
-                            <RowActionsMenu label={`Local actions for ${siteLabel}`}>
+                            <RowActionsMenu label={`Actions for ${siteLabel}`}>
+                              <DropdownMenuItem
+                                disabled={reauditOne.isPending}
+                                onClick={() => reauditOne.mutate(r.projectId)}
+                              >
+                                Re-audit this site
+                              </DropdownMenuItem>
                               <DropdownMenuItem
                                 render={
                                   <a

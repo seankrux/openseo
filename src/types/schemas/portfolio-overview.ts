@@ -13,6 +13,7 @@ export const portfolioOverviewSearchSchema = z
         "ga4Zero",
         "noGoogle",
         "noAudit",
+        "staleAudit",
         "critical",
       ])
       .optional()

@@ -6,6 +6,12 @@ import {
   getFleetDashboard as loadFleetDashboard,
   getPortfolioOverview as loadPortfolioOverview,
 } from "@/server/features/portfolio/FleetDashboardService";
+import {
+  clearFleetReauditQueue as clearReauditQueue,
+  getFleetReauditStatus as loadReauditStatus,
+  queueFleetReaudit as queueReaudit,
+  setFleetReauditMode as setReauditMode,
+} from "@/server/features/portfolio/FleetReauditService";
 
 // CityThrive fork: the site table reads the fleet snapshot (one cache object
 // plus a database query). It never calls Google; the scheduler warms caches.
@@ -42,4 +48,38 @@ export const getFleetInventory = createServerFn({ method: "POST" })
       context.organizationId,
     );
     return { generatedAt, inventory };
+  });
+
+// CityThrive fork: fleet re-audit controls (schedule, picked sites, status).
+// Scheduled audits are started as the operator who last changed the controls.
+const actorOf = (context: { userId: string; userEmail: string }) => ({
+  userId: context.userId,
+  userEmail: context.userEmail,
+});
+
+export const getFleetReauditStatus = createServerFn({ method: "POST" })
+  .middleware(requireAuthenticatedContext)
+  .handler(({ context }) => loadReauditStatus(context.organizationId));
+
+export const setFleetReauditMode = createServerFn({ method: "POST" })
+  .middleware(requireAuthenticatedContext)
+  .validator(z.object({ mode: z.enum(["off", "gentle", "normal", "fast"]) }))
+  .handler(async ({ context, data }) => {
+    await setReauditMode(context.organizationId, data.mode, actorOf(context));
+    return loadReauditStatus(context.organizationId);
+  });
+
+export const queueFleetReaudit = createServerFn({ method: "POST" })
+  .middleware(requireAuthenticatedContext)
+  .validator(z.object({ projectIds: z.array(z.string()).min(1).max(5_000) }))
+  .handler(async ({ context, data }) => {
+    await queueReaudit(context.organizationId, data.projectIds, actorOf(context));
+    return loadReauditStatus(context.organizationId);
+  });
+
+export const clearFleetReauditQueue = createServerFn({ method: "POST" })
+  .middleware(requireAuthenticatedContext)
+  .handler(async ({ context }) => {
+    await clearReauditQueue(context.organizationId);
+    return loadReauditStatus(context.organizationId);
   });

@@ -260,6 +260,11 @@ export default {
         await runScheduledFleetDashboard();
       }).catch((err) => console.error("[cron] fleet dashboard failed:", err)),
       withPgClient(async () => {
+        const { runScheduledFleetReaudit } =
+          await import("@/server/features/portfolio/FleetReauditService");
+        await runScheduledFleetReaudit();
+      }).catch((err) => console.error("[cron] fleet re-audit failed:", err)),
+      withPgClient(async () => {
         const { runScheduledAiVisibility } =
           await import("@/server/features/ai-visibility/services/scheduledAiVisibility");
         await runScheduledAiVisibility();
