@@ -8,6 +8,7 @@ import { useQueryClient } from "@tanstack/react-query";
 import { RankTrackingDomainList } from "@/client/features/rank-tracking/RankTrackingDomainList";
 import { RankTrackingConfigModal } from "@/client/features/rank-tracking/RankTrackingConfigModal";
 import { ScheduledChecksPausedAlert } from "@/client/features/rank-tracking/ScheduledChecksPausedAlert";
+import { GscRankingsCard } from "@/client/features/rank-tracking/GscRankingsCard";
 import { rankTrackingListSearchSchema } from "@/types/schemas/rank-tracking-search";
 
 export const Route = createFileRoute("/_app/p/$projectId/rank-tracking/")({
@@ -39,6 +40,7 @@ function RankTrackingIndex() {
   return (
     <div className="space-y-3">
       <ScheduledChecksPausedAlert />
+      <GscRankingsCard projectId={projectId} />
       <RankTrackingDomainList
         projectId={projectId}
         search={search}

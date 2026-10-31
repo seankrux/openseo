@@ -127,7 +127,10 @@ export function GscCard({
               },
               {
                 label: "Average position",
-                value: formatPosition(report.totals.position),
+                value:
+                  report.totals.impressions > 0
+                    ? formatPosition(report.totals.position)
+                    : "—",
                 change: null,
               },
             ].map((metric) => (

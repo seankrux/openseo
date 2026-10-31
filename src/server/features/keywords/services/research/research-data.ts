@@ -5,6 +5,7 @@ import {
 import type { BillingCustomerContext } from "@/server/billing/subscription";
 import type { CreditFeature } from "@/shared/billing-credit-features";
 import { createDataforseoClient } from "@/server/lib/dataforseo";
+import { requireDataforseoApiKey } from "@/server/lib/dataforseo/config";
 import {
   normalizeIntent,
   normalizeKeyword,
@@ -20,8 +21,6 @@ type FetchResearchRowsParams = {
   source: KeywordSource;
   includeClickstreamData?: boolean;
   ignoreSynonyms?: boolean;
-  // Attribute the DataForSEO spend to a specific feature (e.g. "agent");
-  // defaults to the path-derived feature when omitted.
   creditFeature?: CreditFeature;
 };
 
@@ -37,21 +36,25 @@ function mapKeywordDataItems(items: LabsKeywordDataItem[]): EnrichedKeyword[] {
     if (seen.has(normalized)) continue;
     seen.add(normalized);
 
-    // The clickstream-normalized block only exists when the caller opted into
-    // clickstream data (it doubles the request cost); prefer it when present.
-    const keywordInfo = item.keyword_info_normalized_with_clickstream
-      ?.search_volume
-      ? item.keyword_info_normalized_with_clickstream
-      : item.keyword_info;
+    const keywordInfo =
+      item.keyword_info_normalized_with_clickstream?.search_volume != null
+        ? item.keyword_info_normalized_with_clickstream
+        : item.keyword_info;
 
     rows.push({
       keyword: normalized,
       searchVolume: keywordInfo?.search_volume ?? null,
-      trend: (keywordInfo?.monthly_searches ?? []).map((entry) => ({
-        year: entry.year ?? 0,
-        month: entry.month ?? 0,
-        searchVolume: entry.search_volume ?? 0,
-      })),
+      trend: (keywordInfo?.monthly_searches ?? []).flatMap((entry) =>
+        entry.year != null && entry.month != null && entry.search_volume != null
+          ? [
+              {
+                year: entry.year,
+                month: entry.month,
+                searchVolume: entry.search_volume,
+              },
+            ]
+          : [],
+      ),
       cpc: item.keyword_info?.cpc ?? null,
       competition: item.keyword_info?.competition ?? null,
       keywordDifficulty: item.keyword_properties?.keyword_difficulty ?? null,
@@ -62,10 +65,6 @@ function mapKeywordDataItems(items: LabsKeywordDataItem[]): EnrichedKeyword[] {
   return rows;
 }
 
-/**
- * Google Ads items carry volume / CPC / paid competition but no keyword
- * difficulty or search intent (those are Labs-only).
- */
 export function mapAdsKeywordItems(
   items: AdsKeywordIdeaItem[],
 ): EnrichedKeyword[] {
@@ -83,11 +82,17 @@ export function mapAdsKeywordItems(
     rows.push({
       keyword: normalized,
       searchVolume: item.search_volume ?? null,
-      trend: (item.monthly_searches ?? []).map((entry) => ({
-        year: entry.year ?? 0,
-        month: entry.month ?? 0,
-        searchVolume: entry.search_volume ?? 0,
-      })),
+      trend: (item.monthly_searches ?? []).flatMap((entry) =>
+        entry.year != null && entry.month != null && entry.search_volume != null
+          ? [
+              {
+                year: entry.year,
+                month: entry.month,
+                searchVolume: entry.search_volume,
+              },
+            ]
+          : [],
+      ),
       cpc: item.cpc ?? null,
       competition:
         item.competition_index != null ? item.competition_index / 100 : null,
@@ -99,11 +104,11 @@ export function mapAdsKeywordItems(
   return rows;
 }
 
-/** Research rows for countries DataForSEO Labs doesn't support. */
 export async function fetchGoogleAdsResearchRows(
   params: Omit<FetchResearchRowsParams, "source">,
   billingCustomer: BillingCustomerContext,
 ): Promise<EnrichedKeyword[]> {
+  await requireDataforseoApiKey();
   const dataforseo = createDataforseoClient(billingCustomer);
   return mapAdsKeywordItems(
     await dataforseo.keywords.adsIdeas({
@@ -131,8 +136,6 @@ async function fetchRelatedRows(
     creditFeature: params.creditFeature,
   });
 
-  // Related items wrap the keyword payload one level deeper; unwrap and reuse
-  // the same mapper as suggestions/ideas.
   return mapKeywordDataItems(
     items
       .map((item) => item.keyword_data)
@@ -144,6 +147,7 @@ export async function fetchResearchRowsBySource(
   params: FetchResearchRowsParams,
   billingCustomer: BillingCustomerContext,
 ): Promise<EnrichedKeyword[]> {
+  await requireDataforseoApiKey();
   const dataforseo = createDataforseoClient(billingCustomer);
 
   if (params.source === "related") {

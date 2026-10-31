@@ -234,6 +234,7 @@ export async function crawlPage(
       links: analysis.links,
       hasStructuredData: analysis.hasStructuredData,
       hreflangTags: analysis.hreflangTags,
+      local: analysis.local,
       isIndexable,
       responseTimeMs,
       crawlDepth,

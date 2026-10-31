@@ -25,15 +25,16 @@ function SeoApiStatusBanners({
       {...dataforseoHelpLinkOptions}
       className="font-medium text-primary underline-offset-4 hover:underline"
     >
-      help page
+      DataForSEO setup guide
     </Link>
   );
   return (
     <>
       {shouldShowSeoApiWarning ? (
         <AppBanner variant="warning" icon={icon}>
-          Setup needed: add your DataForSEO API key to use OpenSEO features. See
-          the quick steps on the {helpLink}.
+          Measured SEO data needs a DataForSEO connection. Connect the data
+          provider to run keyword, domain, backlink and rank checks. See the{" "}
+          {helpLink}.
         </AppBanner>
       ) : null}
 
@@ -58,7 +59,8 @@ function MissingSeoSetupModal({ onClose }: { onClose: () => void }) {
           <div className="space-y-2">
             <DialogTitle>One quick setup step</DialogTitle>
             <DialogDescription>
-              Add your DataForSEO API key to start using OpenSEO.
+              Add your DataForSEO API key to retrieve measured keyword, domain
+              and backlink data.
             </DialogDescription>
           </div>
         </DialogHeader>

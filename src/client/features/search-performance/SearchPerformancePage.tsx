@@ -103,6 +103,8 @@ export function SearchPerformancePage({
   const tab = search.tab ?? "striking";
   const page = search.page ?? 1;
   const pageSize = search.size ?? SEARCH_PERFORMANCE_DEFAULT_PAGE_SIZE;
+  const sort = search.sort ?? "clicks";
+  const order = search.order ?? "desc";
 
   const filterInput = {
     ...buildFilterInput({ range, device, country }),
@@ -120,7 +122,15 @@ export function SearchPerformancePage({
   const isTableTab = tab === "queries" || tab === "pages";
   const dimension = tabDimension(tab);
   const tableQuery = useQuery({
-    ...tableQueryOptions(projectId, dimension, page, pageSize, filterInput),
+    ...tableQueryOptions(
+      projectId,
+      dimension,
+      page,
+      pageSize,
+      filterInput,
+      sort,
+      order,
+    ),
     enabled: report?.connected === true && isTableTab,
     // Hold the current rows while paging or filtering, but not across a tab
     // or project change: Query rows must not render under the Pages header.
@@ -142,6 +152,8 @@ export function SearchPerformancePage({
         1,
         SEARCH_PERFORMANCE_DEFAULT_PAGE_SIZE,
         { ...buildFilterInput({ range, device, country }), ...textFilters },
+        sort,
+        order,
       ),
     );
   }, [
@@ -151,6 +163,8 @@ export function SearchPerformancePage({
     device,
     country,
     textFilters,
+    sort,
+    order,
     queryClient,
   ]);
 
@@ -167,6 +181,11 @@ export function SearchPerformancePage({
         data: { projectId, dimension, ...filterInput },
       });
       await exportDimensionRows(dimension, data.rows, report.range, target);
+      if (data.limitReached) {
+        toast.info(
+          `Export includes the first ${data.rowLimit.toLocaleString()} ${dimension === "query" ? "queries" : "pages"} returned by Search Console. More may exist.`,
+        );
+      }
     } catch (error) {
       toast.error(getStandardErrorMessage(error, "Export failed"));
     } finally {
@@ -273,6 +292,78 @@ export function SearchPerformancePage({
                     disabled={reportQuery.isPlaceholderData}
                   />
                 }
+                panel={
+                  <>
+                    <div className="flex flex-wrap items-center gap-2 border-b border-border px-4 py-2">
+                      <Button
+                        type="button"
+                        variant={showFilters ? "secondary" : "ghost"}
+                        size="sm"
+                        aria-expanded={showFilters}
+                        aria-controls="search-performance-filters"
+                        onClick={() => setShowFilters((current) => !current)}
+                        title="Toggle table filters"
+                      >
+                        <SlidersHorizontal data-icon="inline-start" />
+                        Filters
+                        {activeFilterCount > 0 ? (
+                          <Badge size="sm">{activeFilterCount}</Badge>
+                        ) : null}
+                      </Button>
+                      {reportQuery.isFetching && !reportQuery.isPending ? (
+                        <Spinner className="size-4 text-muted-foreground" />
+                      ) : null}
+                      <SearchPerformanceSelects
+                        search={search}
+                        countries={report.countries}
+                        onSearchChange={onSearchChange}
+                      />
+                    </div>
+
+                    {showFilters ? filtersPanel : null}
+                    {reportQuery.isPlaceholderData ? (
+                      <div className="p-8 text-sm" role="status">
+                        Loading matching results…
+                      </div>
+                    ) : tab === "striking" ? (
+                      <StrikingDistanceTable
+                        projectId={projectId}
+                        rows={report.strikingDistance}
+                        page={page}
+                        pageSize={pageSize}
+                        onPageChange={(nextPage) =>
+                          onSearchChange({ page: nextPage })
+                        }
+                        onPageSizeChange={(size) =>
+                          onSearchChange({ page: undefined, size })
+                        }
+                        isFiltered={activeFilterCount > 0}
+                        onClearFilters={resetFilters}
+                      />
+                    ) : (
+                      <DimensionSection
+                        projectId={projectId}
+                        tableQuery={tableQuery}
+                        keyLabel={tab === "queries" ? "Query" : "Page"}
+                        sort={sort}
+                        order={order}
+                        onSortChange={(sort, order) =>
+                          onSearchChange({ sort, order, page: undefined })
+                        }
+                        page={page}
+                        pageSize={pageSize}
+                        onPageChange={(nextPage) =>
+                          onSearchChange({ page: nextPage })
+                        }
+                        onPageSizeChange={(size) =>
+                          onSearchChange({ page: undefined, size })
+                        }
+                        isFiltered={activeFilterCount > 0}
+                        onClearFilters={resetFilters}
+                      />
+                    )}
+                  </>
+                }
               >
                 <TabsTrigger value="striking">
                   {reportQuery.isPlaceholderData
@@ -282,69 +373,6 @@ export function SearchPerformancePage({
                 <TabsTrigger value="queries">Queries</TabsTrigger>
                 <TabsTrigger value="pages">Pages</TabsTrigger>
               </DataTableTabs>
-              <div className="flex flex-wrap items-center gap-2 border-b border-border px-4 py-2">
-                <Button
-                  type="button"
-                  variant={showFilters ? "secondary" : "ghost"}
-                  size="sm"
-                  aria-expanded={showFilters}
-                  aria-controls="search-performance-filters"
-                  onClick={() => setShowFilters((current) => !current)}
-                  title="Toggle table filters"
-                >
-                  <SlidersHorizontal data-icon="inline-start" />
-                  Filters
-                  {activeFilterCount > 0 ? (
-                    <Badge size="sm">{activeFilterCount}</Badge>
-                  ) : null}
-                </Button>
-                {reportQuery.isFetching && !reportQuery.isPending ? (
-                  <Spinner className="size-4 text-muted-foreground" />
-                ) : null}
-                <SearchPerformanceSelects
-                  search={search}
-                  countries={report.countries}
-                  onSearchChange={onSearchChange}
-                />
-              </div>
-
-              {showFilters ? filtersPanel : null}
-              {reportQuery.isPlaceholderData ? (
-                <div className="p-8 text-sm" role="status">
-                  Loading matching results…
-                </div>
-              ) : tab === "striking" ? (
-                <StrikingDistanceTable
-                  projectId={projectId}
-                  rows={report.strikingDistance}
-                  page={page}
-                  pageSize={pageSize}
-                  onPageChange={(nextPage) =>
-                    onSearchChange({ page: nextPage })
-                  }
-                  onPageSizeChange={(size) =>
-                    onSearchChange({ page: undefined, size })
-                  }
-                  isFiltered={activeFilterCount > 0}
-                  onClearFilters={resetFilters}
-                />
-              ) : (
-                <DimensionSection
-                  projectId={projectId}
-                  tableQuery={tableQuery}
-                  keyLabel={tab === "queries" ? "Query" : "Page"}
-                  page={page}
-                  pageSize={pageSize}
-                  onPageChange={(nextPage) =>
-                    onSearchChange({ page: nextPage })
-                  }
-                  onPageSizeChange={(size) =>
-                    onSearchChange({ page: undefined, size })
-                  }
-                  isFiltered={activeFilterCount > 0}
-                  onClearFilters={resetFilters}
-                />
-              )}
             </div>
           </>
         )}
