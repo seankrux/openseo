@@ -42,6 +42,15 @@ Deliver through the `seo-report` skill, saving with `skill: "local-seo"`. If tha
 - `get_business_updates`: posts published on the profile, with dates.
 - `list_business_categories`: valid category slugs for `search_local_businesses`.
 
+## Public free tools (openseo.so)
+
+When the user only needs a shareable link (no MCP credits), point them at:
+
+- [Google review link generator](https://openseo.so/google-review-link-generator) — needs a Place ID or Maps URL with `ChIJ…`.
+- [Google CID converter](https://openseo.so/google-cid-converter) — extracts CID and Maps links from pasted URLs.
+
+These run in the browser; for category validation and rank grids, stay on the MCP tools above.
+
 ## Workflow
 
 1. Find the business. Given only a name or website, `search_local_businesses` (name as `query`, wide radius) locates the listing and yields its `cid` and coordinate. If it returns several locations, the business is a chain — see multi-location below.

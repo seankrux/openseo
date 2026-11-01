@@ -12,8 +12,13 @@ import { PageHeader, SectionHeader } from "@/client/components/PageHeader";
 import { QueryState } from "@/client/components/QueryState";
 import { Badge } from "@/client/components/ui/badge";
 import { Button } from "@/client/components/ui/button";
+import { Input } from "@/client/components/ui/input";
+import { Label } from "@/client/components/ui/label";
+import { TablePagination } from "@/client/components/table/TablePagination";
 import { getLastProjectId } from "@/client/lib/active-project";
+import { fleetSiteTableLabel } from "@/client/navigation/fleetNav";
 import { CreateProjectModal } from "@/client/features/projects/CreateProjectModal";
+import type { ProjectSummary } from "@/client/features/projects/types";
 
 export const Route = createFileRoute("/_app/projects")({
   component: ProjectsPage,
@@ -37,10 +42,19 @@ function ProjectsPage() {
           title="Projects"
           description="Each project has its own Search Console, rank tracking, and audits."
           actions={
-            <Button onClick={() => setCreating(true)}>
-              <Plus data-icon="inline-start" />
-              New project
-            </Button>
+            <div className="flex flex-wrap gap-2">
+              <Button
+                variant="outline"
+                nativeButton={false}
+                render={<Link to="/overview" />}
+              >
+                {fleetSiteTableLabel}
+              </Button>
+              <Button onClick={() => setCreating(true)}>
+                <Plus data-icon="inline-start" />
+                New project
+              </Button>
+            </div>
           }
         />
 
@@ -49,34 +63,7 @@ function ProjectsPage() {
           errorFallback="Failed to load projects"
         >
           {(data) => (
-            <ul className="divide-y divide-border overflow-hidden rounded-lg border border-border bg-card">
-              {data.map((project) => (
-                <li key={project.id}>
-                  <Link
-                    to="/p/$projectId/settings"
-                    params={{ projectId: project.id }}
-                    className="flex items-center justify-between gap-3 p-3 transition-colors hover:bg-muted"
-                  >
-                    <span className="flex min-w-0 flex-col">
-                      <span className="flex items-center gap-2">
-                        <span className="truncate font-medium">
-                          {project.name}
-                        </span>
-                        {project.id === currentProjectId ? (
-                          <Badge variant="secondary" size="sm">
-                            Current
-                          </Badge>
-                        ) : null}
-                      </span>
-                      <span className="truncate text-xs text-muted-foreground">
-                        {project.domain ?? "No domain set"}
-                      </span>
-                    </span>
-                    <ChevronRight className="size-4 shrink-0 text-muted-foreground" />
-                  </Link>
-                </li>
-              ))}
-            </ul>
+            <ProjectsList projects={data} currentProjectId={currentProjectId} />
           )}
         </QueryState>
 
@@ -86,6 +73,113 @@ function ProjectsPage() {
       {creating ? (
         <CreateProjectModal onClose={() => setCreating(false)} />
       ) : null}
+    </div>
+  );
+}
+
+const PROJECTS_PER_PAGE = 50;
+
+function ProjectsList({
+  projects,
+  currentProjectId,
+}: {
+  projects: ProjectSummary[];
+  currentProjectId: string | null;
+}) {
+  const [search, setSearch] = React.useState("");
+  const [page, setPage] = React.useState(1);
+  const listRef = React.useRef<HTMLUListElement>(null);
+  const filteredProjects = React.useMemo(() => {
+    const query = search.trim().toLowerCase();
+    if (!query) return projects;
+    return projects.filter(
+      (project) =>
+        project.name.toLowerCase().includes(query) ||
+        project.domain?.toLowerCase().includes(query),
+    );
+  }, [projects, search]);
+  const currentPage = Math.min(
+    page,
+    Math.max(1, Math.ceil(filteredProjects.length / PROJECTS_PER_PAGE)),
+  );
+  const start = (currentPage - 1) * PROJECTS_PER_PAGE;
+  const visibleProjects = filteredProjects.slice(
+    start,
+    start + PROJECTS_PER_PAGE,
+  );
+
+  function changePage(nextPage: number) {
+    setPage(nextPage);
+    // Take keyboard and pointer users to the start of the newly shown page.
+    requestAnimationFrame(() => {
+      listRef.current?.querySelector<HTMLAnchorElement>("a")?.focus();
+      listRef.current?.scrollIntoView({ block: "start" });
+    });
+  }
+
+  return (
+    <div className="space-y-3">
+      <div className="max-w-md space-y-2">
+        <Label htmlFor="project-search">Find a project</Label>
+        <Input
+          id="project-search"
+          type="search"
+          placeholder="Search by name or domain"
+          value={search}
+          onChange={(event) => {
+            setSearch(event.target.value);
+            setPage(1);
+          }}
+          aria-controls="project-list"
+        />
+      </div>
+      <p role="status" className="text-sm text-muted-foreground">
+        {filteredProjects.length === 0
+          ? search.trim()
+            ? "No projects match your search. Try another name or domain."
+            : "No projects yet. Create a project to get started."
+          : `Showing ${(start + 1).toLocaleString()}–${Math.min(start + PROJECTS_PER_PAGE, filteredProjects.length).toLocaleString()} of ${filteredProjects.length.toLocaleString()} projects${search.trim() ? ` matching “${search.trim()}”` : ""}.`}
+      </p>
+      <div className="overflow-hidden rounded-lg border border-border bg-card">
+        <ul id="project-list" ref={listRef} className="divide-y divide-border">
+          {visibleProjects.map((project) => (
+            <li key={project.id}>
+              <Link
+                to="/p/$projectId/settings"
+                params={{ projectId: project.id }}
+                className="flex items-center justify-between gap-3 p-3 transition-colors hover:bg-muted focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-ring"
+                title={project.name}
+              >
+                <span className="flex min-w-0 flex-col">
+                  <span className="flex min-w-0 items-center gap-2">
+                    <span className="truncate font-medium">{project.name}</span>
+                    {project.id === currentProjectId ? (
+                      <Badge variant="secondary" size="sm" className="shrink-0">
+                        Current
+                      </Badge>
+                    ) : null}
+                  </span>
+                  <span className="truncate text-xs text-muted-foreground">
+                    {project.domain ?? "No domain set"}
+                  </span>
+                </span>
+                <ChevronRight
+                  className="size-4 shrink-0 text-muted-foreground"
+                  aria-hidden
+                />
+              </Link>
+            </li>
+          ))}
+        </ul>
+        {filteredProjects.length > PROJECTS_PER_PAGE ? (
+          <TablePagination
+            page={currentPage}
+            pageSize={PROJECTS_PER_PAGE}
+            totalCount={filteredProjects.length}
+            onPageChange={changePage}
+          />
+        ) : null}
+      </div>
     </div>
   );
 }

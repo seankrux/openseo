@@ -1,4 +1,9 @@
-import { Link, useLocation, useMatchRoute } from "@tanstack/react-router";
+import {
+  Link,
+  linkOptions,
+  useLocation,
+  useMatchRoute,
+} from "@tanstack/react-router";
 import type { LinkOptions } from "@tanstack/react-router";
 import { useQuery } from "@tanstack/react-query";
 import { useState, type ComponentType } from "react";
@@ -8,6 +13,7 @@ import {
   Check,
   CircleHelp,
   CreditCard,
+  LayoutDashboard,
   LogOut,
   Settings,
   User,
@@ -16,9 +22,11 @@ import { organizationContextQueryOptions } from "@/client/features/team/organiza
 import { switchOrganization } from "@/serverFunctions/organization";
 import { clearLastProjectId } from "@/client/lib/active-project";
 import {
+  allSitesNavGroup,
   connectNavGroup,
   getProjectNavGroups,
 } from "@/client/navigation/items";
+import { isFleetWorkspaceRoute } from "@/client/navigation/fleetNav";
 import { ProjectSwitcher } from "@/client/features/projects/ProjectSwitcher";
 import {
   SamChatListSkeleton,
@@ -126,12 +134,34 @@ export function Sidebar({
   // Until a project is known, show the project nav as rows without links, so
   // the sidebar has its full shape from the first paint instead of growing
   // once projects load. The placeholder rows never render these links.
-  const navPlaceholder = projectId === null && projectPending;
-  const navGroups =
-    projectId !== null || navPlaceholder
-      ? getProjectNavGroups(projectId ?? "")
-      : [connectNavGroup];
   const { pathname } = useLocation();
+  const fleetWorkspace = isFleetWorkspaceRoute(pathname);
+  const navPlaceholder = projectId === null && projectPending;
+  const projectGroups =
+    fleetWorkspace && projectId
+      ? [
+          {
+            label: "This project",
+            items: linkOptions([
+              {
+                to: "/p/$projectId" as const,
+                label: "Project dashboard",
+                icon: LayoutDashboard,
+                params: { projectId },
+                search: {},
+                activeOptions: { exact: true, includeSearch: false },
+              },
+            ]),
+          },
+        ]
+      : projectId !== null || navPlaceholder
+        ? getProjectNavGroups(projectId ?? "")
+        : [connectNavGroup];
+  // CityThrive fork: the fleet group is pinned first and never a placeholder.
+  const navGroups = [
+    { ...allSitesNavGroup, pinned: true as const },
+    ...projectGroups.map((g) => ({ ...g, pinned: false as const })),
+  ];
   const { setOpenMobile } = useSidebar();
   // SAM is hidden from navigation: the chat route is only reachable by URL,
   // and while it is open its chat list takes the nav's place.
@@ -139,7 +169,11 @@ export function Sidebar({
 
   return (
     <UiSidebar variant="inset" collapsible="offcanvas" className="md:!p-0">
-      <SidebarHeader className="gap-0 px-3 pb-1 pt-3">
+      <SidebarHeader
+        role="navigation"
+        aria-label="Workspace"
+        className="gap-0 px-3 pb-1 pt-3"
+      >
         <Link
           to="/"
           onClick={() => setOpenMobile(false)}
@@ -173,7 +207,7 @@ export function Sidebar({
           >
             {navGroups.map((group) => (
               <SidebarGroup key={group.label} className="py-1">
-                <SidebarGroupLabel className="h-7 uppercase tracking-wider text-sidebar-foreground/40">
+                <SidebarGroupLabel className="h-7 uppercase tracking-wider text-sidebar-foreground/70">
                   {group.label}
                 </SidebarGroupLabel>
                 <SidebarGroupContent>
@@ -186,7 +220,7 @@ export function Sidebar({
                           icon={icon}
                           label={label}
                           linkProps={linkProps}
-                          placeholder={navPlaceholder}
+                          placeholder={navPlaceholder && !group.pinned}
                         />
                       );
                     })}
@@ -230,7 +264,11 @@ function AccountFooter({ ready }: { ready: boolean }) {
   }
 
   return (
-    <UiSidebarFooter className="gap-0 border-t border-sidebar-border pb-safe">
+    <UiSidebarFooter
+      role="navigation"
+      aria-label="Account"
+      className="gap-0 border-t border-sidebar-border pb-safe"
+    >
       <SidebarMenu>
         <SidebarNavLink
           icon={CircleHelp}

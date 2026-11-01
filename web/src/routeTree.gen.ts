@@ -22,6 +22,8 @@ import { Route as MarketingBacklinkCheckerRouteImport } from './routes/_marketin
 import { Route as MarketingCompetitorAnalysisRouteImport } from './routes/_marketing/competitor-analysis'
 import { Route as MarketingCompetitorKeywordFinderRouteImport } from './routes/_marketing/competitor-keyword-finder'
 import { Route as MarketingDomainAgeCheckerRouteImport } from './routes/_marketing/domain-age-checker'
+import { Route as MarketingGoogleCidConverterRouteImport } from './routes/_marketing/google-cid-converter'
+import { Route as MarketingGoogleReviewLinkGeneratorRouteImport } from './routes/_marketing/google-review-link-generator'
 import { Route as MarketingGoogleSearchConsoleMcpRouteImport } from './routes/_marketing/google-search-console-mcp'
 import { Route as MarketingKeywordGeneratorRouteImport } from './routes/_marketing/keyword-generator'
 import { Route as MarketingOpenSourceSeoRouteImport } from './routes/_marketing/open-source-seo'
@@ -168,6 +170,18 @@ const MarketingDomainAgeCheckerRoute =
   MarketingDomainAgeCheckerRouteImport.update({
     id: '/domain-age-checker',
     path: '/domain-age-checker',
+    getParentRoute: () => MarketingRoute,
+  } as any)
+const MarketingGoogleCidConverterRoute =
+  MarketingGoogleCidConverterRouteImport.update({
+    id: '/google-cid-converter',
+    path: '/google-cid-converter',
+    getParentRoute: () => MarketingRoute,
+  } as any)
+const MarketingGoogleReviewLinkGeneratorRoute =
+  MarketingGoogleReviewLinkGeneratorRouteImport.update({
+    id: '/google-review-link-generator',
+    path: '/google-review-link-generator',
     getParentRoute: () => MarketingRoute,
   } as any)
 const MarketingGoogleSearchConsoleMcpRoute =
@@ -632,6 +646,8 @@ export interface FileRoutesByFullPath {
   '/competitor-analysis': typeof MarketingCompetitorAnalysisRoute
   '/competitor-keyword-finder': typeof MarketingCompetitorKeywordFinderRoute
   '/domain-age-checker': typeof MarketingDomainAgeCheckerRoute
+  '/google-cid-converter': typeof MarketingGoogleCidConverterRoute
+  '/google-review-link-generator': typeof MarketingGoogleReviewLinkGeneratorRoute
   '/google-search-console-mcp': typeof MarketingGoogleSearchConsoleMcpRoute
   '/keyword-generator': typeof MarketingKeywordGeneratorRoute
   '/open-source-seo': typeof MarketingOpenSourceSeoRoute
@@ -724,6 +740,8 @@ export interface FileRoutesByTo {
   '/competitor-analysis': typeof MarketingCompetitorAnalysisRoute
   '/competitor-keyword-finder': typeof MarketingCompetitorKeywordFinderRoute
   '/domain-age-checker': typeof MarketingDomainAgeCheckerRoute
+  '/google-cid-converter': typeof MarketingGoogleCidConverterRoute
+  '/google-review-link-generator': typeof MarketingGoogleReviewLinkGeneratorRoute
   '/google-search-console-mcp': typeof MarketingGoogleSearchConsoleMcpRoute
   '/keyword-generator': typeof MarketingKeywordGeneratorRoute
   '/open-source-seo': typeof MarketingOpenSourceSeoRoute
@@ -818,6 +836,8 @@ export interface FileRoutesById {
   '/_marketing/competitor-analysis': typeof MarketingCompetitorAnalysisRoute
   '/_marketing/competitor-keyword-finder': typeof MarketingCompetitorKeywordFinderRoute
   '/_marketing/domain-age-checker': typeof MarketingDomainAgeCheckerRoute
+  '/_marketing/google-cid-converter': typeof MarketingGoogleCidConverterRoute
+  '/_marketing/google-review-link-generator': typeof MarketingGoogleReviewLinkGeneratorRoute
   '/_marketing/google-search-console-mcp': typeof MarketingGoogleSearchConsoleMcpRoute
   '/_marketing/keyword-generator': typeof MarketingKeywordGeneratorRoute
   '/_marketing/open-source-seo': typeof MarketingOpenSourceSeoRoute
@@ -913,6 +933,8 @@ export interface FileRouteTypes {
     | '/competitor-analysis'
     | '/competitor-keyword-finder'
     | '/domain-age-checker'
+    | '/google-cid-converter'
+    | '/google-review-link-generator'
     | '/google-search-console-mcp'
     | '/keyword-generator'
     | '/open-source-seo'
@@ -1005,6 +1027,8 @@ export interface FileRouteTypes {
     | '/competitor-analysis'
     | '/competitor-keyword-finder'
     | '/domain-age-checker'
+    | '/google-cid-converter'
+    | '/google-review-link-generator'
     | '/google-search-console-mcp'
     | '/keyword-generator'
     | '/open-source-seo'
@@ -1098,6 +1122,8 @@ export interface FileRouteTypes {
     | '/_marketing/competitor-analysis'
     | '/_marketing/competitor-keyword-finder'
     | '/_marketing/domain-age-checker'
+    | '/_marketing/google-cid-converter'
+    | '/_marketing/google-review-link-generator'
     | '/_marketing/google-search-console-mcp'
     | '/_marketing/keyword-generator'
     | '/_marketing/open-source-seo'
@@ -1296,6 +1322,20 @@ declare module '@tanstack/react-router' {
       path: '/domain-age-checker'
       fullPath: '/domain-age-checker'
       preLoaderRoute: typeof MarketingDomainAgeCheckerRouteImport
+      parentRoute: typeof MarketingRoute
+    }
+    '/_marketing/google-cid-converter': {
+      id: '/_marketing/google-cid-converter'
+      path: '/google-cid-converter'
+      fullPath: '/google-cid-converter'
+      preLoaderRoute: typeof MarketingGoogleCidConverterRouteImport
+      parentRoute: typeof MarketingRoute
+    }
+    '/_marketing/google-review-link-generator': {
+      id: '/_marketing/google-review-link-generator'
+      path: '/google-review-link-generator'
+      fullPath: '/google-review-link-generator'
+      preLoaderRoute: typeof MarketingGoogleReviewLinkGeneratorRouteImport
       parentRoute: typeof MarketingRoute
     }
     '/_marketing/google-search-console-mcp': {
@@ -1876,6 +1916,8 @@ interface MarketingRouteChildren {
   MarketingCompetitorAnalysisRoute: typeof MarketingCompetitorAnalysisRoute
   MarketingCompetitorKeywordFinderRoute: typeof MarketingCompetitorKeywordFinderRoute
   MarketingDomainAgeCheckerRoute: typeof MarketingDomainAgeCheckerRoute
+  MarketingGoogleCidConverterRoute: typeof MarketingGoogleCidConverterRoute
+  MarketingGoogleReviewLinkGeneratorRoute: typeof MarketingGoogleReviewLinkGeneratorRoute
   MarketingGoogleSearchConsoleMcpRoute: typeof MarketingGoogleSearchConsoleMcpRoute
   MarketingKeywordGeneratorRoute: typeof MarketingKeywordGeneratorRoute
   MarketingOpenSourceSeoRoute: typeof MarketingOpenSourceSeoRoute
@@ -1947,6 +1989,9 @@ const MarketingRouteChildren: MarketingRouteChildren = {
   MarketingCompetitorAnalysisRoute: MarketingCompetitorAnalysisRoute,
   MarketingCompetitorKeywordFinderRoute: MarketingCompetitorKeywordFinderRoute,
   MarketingDomainAgeCheckerRoute: MarketingDomainAgeCheckerRoute,
+  MarketingGoogleCidConverterRoute: MarketingGoogleCidConverterRoute,
+  MarketingGoogleReviewLinkGeneratorRoute:
+    MarketingGoogleReviewLinkGeneratorRoute,
   MarketingGoogleSearchConsoleMcpRoute: MarketingGoogleSearchConsoleMcpRoute,
   MarketingKeywordGeneratorRoute: MarketingKeywordGeneratorRoute,
   MarketingOpenSourceSeoRoute: MarketingOpenSourceSeoRoute,

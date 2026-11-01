@@ -19,6 +19,7 @@ import { Button } from "@/client/components/ui/button";
 import { Separator } from "@/client/components/ui/separator";
 import { Skeleton } from "@/client/components/ui/skeleton";
 import type { ProjectSummary } from "./types";
+import { projectSwitcherDisplay } from "@/client/lib/project-display";
 
 const SEARCH_THRESHOLD = 8;
 
@@ -47,6 +48,7 @@ export function ProjectSwitcher({
   const projects = projectsQuery.data ?? [];
   const activeProject =
     projects.find((project) => project.id === activeProjectId) ?? null;
+  const switcherDisplay = projectSwitcherDisplay(activeProject);
 
   if (projectsQuery.isPending) {
     // The loaded switcher's box: a name line, a domain line and the settings
@@ -109,16 +111,16 @@ export function ProjectSwitcher({
       >
         <div className="flex items-stretch rounded-lg border border-sidebar-border bg-card">
           <ComboboxTrigger
-            aria-label="Switch project"
+            aria-label={`Switch project: ${switcherDisplay.primary}${switcherDisplay.secondary ? ` ${switcherDisplay.secondary}` : ""}`}
             className="flex min-w-0 flex-1 items-center justify-between gap-2 rounded-l-lg px-3 py-1.5 text-left hover:bg-accent"
           >
             <span className="flex min-w-0 flex-col">
               <span className="truncate text-sm font-medium">
-                {activeProject?.name ?? "Select project"}
+                {switcherDisplay.primary}
               </span>
-              {activeProject?.domain ? (
+              {switcherDisplay.secondary ? (
                 <span className="truncate text-xs text-muted-foreground">
-                  {activeProject.domain}
+                  {switcherDisplay.secondary}
                 </span>
               ) : null}
             </span>
@@ -145,7 +147,7 @@ export function ProjectSwitcher({
             </Button>
           ) : null}
         </div>
-        <ComboboxContent className="w-(--anchor-width)">
+        <ComboboxContent className="w-(--anchor-width)" aria-label="Projects">
           {projects.length >= SEARCH_THRESHOLD ? (
             <ComboboxInput
               className="w-auto"

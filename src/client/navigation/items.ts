@@ -3,9 +3,13 @@ import {
   Bot,
   Brain,
   ChartLine,
+  ChartPie,
   ClipboardCheck,
+  FileSpreadsheet,
   FileText,
   Globe,
+  HeartPulse,
+  LayoutList,
   LayoutDashboard,
   Link2,
   MessageSquare,
@@ -14,6 +18,10 @@ import {
 } from "lucide-react";
 import { linkOptions } from "@tanstack/react-router";
 import { GoogleGlyphMuted } from "@/client/features/gsc/GoogleGlyph";
+import {
+  fleetChartsLabel,
+  fleetSiteTableLabel,
+} from "@/client/navigation/fleetNav";
 
 const projectNavItems = [
   {
@@ -87,7 +95,29 @@ const projectNavItems = [
   },
 ] as const;
 
-// Project-independent. Rendered inside the project "AI Tools" group when a project
+// CityThrive fork: fleet-wide shortcuts, pinned at the top of the sidebar
+// whether or not a project is selected.
+export const allSitesNavGroup = {
+  label: "All sites",
+  items: linkOptions([
+    { to: "/overview" as const, label: fleetSiteTableLabel, icon: LayoutList },
+    { to: "/dashboard" as const, label: fleetChartsLabel, icon: ChartPie },
+    { to: "/domain-health" as const, label: "Domain health", icon: HeartPulse },
+    {
+      to: "/ga4-setup" as const,
+      search: { projectId: undefined },
+      label: "GA4 setup status",
+      icon: ChartLine,
+    },
+    {
+      to: "/all-reports" as const,
+      label: "Reports and CSV export",
+      icon: FileSpreadsheet,
+    },
+  ]),
+};
+
+// Project-independent. Rendered inside the project "Reports & setup" group when a project
 // is selected, and on its own (connectNavGroup) when none is.
 const aiNavItem = linkOptions({
   to: "/ai" as const,
@@ -96,9 +126,9 @@ const aiNavItem = linkOptions({
 });
 
 // Shown only when no project is selected; with a project, Agent setup lives in
-// the "AI Tools" group below.
+// the "Reports & setup" group below.
 export const connectNavGroup = {
-  label: "AI Tools",
+  label: "Setup",
   items: [aiNavItem],
 };
 
@@ -121,7 +151,7 @@ export function getProjectNavGroups(projectId: string) {
 
   return [
     {
-      label: "Overview",
+      label: "This project",
       items: [byPath("/p/$projectId")],
     },
     {
@@ -135,9 +165,9 @@ export function getProjectNavGroups(projectId: string) {
     {
       label: "AI Visibility",
       items: [
+        byPath("/p/$projectId/ai-visibility"),
         byPath("/p/$projectId/ai-visibility/research"),
         byPath("/p/$projectId/prompt-explorer"),
-        byPath("/p/$projectId/ai-visibility"),
       ],
     },
     {
@@ -150,7 +180,7 @@ export function getProjectNavGroups(projectId: string) {
       ],
     },
     {
-      label: "AI Tools",
+      label: "Reports & setup",
       items: [
         byPath("/p/$projectId/reports"),
         byPath("/p/$projectId/context"),

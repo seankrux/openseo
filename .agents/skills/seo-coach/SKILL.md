@@ -36,6 +36,15 @@ When the user wants to go deeper, hand off to a skill instead of doing the full 
 - Trigger the handoff when the user asks for a report, a full analysis, "everything about", or a deliverable they can share, or when the answer would take more than a screen of bullets.
 - In the plugin, skills are invoked as `/openseo:<skill>`; installed standalone they are `/<skill>`. Use whichever form the user used to start this session.
 
+## Fleet vs one site (self-hosted / multi-project)
+
+When the user manages many sites in one workspace, orient them with two fleet views before drilling into a project.
+
+- **Site table** (`/overview`): sortable table of every project with GSC, GA4, and audit columns. Use it for triage, filters (for example critical audit issues), and CSV export.
+- **Charts & trends** (`/dashboard`): fleet KPIs, click trends, gainers/losers, and coverage bars. Use it for weekly performance narrative.
+
+After they pick a site, project routes under `/p/<projectId>/…` hold keyword research, rank tracking, audits, and AI visibility tools.
+
 ## Project context
 
 The project-context tools are free and shared with the app and other agents.
