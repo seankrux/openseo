@@ -18,15 +18,17 @@ COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./
 COPY patches ./patches
 RUN pnpm install --frozen-lockfile
 
-FROM base AS runtime
+FROM dependencies AS runtime
 ENV NODE_OPTIONS=--max-old-space-size=4096
 LABEL org.opencontainers.image.source="https://github.com/seankrux/openseo"
 
 # Vite, Wrangler and TypeScript are runtime requirements: this self-host path
 # builds at startup so client-side auth/env settings match the supplied env.
-COPY --from=dependencies --chown=1000:1000 /app/node_modules ./node_modules
+# Reuse the dependency layers directly: copying pnpm's large hardlink tree
+# across stages is prohibitively slow with the classic Docker builder.
 COPY --chown=1000:1000 . .
-RUN mkdir -p /app/.wrangler && chown node:node /app /app/.wrangler
+RUN mkdir -p /app/.wrangler /app/node_modules/.vite /app/node_modules/.vite-temp \
+    && chown node:node /app /app/.wrangler /app/node_modules/.vite /app/node_modules/.vite-temp
 USER node
 
 EXPOSE 3001
