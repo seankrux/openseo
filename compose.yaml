@@ -18,7 +18,7 @@ services:
       - AUTH_MODE=local_noauth
       - OPENSEO_TELEMETRY_DISABLED=${OPENSEO_TELEMETRY_DISABLED:-}
       - DO_NOT_TRACK=${DO_NOT_TRACK:-}
-      - DATAFORSEO_API_KEY=${DATAFORSEO_API_KEY}
+      - DATAFORSEO_API_KEY=${DATAFORSEO_API_KEY:-}
       # Optional: AI features (the SAM agent). Without this the setup
       # gate in the app asks for the key, but nothing here would forward it.
       - OPENROUTER_API_KEY=${OPENROUTER_API_KEY:-}
@@ -27,8 +27,7 @@ services:
       - GOOGLE_CLIENT_ID=${GOOGLE_CLIENT_ID:-}
       - GOOGLE_CLIENT_SECRET=${GOOGLE_CLIENT_SECRET:-}
       - BETTER_AUTH_SECRET=${BETTER_AUTH_SECRET:-}
-      # Optional: AI features (SAM, the in-app SEO agent)
-      - OPENROUTER_API_KEY=${OPENROUTER_API_KEY:-}
+      # Optional: AI model/provider overrides
       - OPENROUTER_MODEL=${OPENROUTER_MODEL:-}
       - OPENROUTER_BASE_URL=${OPENROUTER_BASE_URL:-}
       - VITE_SHOW_DEVTOOLS=false
