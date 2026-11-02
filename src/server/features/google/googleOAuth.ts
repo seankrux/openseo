@@ -8,6 +8,7 @@ import { resolveUserContextFromHeaders } from "@/middleware/ensure-user/resolve"
 import { AppError } from "@/server/lib/errors";
 import { responseForAppError } from "@/server/lib/http-errors";
 import { getPublicOrigin } from "@/server/mcp/public-origin";
+import { getOptionalEnvValue } from "@/server/lib/runtime-env";
 import {
   GA4_DATA_SCOPE,
   GA4_OAUTH_PROVIDER_ID,
@@ -81,6 +82,38 @@ export const GA4_INTEGRATION: GoogleOAuthIntegration = {
   scopes: GA4_OAUTH_SCOPES,
   requiredScope: GA4_DATA_SCOPE,
 };
+
+/** CityThrive fork: when GSC_OAUTH_MANAGE_SCOPES=1, the Search Console connect
+ *  also asks for `webmasters` (add sites) and `siteverification` (DNS TXT
+ *  verification) so the gsc_onboard_domain MCP tool can add and verify new
+ *  properties with that login. Off by default (read-only, upstream behaviour). */
+export const GSC_MANAGE_SCOPES = [
+  "https://www.googleapis.com/auth/webmasters",
+  "https://www.googleapis.com/auth/siteverification",
+] as const;
+
+/** CityThrive fork: GA4_OAUTH_MANAGE_SCOPES=1 adds analytics.edit so GA4 setup can create
+ *  properties and web streams with the connected login. */
+export const GA4_MANAGE_SCOPES = ["https://www.googleapis.com/auth/analytics.edit"] as const;
+
+async function getRequestedScopes(
+  integration: GoogleOAuthIntegration,
+): Promise<string[]> {
+  const scopes = [...integration.scopes];
+  const on = async (name: string) => {
+    const f = (await getOptionalEnvValue(name))?.trim();
+    // CityThrive fork: full edit scopes are the default; set the flag to 0/false to opt out.
+    return !(f === "0" || f?.toLowerCase() === "false");
+  };
+  const extra =
+    integration.provider === "gsc" && (await on("GSC_OAUTH_MANAGE_SCOPES"))
+      ? GSC_MANAGE_SCOPES
+      : integration.provider === "ga4" && (await on("GA4_OAUTH_MANAGE_SCOPES"))
+        ? GA4_MANAGE_SCOPES
+        : [];
+  for (const s of extra) if (!scopes.includes(s)) scopes.push(s);
+  return scopes;
+}
 
 const googleTokenResponseSchema = z.object({
   access_token: z.string().min(1),
@@ -212,7 +245,10 @@ export async function createGoogleAuthorizationUrl(input: {
     getRedirectUri(input.publicOrigin, input.integration),
   );
   url.searchParams.set("response_type", "code");
-  url.searchParams.set("scope", input.integration.scopes.join(" "));
+  url.searchParams.set(
+    "scope",
+    (await getRequestedScopes(input.integration)).join(" "),
+  );
   url.searchParams.set("access_type", "offline");
   url.searchParams.set("prompt", "select_account consent");
   url.searchParams.set("state", state);

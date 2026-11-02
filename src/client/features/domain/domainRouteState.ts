@@ -50,8 +50,11 @@ export type DomainOverviewRouteState = {
   hasAppliedPageFilters: boolean;
 };
 
-function resolveScope(search: DomainSearchParams): ResearchScope {
-  const path = getResearchInputPath(search.domain ?? "");
+function resolveScope(
+  search: DomainSearchParams,
+  effectiveDomain: string,
+): ResearchScope {
+  const path = getResearchInputPath(effectiveDomain);
   if (search.scope && isScopeAllowedForInput(search.scope, path)) {
     return search.scope;
   }
@@ -69,7 +72,7 @@ function numberToFilterString(value: number | undefined): string {
 
 export function getDomainRouteState(
   search: DomainSearchParams,
-  projectMarket?: ProjectMarket,
+  projectMarket?: ProjectMarket & { domain?: string | null },
 ): DomainOverviewRouteState {
   const normalizedSort = toSortMode(search.sort ?? null) ?? "traffic";
   const defaultLocationCode =
@@ -82,16 +85,19 @@ export function getDomainRouteState(
       ? search.loc
       : defaultLocationCode;
 
+  const effectiveDomain =
+    search.domain && search.domain.trim().length > 0
+      ? search.domain
+      : (projectMarket?.domain ?? "");
+
   return {
-    domain: search.domain ?? "",
-    scope: resolveScope(search),
+    domain: effectiveDomain,
+    scope: resolveScope(search, effectiveDomain),
     sort: normalizedSort,
     order: resolveSortOrder(normalizedSort, toSortOrder(search.order ?? null)),
     tab: search.tab ?? "keywords",
     defaultLocationCode,
     locationCode: normalizedLocationCode,
-    // A non-Labs `loc` is dropped so the server uses the same default the
-    // location select shows.
     sentLocationCode:
       search.loc != null && isLabsLocationCode(search.loc)
         ? search.loc

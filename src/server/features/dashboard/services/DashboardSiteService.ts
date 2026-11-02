@@ -90,7 +90,7 @@ async function getKeywords(projectId: string, organizationId: string) {
       refreshError: null,
     };
   return DashboardCacheService.readThrough({
-    namespace: DashboardCacheService.gscNamespace(projectId, "keywords"),
+    namespace: DashboardCacheService.gscNamespace(projectId, "keywords-v3"),
     organizationId,
     params: {
       projectId,

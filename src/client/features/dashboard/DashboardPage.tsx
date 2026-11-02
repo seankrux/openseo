@@ -31,8 +31,10 @@ import {
   getDashboardActivation,
   getDashboardOverview,
 } from "@/serverFunctions/dashboard";
+import { getSeoApiKeyStatus } from "@/serverFunctions/config";
 import { Skeleton } from "@/client/components/ui/skeleton";
 import { isHostedClientAuthMode } from "@/lib/auth-mode";
+import { DashboardScopeTabs } from "@/client/features/fleet/DashboardScopeTabs";
 
 export function DashboardPage({
   projectId,
@@ -54,6 +56,13 @@ export function DashboardPage({
     refetchInterval: (query) =>
       query.state.data?.audit?.status === "running" ? 3000 : false,
   });
+
+  // CityThrive fork: DataForSEO-backed widgets are hidden when no key is set.
+  const seoKeyQuery = useQuery({
+    queryKey: ["seoApiKeyStatus"],
+    queryFn: () => getSeoApiKeyStatus(),
+  });
+  const dataforseoConfigured = seoKeyQuery.data?.configured === true;
 
   const activation = activationQuery.data;
   const overview = overviewQuery.data;
@@ -90,7 +99,7 @@ export function DashboardPage({
     );
   }
 
-  const showBacklinks = activation.domain !== null;
+  const showBacklinks = activation.domain !== null && dataforseoConfigured;
   const gscConnected = activation.gsc.connected;
   const ga4Connected = activation.ga4.connected;
 
@@ -162,12 +171,17 @@ export function DashboardPage({
   return (
     <div className="px-4 py-4 pb-24 md:px-6 md:py-6 md:pb-8">
       <div className="mx-auto flex max-w-7xl flex-col gap-5">
+        <DashboardScopeTabs
+          current="project"
+          projectId={projectId}
+          projectLabel={activation.domain}
+        />
         <div className="flex flex-wrap items-end justify-between gap-3">
-          <div>
+          <div className="min-w-0 flex-1 basis-64">
             <p className="mb-1 text-xs font-medium uppercase tracking-wider text-muted-foreground">
               Your website
             </p>
-            <h1 className="text-2xl font-semibold">
+            <h1 className="text-xl font-semibold [overflow-wrap:anywhere] md:text-2xl">
               {activation.domain || "Dashboard"}
             </h1>
             <p className="mt-1 text-sm text-muted-foreground">
@@ -213,6 +227,13 @@ export function DashboardPage({
           key={projectId}
           projectId={projectId}
           activation={activation}
+          // Competitor and keyword research need DataForSEO; without a key
+          // those steps would open tools that cannot return anything.
+          hiddenSteps={
+            seoKeyQuery.data?.configured === false
+              ? ["competitor", "keywords"]
+              : []
+          }
         />
 
         <Tabs
@@ -259,7 +280,7 @@ export function DashboardPage({
             />
           </TabsContent>
           <TabsContent value="backlinks" keepMounted={false}>
-            {activation.domain ? (
+            {activation.domain && dataforseoConfigured ? (
               <DashboardBacklinks
                 key={activation.domain}
                 projectId={projectId}
@@ -270,7 +291,11 @@ export function DashboardPage({
                 variant="card"
                 icon={Link2}
                 title="See who links to your website"
-                description="Add your website to track new and lost backlinks and the sites sending them."
+                description={
+                  activation.domain
+                    ? "Backlink data needs a DataForSEO key, which this install intentionally does not use."
+                    : "Add your website to track new and lost backlinks and the sites sending them."
+                }
                 action={
                   <Button
                     nativeButton={false}

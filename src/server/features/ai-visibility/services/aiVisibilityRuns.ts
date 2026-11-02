@@ -10,6 +10,7 @@ import {
   getOptionalEnvValue,
   isHostedServerAuthMode,
 } from "@/server/lib/runtime-env";
+import { getProxyLlmConfig } from "@/server/lib/proxyLlm";
 import {
   getOrCreateOrganizationCustomer,
   getUsageCreditsRemaining,
@@ -75,10 +76,14 @@ export async function startRun(
   billing: BillingCustomerContext,
   promptIds?: string[],
 ): Promise<AiRun> {
-  if (!(await getOptionalEnvValue("DATAFORSEO_API_KEY")))
+  const hasProvider = Boolean(
+    (await getOptionalEnvValue("DATAFORSEO_API_KEY")) ||
+    (await getProxyLlmConfig()),
+  );
+  if (!hasProvider)
     throw new AiVisibilityError(
       "PROVIDER_NOT_CONFIGURED",
-      "An operator must configure DATAFORSEO_API_KEY before collection. Your saved tracker remains available.",
+      "An operator must configure DataForSEO or an AI model proxy before collection. Your saved tracker remains available.",
     );
   const project = await repo.getProject(config.tracker.projectId);
   if (

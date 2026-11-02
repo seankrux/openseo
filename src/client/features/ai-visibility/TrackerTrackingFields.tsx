@@ -66,6 +66,9 @@ export function TrackerTrackingFields({
           const unavailable = AI_UNSUPPORTED_LOCATIONS[
             capability.engine
           ].includes(value.locationCode);
+          const providerUnavailable =
+            capability.available === false &&
+            !value.engines.includes(capability.engine);
           return (
             <Tooltip key={capability.engine} disabled={!unavailable}>
               <TooltipTrigger
@@ -73,7 +76,7 @@ export function TrackerTrackingFields({
                   <label
                     className={cn(
                       "flex items-center gap-3 rounded-lg border p-3 border-border",
-                      unavailable
+                      unavailable || providerUnavailable
                         ? "cursor-not-allowed opacity-50"
                         : "cursor-pointer",
                     )}
@@ -82,7 +85,7 @@ export function TrackerTrackingFields({
               >
                 <Checkbox
                   checked={value.engines.includes(capability.engine)}
-                  disabled={disabled || unavailable}
+                  disabled={disabled || unavailable || providerUnavailable}
                   onCheckedChange={(checked) =>
                     onChange({
                       ...value,
@@ -94,11 +97,18 @@ export function TrackerTrackingFields({
                     })
                   }
                 />
-                <span className="text-sm font-medium">
-                  <EngineLabel
-                    engine={capability.engine}
-                    label={capability.label}
-                  />
+                <span className="space-y-1 text-sm font-medium">
+                  <span className="block">
+                    <EngineLabel
+                      engine={capability.engine}
+                      label={capability.label}
+                    />
+                  </span>
+                  {capability.unavailableReason ? (
+                    <span className="block text-xs font-normal text-muted-foreground">
+                      {capability.unavailableReason}
+                    </span>
+                  ) : null}
                 </span>
                 {unavailable && (
                   <TriangleAlert className="ml-auto size-4 text-muted-foreground" />
@@ -122,7 +132,7 @@ export function TrackerTrackingFields({
       )}
       {engineGroup(
         "API responses",
-        "Answers from each model's API, with web search.",
+        "Answers from each model's API. Search and sources depend on the provider's returned evidence.",
         state.capabilities.filter((capability) => capability.modelApi),
       )}
       <ProjectMarketFields

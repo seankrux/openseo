@@ -118,6 +118,8 @@ export async function researchWebsite(
   const sources = new Set<string>();
   let searchSucceeded = false;
   let searchOutage = false;
+  // Without live search, keep the business research but omit competitors.
+  const noLiveSerp = !(await getOptionalEnvValue("DATAFORSEO_API_KEY"));
   const outputSchema = z.object({
     ...(missingOverview
       ? { overview: websiteResearchSchema.shape.overview.max(3500) }
@@ -161,13 +163,14 @@ export async function researchWebsite(
       let searched = false;
       let sitesRead = 0;
       searchSucceeded = false;
-      searchOutage = false;
+      searchOutage = noLiveSerp;
       sources.clear();
       return generateText({
         model: buildChatAgentModel(
           await getRequiredEnvValue("OPENROUTER_API_KEY"),
           await getOptionalEnvValue("OPENROUTER_MODEL"),
           "low",
+          await getOptionalEnvValue("OPENROUTER_BASE_URL"),
         ),
         output: Output.object({
           schema: outputSchema,
@@ -220,6 +223,11 @@ export async function researchWebsite(
                       "The search budget is exhausted. Use the existing results.",
                     );
                   searched = true;
+                  if (noLiveSerp)
+                    return {
+                      error:
+                        "Live search is unavailable. Skip competitor research and return no competitors.",
+                    };
                   const results = await Promise.allSettled(
                     queries.map(async (keyword) => {
                       // Searches belong to the already-admitted research task; collect

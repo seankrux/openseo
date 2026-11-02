@@ -10,6 +10,7 @@ import {
 import { DataforseoChargedTaskError } from "@/server/lib/dataforseo/envelope";
 import { resolveLatestLlmModelName } from "@/server/lib/dataforseo/llm-models";
 import { AppError, asAppError } from "@/server/lib/errors";
+import { getProxyLlmConfig, proxyLlmResponse } from "@/server/lib/proxyLlm";
 import type { ErrorCode } from "@/shared/error-codes";
 import { getIsoCountryCode } from "@/shared/keyword-locations";
 import {
@@ -28,22 +29,15 @@ import { AI_ANSWER_FAILURES } from "./aiVisibilityErrors";
 import { matchAiBrand } from "./aiVisibilityMatching";
 import { failAiRun } from "./aiVisibilityRuns";
 
-// Each function here is one workflow step body: inputs are its parameters and
-// the return value is what the workflow engine persists and replays.
-
 interface AiTask {
-  /** The answer row id. */
   tag: string;
   prompt: string;
-  /** Attempts already made, when a queued answer is posted again. */
   attempts?: number;
 }
 interface AiTaskBatch {
   engine: AiEngine;
-  /** At most 100 per task_post, 6 per model batch. */
   tasks: AiTask[];
 }
-/** One live answer. A live step mixes engines, so each task names its own. */
 type AiLiveTask = AiTask & { engine: AiEngine };
 export type AiPendingTask = PostedAiTrackingTask &
   AiLiveTask & { attempts: number };
@@ -52,19 +46,8 @@ interface AiRunMarket {
   languageCode: string;
 }
 
-/**
- * Live answers per workflow step. A Worker holds 6 connections open at once,
- * so a larger step only queues calls behind the first 6.
- */
 const LIVE_ANSWERS_PER_STEP = 6;
-
-/**
- * Attempts per answer. A new attempt follows only when DataForSEO returned the
- * task and its own backend failed it, so the failure and its cost are known. A
- * transport error or a timeout can hide a charge, so it is never retried.
- */
 const AI_ANSWER_ATTEMPTS = 3;
-/** Pause before a new attempt, so a short provider outage can clear. */
 const AI_RETRY_DELAY_MS = 3_000;
 
 const waitBeforeRetry = () =>
@@ -74,13 +57,6 @@ function errorMessage(error: unknown) {
   return error instanceof Error ? error.message : String(error);
 }
 
-/**
- * Marks the run running and groups its answers into batches. Manual and
- * baseline runs collect live answers so the user sees results sooner.
- * Scheduled runs use the cheaper standard queue. Claude and Perplexity have no
- * LLM Scraper, so every run asks their model API (`modelBatches`). startRun
- * checked credits before the run was created.
- */
 export async function prepareAiRun(
   runId: string,
 ): Promise<
@@ -96,7 +72,8 @@ export async function prepareAiRun(
   const pending = (await repo.getObservations([runId])).filter(
     (row) => row.status === "pending",
   );
-  const live = run.trigger !== "scheduled";
+  const proxy = await getProxyLlmConfig();
+  const live = Boolean(proxy) || run.trigger !== "scheduled";
   await repo.updateRun(runId, { status: "running" });
   const market = {
     locationCode: run.locationCode,
@@ -126,7 +103,6 @@ export async function prepareAiRun(
   };
 }
 
-/** Groups answers by engine into batches of at most `size`. */
 function engineBatches(answers: AiLiveTask[], size: number): AiTaskBatch[] {
   const batches: AiTaskBatch[] = [];
   for (const engine of new Set(answers.map((task) => task.engine))) {
@@ -139,18 +115,15 @@ function engineBatches(answers: AiLiveTask[], size: number): AiTaskBatch[] {
   return batches;
 }
 
-/**
- * Posts one batch through the metered client, which bills it. Answers the
- * provider did not accept fail now; the rest are collected later.
- */
 export async function postAiBatch(
   runId: string,
   customer: BillingCustomerContext,
   market: AiRunMarket,
   batch: AiTaskBatch,
 ): Promise<AiPendingTask[]> {
+  const proxy = await getProxyLlmConfig();
+  if (proxy) return [];
   let posted: PostedAiTrackingTask[] = [];
-  // A rejected entry is logged where it is parsed.
   let error: ErrorCode = "INTERNAL_ERROR";
   try {
     posted = await createDataforseoClient(customer).aiSearch.trackingTaskPost({
@@ -176,11 +149,6 @@ export async function postAiBatch(
   });
 }
 
-/**
- * Collects one batch of live answers through the metered client, which bills
- * them, and saves each one. An answer that DataForSEO's backend failed is
- * asked again, up to AI_ANSWER_ATTEMPTS.
- */
 export async function collectAiLiveBatch(
   runId: string,
   customer: BillingCustomerContext,
@@ -204,9 +172,6 @@ export async function collectAiLiveBatch(
         retry.push(task);
         continue;
       }
-      // Every answer here is already paid for, and the step cannot rerun, so
-      // one failed write must not drop the rest. finalizeAiRun fails the
-      // answer that stays pending.
       try {
         await saveAiOutcome(runId, task, result, brands);
       } catch (error) {
@@ -220,12 +185,46 @@ export async function collectAiLiveBatch(
   }
 }
 
-/** A call that throws becomes a failed answer that is not retried. */
 async function fetchLiveAnswers(
   customer: BillingCustomerContext,
   market: AiRunMarket,
   tasks: AiLiveTask[],
 ): Promise<AiTrackingAnswer[]> {
+  const proxy = await getProxyLlmConfig();
+  if (proxy) {
+    return Promise.all(
+      tasks.map(async (task) => {
+        try {
+          const result = await proxyLlmResponse(proxy, {
+            modelSlug: task.engine,
+            userPrompt: task.prompt,
+            maxOutputTokens: MODEL_MAX_OUTPUT_TOKENS,
+          });
+          const parsed = parseLlmResponseAnswer(result);
+          return {
+            status: "completed" as const,
+            result: {
+              datetime: new Date().toISOString(),
+              markdown: parsed.answerMarkdown,
+              sources: parsed.citations.map((c) => ({
+                url: c.url,
+                title: c.title,
+                domain: c.domain,
+              })),
+            },
+          };
+        } catch (err) {
+          return {
+            status: "failed" as const,
+            message: errorMessage(err),
+            code: asAppError(err)?.code ?? "INTERNAL_ERROR",
+            retryable: false,
+          };
+        }
+      }),
+    );
+  }
+
   let settled: PromiseSettledResult<AiTrackingAnswer>[];
   try {
     settled = await createDataforseoClient(customer).aiSearch.trackingLiveBatch(
@@ -246,14 +245,6 @@ async function fetchLiveAnswers(
   );
 }
 
-/**
- * Asks each prompt of a Claude or Perplexity batch through the metered model
- * API client, which bills each answer, and saves each answer as soon as it
- * arrives, so a slow call that hits the step timeout cannot discard answers
- * already paid for. An answer that DataForSEO's backend failed is asked again,
- * up to AI_ANSWER_ATTEMPTS. Model answers have no language setting: only the
- * country guides the web search.
- */
 export async function collectAiModelBatch(
   runId: string,
   customer: BillingCustomerContext,
@@ -265,6 +256,31 @@ export async function collectAiModelBatch(
     throw new AppError("INTERNAL_ERROR", `${modelSlug} has no model API batch`);
   const brands = await runBrands(runId);
   if (!brands) return;
+
+  const proxy = await getProxyLlmConfig();
+  if (proxy) {
+    await Promise.all(
+      batch.tasks.map(async (task) => {
+        try {
+          const result = await proxyLlmResponse(proxy, {
+            modelSlug,
+            userPrompt: task.prompt,
+            maxOutputTokens: MODEL_MAX_OUTPUT_TOKENS,
+          });
+          await saveAiAnswer(task.tag, parseLlmResponseAnswer(result), brands);
+        } catch (cause) {
+          console.warn(
+            `[ai-visibility] proxy ${runId} answer ${task.tag} failed:`,
+            cause,
+          );
+          const code = asAppError(cause)?.code ?? "INTERNAL_ERROR";
+          await repo.failPendingObservations(runId, code, [task.tag]);
+        }
+      }),
+    );
+    return;
+  }
+
   const client = createDataforseoClient(customer);
   const modelName = await resolveLatestLlmModelName(modelSlug);
   const country = getIsoCountryCode(market.locationCode).toUpperCase();
@@ -277,14 +293,12 @@ export async function collectAiModelBatch(
             modelName,
             userPrompt: task.prompt,
             webSearch: true,
-            // Saving the tracker rejects countries the engine cannot search.
             webSearchCountryCode: country,
             maxOutputTokens: MODEL_MAX_OUTPUT_TOKENS,
           });
           await saveAiAnswer(task.tag, parseLlmResponseAnswer(result), brands);
           return;
         } catch (cause) {
-          // A charged task error is a task DataForSEO returned with its cost.
           if (
             cause instanceof DataforseoChargedTaskError &&
             cause.code === "UPSTREAM_UNAVAILABLE" &&
@@ -306,21 +320,9 @@ export async function collectAiModelBatch(
   );
 }
 
-/**
- * Like Prompt Explorer: reasoning models count hidden reasoning against this
- * budget, and a smaller one can leave the visible answer empty.
- */
 const MODEL_MAX_OUTPUT_TOKENS = 4096;
-
-/** Concurrent task_get requests within a collect step. */
 const TASK_GET_CONCURRENCY = 25;
 
-/**
- * Reads each pending answer once (task_get is free) and saves finished ones
- * with their citations and brand results. Returns the tasks still pending, and
- * the answers DataForSEO's backend failed that `canRetry` lets the caller post
- * again.
- */
 export async function collectAiRound(
   runId: string,
   tasks: AiPendingTask[],
@@ -337,7 +339,6 @@ export async function collectAiRound(
     );
     for (const [index, outcome] of outcomes.entries()) {
       const task = chunk[index];
-      // A failed read is retried next round.
       if (outcome.status === "rejected" || outcome.value.status === "pending") {
         pending.push(task);
         continue;
@@ -358,7 +359,6 @@ export async function collectAiRound(
   return { pending, retry: engineBatches(retry, MAX_TASKS_PER_POST) };
 }
 
-/** Brands come from the project as each answer is matched. */
 async function runBrands(runId: string) {
   const run = await repo.getRunInternal(runId);
   const project = run ? await repo.getProject(run.projectId) : null;
@@ -366,7 +366,6 @@ async function runBrands(runId: string) {
   return aiBrands(project, await repo.listCompetitors(project.id));
 }
 
-/** Saves a finished answer with its citations and brand results, or fails it. */
 async function saveAiOutcome(
   runId: string,
   task: { tag: string; engine: AiEngine },
@@ -391,7 +390,6 @@ async function saveAiOutcome(
   await saveAiAnswer(task.tag, answer, brands);
 }
 
-/** Saves one answer with its citations and brand results. */
 async function saveAiAnswer(
   observationId: string,
   answer: ParsedAiAnswer,
@@ -419,7 +417,6 @@ async function saveAiAnswer(
   });
 }
 
-/** Fails answers that never arrived and records how the run finished. */
 export async function finalizeAiRun(runId: string) {
   const run = await repo.getRunInternal(runId);
   if (!run || run.status !== "running") return;
@@ -441,7 +438,6 @@ export async function finalizeAiRun(runId: string) {
   });
 }
 
-/** The workflow's failure path: fail the run and say why on the tracker. */
 export async function markAiRunFailed(runId: string) {
   const message = AI_ANSWER_FAILURES.runFailed;
   await failAiRun(runId, message);

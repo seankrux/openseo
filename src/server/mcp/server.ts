@@ -95,6 +95,9 @@ import {
   saveReportTool,
 } from "@/server/mcp/tools/report-tools";
 import { setReportSharingTool } from "@/server/mcp/tools/report-sharing-tools";
+import { generateProjectHealthReportTool } from "@/server/mcp/tools/project-health-tools";
+import { previewProjectAlertsTool } from "@/server/mcp/tools/project-alert-tools";
+import { refreshBingWebmasterSnapshotTool } from "@/server/mcp/tools/bing-tools";
 import {
   deleteReportTemplateTool,
   listReportTemplatesTool,
@@ -117,6 +120,19 @@ import {
   listSiteAuditsTool,
 } from "@/server/mcp/tools/site-audit-cleanup-tools";
 import { whoamiTool } from "@/server/mcp/tools/whoami";
+import {
+  autoLinkGooglePropertiesTool,
+  linkGa4PropertyTool,
+  linkGscPropertyTool,
+  listGooglePropertiesTool,
+} from "@/server/mcp/tools/google-linking-tools";
+import { ga4SetupBulkTool, ga4SetupSiteTool, ga4SetupStatusTool } from "@/server/mcp/tools/ga4-setup-tool";
+import {
+  domainHealthTool,
+  recheckDomainTool,
+  runDomainHealthTool,
+} from "@/server/mcp/tools/domain-health-tools";
+import { gscOnboardDomainTool } from "@/server/mcp/tools/gsc-onboard-tool";
 import { explorePromptTool } from "@/server/mcp/tools/explore-prompt";
 import { registerWidgetResource } from "@/server/mcp/widget-resource";
 import { rememberWidgetResult } from "@/server/mcp/widget-results";
@@ -281,6 +297,17 @@ export function createOpenSeoMcpServer(
   }
 
   register(whoamiTool);
+  register(listGooglePropertiesTool);
+  register(linkGscPropertyTool);
+  register(linkGa4PropertyTool);
+  register(autoLinkGooglePropertiesTool);
+  register(gscOnboardDomainTool);
+  register(ga4SetupSiteTool);
+  register(ga4SetupBulkTool);
+  register(ga4SetupStatusTool);
+  register(domainHealthTool);
+  register(recheckDomainTool);
+  register(runDomainHealthTool);
   register(listProjectsTool);
   register(createProjectTool);
   register(researchProjectWebsiteTool);
@@ -353,6 +380,9 @@ export function createOpenSeoMcpServer(
   register(getAuditStatusTool);
   register(getAuditIssuesTool);
   register(getAuditPagesTool);
+  register(generateProjectHealthReportTool);
+  register(previewProjectAlertsTool);
+  register(refreshBingWebmasterSnapshotTool);
   register(saveReportTool);
   register(listReportsTool);
   register(getReportTool);

@@ -39,8 +39,9 @@ import {
 import { QueryError } from "@/client/components/QueryState";
 import { getFleetDashboard } from "@/serverFunctions/portfolio";
 import { triggerDomainHealthRun } from "@/serverFunctions/domainHealth";
-import { getLastProjectId } from "@/client/lib/active-project";
+import { ActiveProjectContext } from "@/client/lib/active-project";
 import { DashboardScopeTabs } from "./DashboardScopeTabs";
+import { FleetProviderInventory } from "./FleetProviderInventory";
 import {
   fleetChartsLabel,
   fleetSiteTableLabel,
@@ -132,6 +133,12 @@ const issuesConfig = {
   count: { label: "Issues", color: "var(--color-primary)" },
 } satisfies ChartConfig;
 
+const PROVIDER_LABELS = {
+  gsc: "Search Console",
+  ga4: "GA4",
+  bing: "Bing Webmaster",
+} as const;
+
 const HEALTH_LABELS: Record<string, string> = {
   live_ok: "Live",
   redirect_intended: "Intended redirect",
@@ -189,10 +196,18 @@ function SiteLink({
 function MoversList({
   rows,
   kind,
+  available,
 }: {
   rows: Fleet["gainers"];
   kind: "up" | "down";
+  available: boolean;
 }) {
+  if (!available)
+    return (
+      <p className="text-sm text-muted-foreground">
+        Unavailable · no current GSC metrics.
+      </p>
+    );
   if (rows.length === 0)
     return (
       <p className="text-sm text-muted-foreground">
@@ -458,10 +473,8 @@ export function FleetDashboardPage() {
     mutationFn: () => getFleetDashboard({ data: { refresh: true } }),
     onSuccess: (data) => qc.setQueryData(["fleetDashboard"], data),
   });
-  // Read after mount: localStorage is not available during SSR, and reading it
-  // in render made the server and client markup differ (hydration mismatch).
-  const [projectId, setProjectId] = React.useState<string | null>(null);
-  React.useEffect(() => setProjectId(getLastProjectId()), []);
+  // Share the shell's validated selection, including async fallback/healing.
+  const projectId = React.useContext(ActiveProjectContext);
   const d = query.data;
 
   return (
@@ -555,131 +568,247 @@ function FleetBody({ d }: { d: Fleet }) {
     .map((t) => ({ ...t, label: t.type.replace(/-/g, " ") }));
   return (
     <>
+      <div
+        role="status"
+        className="rounded-lg border border-border bg-card p-4 text-sm"
+      >
+        <p className="font-medium">
+          {fmt(d.coverage.projects)} active websites · totals reflect available
+          data, not every linked site
+        </p>
+        <p className="mt-1 text-muted-foreground">
+          Current metrics: Search Console {fmt(d.gsc.sites)}/
+          {fmt(d.coverage.gscLinked)} linked sites; GA4 {fmt(d.ga4.sites)}/
+          {fmt(d.coverage.ga4Linked)}; Bing {fmt(d.bing.sites)}/
+          {fmt(d.coverage.bingLinked)}. Missing, failed and stale data is
+          excluded—not treated as zero. All websites and account states are
+          listed below.
+        </p>
+        <p className="mt-1 text-xs text-muted-foreground">
+          Providers refresh in the background. Rebuild snapshot only re-reads
+          stored data; it does not reconnect Google accounts or fetch the whole
+          fleet.
+        </p>
+      </div>
+      {d.providerIssues.length > 0 ? (
+        <div
+          role="alert"
+          className="space-y-2 rounded-lg border border-destructive/30 bg-destructive/5 p-4 text-sm"
+        >
+          {d.providerIssues.map((issue) => (
+            <div
+              key={`${issue.provider}:${issue.error}`}
+              className="flex flex-wrap items-center gap-x-3 gap-y-1"
+            >
+              <AlertTriangle
+                className="size-4 shrink-0 text-destructive"
+                aria-hidden
+              />
+              <span>
+                <strong>{PROVIDER_LABELS[issue.provider]}</strong> data is
+                unavailable for {fmt(issue.sites)} sites: {issue.error}
+              </span>
+              {issue.provider === "bing" ? null : (
+                <Link
+                  to="/p/$projectId/settings/integrations"
+                  params={{ projectId: issue.projectId }}
+                  className="font-medium text-primary underline underline-offset-4"
+                >
+                  Reconnect {PROVIDER_LABELS[issue.provider]}
+                </Link>
+              )}
+            </div>
+          ))}
+          <p className="text-xs text-muted-foreground">
+            Reconnecting a Google account once fixes every site that uses it.
+            The dashboard picks the numbers up on its next rebuild.
+          </p>
+        </div>
+      ) : null}
+
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
         <Kpi
-          label="Clicks"
+          label="GSC clicks"
           icon={<MousePointerClick className="size-4" />}
-          value={fmt(d.gsc.clicks)}
-          delta={<Delta value={pct(d.gsc.clicks, d.gsc.prevClicks)} />}
-          sub={`Prior period ${fmt(d.gsc.prevClicks)}`}
-        />
-        <Kpi
-          label="Impressions"
-          icon={<BarChart3 className="size-4" />}
-          value={fmt(d.gsc.impressions)}
+          value={d.gsc.sites ? fmt(d.gsc.clicks) : "Unavailable"}
           delta={
-            <Delta value={pct(d.gsc.impressions, d.gsc.prevImpressions)} />
+            d.gsc.sites ? (
+              <Delta value={pct(d.gsc.clicks, d.gsc.prevClicks)} />
+            ) : undefined
           }
-          sub={`Prior period ${fmt(d.gsc.prevImpressions)}`}
+          sub={
+            d.gsc.sites
+              ? `From ${fmt(d.gsc.sites)} sites · prior ${fmt(d.gsc.prevClicks)}`
+              : "No current Search Console metrics"
+          }
         />
         <Kpi
-          label="CTR"
+          label="GSC impressions"
+          icon={<BarChart3 className="size-4" />}
+          value={d.gsc.sites ? fmt(d.gsc.impressions) : "Unavailable"}
+          delta={
+            d.gsc.sites ? (
+              <Delta value={pct(d.gsc.impressions, d.gsc.prevImpressions)} />
+            ) : undefined
+          }
+          sub={
+            d.gsc.sites
+              ? `From ${fmt(d.gsc.sites)} sites · prior ${fmt(d.gsc.prevImpressions)}`
+              : "No current Search Console metrics"
+          }
+        />
+        <Kpi
+          label="GSC CTR"
           icon={<Activity className="size-4" />}
-          value={`${ctr.toFixed(2)}%`}
-          delta={<Delta value={ctr - prevCtr} suffix=" pts" />}
-          sub={`Prior period ${prevCtr.toFixed(2)}%`}
+          value={
+            !d.gsc.sites
+              ? "Unavailable"
+              : d.gsc.impressions > 0
+                ? `${ctr.toFixed(2)}%`
+                : "n/a"
+          }
+          delta={
+            d.gsc.impressions > 0 && d.gsc.prevImpressions > 0 ? (
+              <Delta value={ctr - prevCtr} suffix=" pts" />
+            ) : undefined
+          }
+          sub={
+            d.gsc.sites
+              ? d.gsc.prevImpressions > 0
+                ? `Prior period ${prevCtr.toFixed(2)}%`
+                : "No prior-period impressions"
+              : "No current Search Console metrics"
+          }
         />
         <Kpi
-          label="Avg. position"
+          label="GSC avg. position"
           icon={<Search className="size-4" />}
-          value={d.gsc.position != null ? d.gsc.position.toFixed(1) : "n/a"}
-          delta={<Delta value={posDelta} invert suffix="" />}
+          value={
+            !d.gsc.sites
+              ? "Unavailable"
+              : d.gsc.position != null
+                ? d.gsc.position.toFixed(1)
+                : "n/a"
+          }
+          delta={
+            posDelta !== null ? (
+              <Delta value={posDelta} invert suffix="" />
+            ) : undefined
+          }
           sub={
             d.gsc.prevPosition != null
               ? `Prior period ${d.gsc.prevPosition.toFixed(1)}, lower is better`
-              : undefined
+              : "Position requires reported impressions"
           }
         />
       </div>
 
       <div className="grid gap-5 lg:grid-cols-3">
         <div className="lg:col-span-2">
-          <CardShell title="Search clicks, all sites">
+          <CardShell title="Search clicks · available sites">
             <p className="mb-3 text-sm text-muted-foreground">
               Daily clicks, current 28 days against the prior 28 days. Based on{" "}
-              {fmt(d.dailySites)} of {fmt(d.coverage.gscLinked)} Search Console
-              sites
-              {d.dailySites < d.gsc.sites
-                ? "; the rest fill in over the next hours"
-                : ""}
-              .
+              {fmt(d.dailySites)} of {fmt(d.coverage.gscLinked)} linked Search
+              Console sites. This is a partial trend when coverage is
+              incomplete.
             </p>
-            <ChartContainer config={trendConfig} className="h-56 w-full">
-              <AreaChart
-                data={d.daily}
-                margin={{ top: 4, right: 8, bottom: 0, left: 0 }}
-              >
-                <XAxis
-                  dataKey="date"
-                  tickFormatter={shortDay}
-                  tick={{ fontSize: 11 }}
-                  tickLine={false}
-                  axisLine={false}
-                  minTickGap={32}
-                />
-                <YAxis
-                  tick={{ fontSize: 11 }}
-                  tickLine={false}
-                  axisLine={false}
-                  width={44}
-                  allowDecimals={false}
-                />
-                <ChartTooltip
-                  content={
-                    <ChartTooltipContent
-                      labelFormatter={(l: unknown) =>
-                        typeof l === "string" ? shortDay(l) : ""
-                      }
-                    />
-                  }
-                />
-                <ChartLegend content={<ChartLegendContent />} />
-                <Area
-                  type="monotone"
-                  dataKey="prevClicks"
-                  stroke="var(--color-prevClicks)"
-                  strokeDasharray="4 4"
-                  fill="none"
-                  strokeWidth={1.5}
-                />
-                <Area
-                  type="monotone"
-                  dataKey="clicks"
-                  stroke="var(--color-clicks)"
-                  fill="var(--color-clicks)"
-                  fillOpacity={0.1}
-                  strokeWidth={2}
-                />
-              </AreaChart>
-            </ChartContainer>
+            {d.dailySites === 0 ? (
+              <p className="py-12 text-center text-sm text-muted-foreground">
+                No current Search Console trend is available.
+              </p>
+            ) : (
+              <ChartContainer config={trendConfig} className="h-56 w-full">
+                <AreaChart
+                  data={d.daily}
+                  margin={{ top: 4, right: 8, bottom: 0, left: 0 }}
+                >
+                  <XAxis
+                    dataKey="date"
+                    tickFormatter={shortDay}
+                    tick={{ fontSize: 11 }}
+                    tickLine={false}
+                    axisLine={false}
+                    minTickGap={32}
+                  />
+                  <YAxis
+                    tick={{ fontSize: 11 }}
+                    tickLine={false}
+                    axisLine={false}
+                    width={44}
+                    allowDecimals={false}
+                  />
+                  <ChartTooltip
+                    content={
+                      <ChartTooltipContent
+                        labelFormatter={(l: unknown) =>
+                          typeof l === "string" ? shortDay(l) : ""
+                        }
+                      />
+                    }
+                  />
+                  <ChartLegend content={<ChartLegendContent />} />
+                  <Area
+                    type="monotone"
+                    dataKey="prevClicks"
+                    stroke="var(--color-prevClicks)"
+                    strokeDasharray="4 4"
+                    fill="none"
+                    strokeWidth={1.5}
+                  />
+                  <Area
+                    type="monotone"
+                    dataKey="clicks"
+                    stroke="var(--color-clicks)"
+                    fill="var(--color-clicks)"
+                    fillOpacity={0.1}
+                    strokeWidth={2}
+                  />
+                </AreaChart>
+              </ChartContainer>
+            )}
           </CardShell>
         </div>
-        <CardShell title="GA4 sessions" icon={<Activity className="size-4" />}>
+        <CardShell
+          title="GA4 sessions · all channels"
+          icon={<Activity className="size-4" />}
+        >
           <div className="space-y-3">
             <div className="flex items-baseline gap-2">
               <span className="text-3xl font-semibold tabular-nums">
-                {fmt(d.ga4.sessions)}
+                {d.ga4.sites ? fmt(d.ga4.sessions) : "Unavailable"}
               </span>
-              <Delta value={pct(d.ga4.sessions, d.ga4.prevSessions)} />
+              {d.ga4.sites ? (
+                <Delta value={pct(d.ga4.sessions, d.ga4.prevSessions)} />
+              ) : null}
             </div>
             <p className="text-sm text-muted-foreground">
-              Sessions, all channels, for the last 28 complete days in each
-              property's reporting time zone, across {fmt(d.ga4.sites)} GA4
-              sites. These dates differ from the Search Console window. Prior
-              period {fmt(d.ga4.prevSessions)}.
+              All-channel traffic, not organic-only. Last 28 complete days in
+              each property's reporting time zone, from {fmt(d.ga4.sites)} of{" "}
+              {fmt(d.coverage.ga4Linked)} linked sites. These dates differ from
+              Search Console. Users are summed across properties, not
+              deduplicated people.
+              {d.ga4.sites
+                ? ` Prior period ${fmt(d.ga4.prevSessions)}.`
+                : " No current GA4 metrics are available; check the account states below."}
             </p>
             <dl className="grid grid-cols-2 gap-3 text-sm">
               <div>
-                <dt className="text-muted-foreground">Active users</dt>
+                <dt className="text-muted-foreground">
+                  Active users · sum of properties
+                </dt>
                 <dd className="font-medium tabular-nums">
-                  {fmt(d.ga4.users)}{" "}
-                  <Delta value={pct(d.ga4.users, d.ga4.prevUsers)} />
+                  {d.ga4.sites ? fmt(d.ga4.users) : "Unavailable"}{" "}
+                  {d.ga4.sites ? (
+                    <Delta value={pct(d.ga4.users, d.ga4.prevUsers)} />
+                  ) : null}
                 </dd>
               </div>
               <div>
-                <dt className="text-muted-foreground">Linked, 0 sessions</dt>
+                <dt className="text-muted-foreground">
+                  Available sites, 0 sessions
+                </dt>
                 <dd className="font-medium tabular-nums">
-                  {fmt(d.ga4.zeroSessionSites)}
+                  {d.ga4.sites ? fmt(d.ga4.zeroSessionSites) : "Unavailable"}
                 </dd>
               </div>
             </dl>
@@ -687,18 +816,62 @@ function FleetBody({ d }: { d: Fleet }) {
         </CardShell>
       </div>
 
+      <CardShell
+        title="Bing Webmaster · separate reporting scope"
+        icon={<Search className="size-4" />}
+      >
+        <div className="grid gap-4 sm:grid-cols-3">
+          <div>
+            <p className="text-xs text-muted-foreground">Clicks</p>
+            <p className="mt-1 text-2xl font-semibold tabular-nums">
+              {d.bing.clicks === null ? "Unavailable" : fmt(d.bing.clicks)}
+            </p>
+          </div>
+          <div>
+            <p className="text-xs text-muted-foreground">Impressions</p>
+            <p className="mt-1 text-2xl font-semibold tabular-nums">
+              {d.bing.impressions === null
+                ? "Unavailable"
+                : fmt(d.bing.impressions)}
+            </p>
+          </div>
+          <div>
+            <p className="text-xs text-muted-foreground">
+              Current stored snapshots
+            </p>
+            <p className="mt-1 text-2xl font-semibold tabular-nums">
+              {fmt(d.bing.sites)} / {fmt(d.coverage.bingLinked)}
+            </p>
+          </div>
+        </div>
+        <p className="mt-3 text-sm text-muted-foreground">
+          Combined Bing surfaces, using provider-returned dates
+          {d.bing.startDate && d.bing.endDate
+            ? ` (${shortDay(d.bing.startDate)} to ${shortDay(d.bing.endDate)})`
+            : " (no dated performance available)"}
+          . Not a matched 28-day window and not added to Search Console totals.
+        </p>
+        {d.bing.limitations.map((limitation) => (
+          <p key={limitation} className="mt-1 text-xs text-muted-foreground">
+            {limitation}
+          </p>
+        ))}
+      </CardShell>
+
+      <FleetProviderInventory total={d.coverage.projects} />
+
       <div className="grid gap-5 lg:grid-cols-3">
         <CardShell
           title="Top gaining sites"
           icon={<ArrowUpRight className="size-4 text-success" />}
         >
-          <MoversList rows={d.gainers} kind="up" />
+          <MoversList rows={d.gainers} kind="up" available={d.gsc.sites > 0} />
         </CardShell>
         <CardShell
           title="Top losing sites"
           icon={<ArrowDownRight className="size-4 text-destructive" />}
         >
-          <MoversList rows={d.losers} kind="down" />
+          <MoversList rows={d.losers} kind="down" available={d.gsc.sites > 0} />
         </CardShell>
         <CardShell title="Coverage" icon={<Globe className="size-4" />}>
           <div className="space-y-4">
@@ -706,13 +879,19 @@ function FleetBody({ d }: { d: Fleet }) {
               label="Search Console linked"
               n={d.coverage.gscLinked}
               of={d.coverage.projects}
-              hint={`${fmt(d.coverage.gscCached)} with cached data`}
+              hint={`${fmt(d.coverage.gscCached)} with current metrics included`}
             />
             <Coverage
               label="GA4 linked"
               n={d.coverage.ga4Linked}
               of={d.coverage.projects}
-              hint={`${fmt(d.coverage.ga4Cached)} with cached data`}
+              hint={`${fmt(d.coverage.ga4Cached)} with current metrics included`}
+            />
+            <Coverage
+              label="Bing linked"
+              n={d.coverage.bingLinked}
+              of={d.coverage.projects}
+              hint={`${fmt(d.coverage.bingCached)} current snapshots`}
             />
             <Coverage
               label="Audited"
@@ -720,7 +899,8 @@ function FleetBody({ d }: { d: Fleet }) {
               of={d.coverage.projects}
             />
             <p className="text-xs text-muted-foreground">
-              {fmt(d.coverage.neither)} sites have neither GSC nor GA4.
+              {fmt(d.coverage.neither)} sites have no linked GSC, GA4 or Bing
+              provider.
             </p>
           </div>
         </CardShell>
@@ -728,7 +908,7 @@ function FleetBody({ d }: { d: Fleet }) {
 
       <div className="grid gap-5 lg:grid-cols-2">
         <CardShell
-          title="Top queries, all sites"
+          title="Top queries · independently cached sample"
           icon={<Search className="size-4" />}
         >
           {d.topQueries.length === 0 ? (
@@ -740,7 +920,9 @@ function FleetBody({ d }: { d: Fleet }) {
             <>
               <p className="mb-2 text-xs text-muted-foreground">
                 Top {d.topQueries.length} by clicks, from{" "}
-                {fmt(d.coverage.queriesCached)} sites so far.
+                {fmt(d.coverage.queriesCached)} sites with current query caches.
+                This sample has separate coverage and must not be used as the
+                fleet metric total.
               </p>
               <div
                 role="region"

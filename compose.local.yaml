@@ -1,0 +1,7 @@
+services:
+  open-seo:
+    image: openseo-local:tokyo
+    pull_policy: never
+    build:
+      context: .
+      dockerfile: deploy/docker/Dockerfile

@@ -288,6 +288,20 @@
       "when": 1792713961615,
       "tag": "0040_bind_api_keys_to_organization",
       "breakpoints": true
+    },
+    {
+      "idx": 41,
+      "version": "7",
+      "when": 1793657418262,
+      "tag": "0041_bing_site_bindings",
+      "breakpoints": true
+    },
+    {
+      "idx": 42,
+      "version": "7",
+      "when": 1793657446779,
+      "tag": "0042_domain_health",
+      "breakpoints": true
     }
   ]
 }

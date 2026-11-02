@@ -8,6 +8,8 @@ export * from "./better-auth-schema";
 export * from "./billing.schema";
 export * from "./ga4.schema";
 export * from "./gsc.schema";
+export * from "./bing.schema";
 export * from "./telemetry.schema";
 export * from "./ai-visibility.schema";
 export * from "./local-seo.schema";
+export * from "./domain-health.schema";

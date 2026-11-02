@@ -27,6 +27,7 @@ import { sweepDubReferredOrganizations } from "@/server/referrals/dub";
 import { maybeSendSelfHostHeartbeat } from "@/server/lib/self-host-telemetry";
 import { handleGdprStorageErasure } from "@/server/gdpr/storage-erasure";
 import { GDPR_STORAGE_ERASURE_PATH } from "@/shared/gdpr-erasure";
+import { runScheduledGa4Setup } from "@/server/features/ga4-setup/Ga4SetupService";
 
 const startHandler = createStartHandler(defaultStreamHandler);
 
@@ -247,7 +248,25 @@ export default {
     }
     // Scope a per-request Postgres client for the cron run (no-op in D1 mode).
     const checks = await Promise.allSettled([
+      withPgClient(() => runScheduledGa4Setup()).catch((err) =>
+        console.error("[cron] GA4 setup autopilot failed:", err),
+      ),
       withPgClient(() => runScheduledRankChecks(env)),
+      withPgClient(async () => {
+        const { runDomainHealthTick } =
+          await import("@/server/features/domain-health/services/domainHealthTick");
+        await runDomainHealthTick();
+      }).catch((err) => console.error("[cron] domain health failed:", err)),
+      withPgClient(async () => {
+        const { runScheduledFleetDashboard } =
+          await import("@/server/features/portfolio/FleetDashboardService");
+        await runScheduledFleetDashboard();
+      }).catch((err) => console.error("[cron] fleet dashboard failed:", err)),
+      withPgClient(async () => {
+        const { runScheduledFleetReaudit } =
+          await import("@/server/features/portfolio/FleetReauditService");
+        await runScheduledFleetReaudit();
+      }).catch((err) => console.error("[cron] fleet re-audit failed:", err)),
       withPgClient(async () => {
         const { runScheduledAiVisibility } =
           await import("@/server/features/ai-visibility/services/scheduledAiVisibility");

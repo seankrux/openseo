@@ -121,7 +121,7 @@ const PAGE_URL = "https://example.com/blog/post";
 function expectParity(html: string) {
   const streamed = analyzeHtml(html, PAGE_URL, 200, 0);
   const reference = analyzeHtmlWithCheerio(html, PAGE_URL);
-  const { javascriptShell: _javascriptShell, ...existingAnalysis } = streamed;
+  const { javascriptShell: _javascriptShell, local: _local, ...existingAnalysis } = streamed;
   expect(existingAnalysis).toEqual(reference);
 }
 

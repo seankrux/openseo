@@ -15,9 +15,12 @@ import * as sqliteAuth from "./better-auth-schema";
 import * as sqliteBilling from "./billing.schema";
 import * as sqliteGa4 from "./ga4.schema";
 import * as sqliteGsc from "./gsc.schema";
+import * as sqliteBing from "./bing.schema";
+import * as pgBing from "./pg/bing.schema";
 import * as sqliteTelemetry from "./telemetry.schema";
 import * as sqliteAiVisibility from "./ai-visibility.schema";
 import * as sqliteLocalSeo from "./local-seo.schema";
+import * as sqliteDomainHealth from "./domain-health.schema";
 import * as pgApp from "./pg/app.schema";
 import * as pgProjectContext from "./pg/project-context.schema";
 import * as pgReports from "./pg/reports.schema";
@@ -31,6 +34,7 @@ import * as pgGsc from "./pg/gsc.schema";
 import * as pgTelemetry from "./pg/telemetry.schema";
 import * as pgAiVisibility from "./pg/ai-visibility.schema";
 import * as pgLocalSeo from "./pg/local-seo.schema";
+import * as pgDomainHealth from "./pg/domain-health.schema";
 
 // Guards the ONE structural artifact `db:generate` does not regenerate: the
 // hand-written Postgres schema. The provider-aware `db`/`@/db/schema` barrel
@@ -162,9 +166,11 @@ const sqliteAppTables = tablesFrom(
   sqliteBilling,
   sqliteGa4,
   sqliteGsc,
+  sqliteBing,
   sqliteTelemetry,
   sqliteAiVisibility,
   sqliteLocalSeo,
+  sqliteDomainHealth,
 );
 const pgAppTables = tablesFrom(
   pgApp,
@@ -176,9 +182,11 @@ const pgAppTables = tablesFrom(
   pgBilling,
   pgGa4,
   pgGsc,
+  pgBing,
   pgTelemetry,
   pgAiVisibility,
   pgLocalSeo,
+  pgDomainHealth,
 );
 const sqliteAuthTables = tablesFrom(sqliteAuth);
 const pgAuthTables = tablesFrom(pgAuth);

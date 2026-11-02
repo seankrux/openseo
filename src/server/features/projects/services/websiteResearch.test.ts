@@ -8,6 +8,7 @@ const {
   listSections,
   listCompetitors,
   listKeywords,
+  envValue,
 } = vi.hoisted(() => ({
   generateText: vi.fn(),
   readSite: vi.fn(),
@@ -15,6 +16,7 @@ const {
   listSections: vi.fn(),
   listCompetitors: vi.fn(),
   listKeywords: vi.fn(),
+  envValue: vi.fn(),
 }));
 vi.mock("ai", async (importOriginal) => ({
   NoObjectGeneratedError: (await importOriginal<typeof Ai>())
@@ -28,7 +30,7 @@ vi.mock("@/server/lib/scrape", () => ({ readSite }));
 vi.mock("@/server/lib/dataforseo/serp", () => ({ fetchLiveSerp: search }));
 vi.mock("@/server/lib/runtime-env", () => ({
   getRequiredEnvValue: vi.fn(),
-  getOptionalEnvValue: vi.fn(),
+  getOptionalEnvValue: envValue,
 }));
 vi.mock("@/server/lib/openrouter", () => ({ buildChatAgentModel: vi.fn() }));
 vi.mock("@/server/lib/chatAgent", () => ({
@@ -47,6 +49,7 @@ vi.mock(
 );
 
 import { NoObjectGeneratedError } from "ai";
+import { buildChatAgentModel } from "@/server/lib/openrouter";
 import { researchWebsite } from "./websiteResearch";
 import { billResearchSpend } from "@/server/billing/researchSpend";
 import { AppError } from "@/server/lib/errors";
@@ -86,6 +89,9 @@ type ResearchTools = {
 };
 
 beforeEach(() => {
+  envValue.mockImplementation(async (key: string) =>
+    key === "DATAFORSEO_API_KEY" ? "test-key" : undefined,
+  );
   listSections.mockResolvedValue([
     { key: "business_overview", content: overview },
   ]);
@@ -278,5 +284,45 @@ describe("researchWebsite", () => {
     expect(billResearchSpend).toHaveBeenCalledWith(customer, [
       expect.objectContaining({ provider: "context", costUsd: 0.0025 }),
     ]);
+  });
+
+  it("uses the configured model proxy and skips competitors when no DataForSEO key is set", async () => {
+    envValue.mockImplementation(async (key: string) =>
+      key === "OPENROUTER_BASE_URL" ? "https://proxy.example/v1" : undefined,
+    );
+    listCompetitors.mockResolvedValue([]);
+    listKeywords.mockResolvedValue([]);
+
+    const result = await researchWebsite(
+      "https://saved.com",
+      project,
+      customer,
+    );
+
+    expect(search).not.toHaveBeenCalled();
+    expect(result.competitors).toEqual([]);
+    expect(result.suggestedTopics).toEqual(topics);
+    expect(buildChatAgentModel).toHaveBeenCalledWith(
+      undefined,
+      undefined,
+      "low",
+      "https://proxy.example/v1",
+    );
+  });
+
+  it("does not accept unverified competitors when live search is unavailable and the model skips the search tool", async () => {
+    envValue.mockResolvedValue(undefined);
+    listCompetitors.mockResolvedValue([]);
+    generateText.mockResolvedValueOnce({
+      output: { competitors: [competitor] },
+    });
+
+    const result = await researchWebsite(
+      "https://saved.com",
+      project,
+      customer,
+    );
+
+    expect(result.competitors).toEqual([]);
   });
 });
