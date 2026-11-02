@@ -77,6 +77,9 @@ export interface AiCapability {
   note: string;
   /** Every run asks the model's API, at live API pricing. */
   modelApi: boolean;
+  /** Whether this instance has a route for the engine; not a connectivity test. */
+  available?: boolean;
+  unavailableReason?: string;
 }
 export interface AiRun {
   id: string;

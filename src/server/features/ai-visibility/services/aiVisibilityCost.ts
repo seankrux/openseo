@@ -5,6 +5,7 @@ import {
   getOptionalEnvValue,
   isHostedServerAuthMode,
 } from "@/server/lib/runtime-env";
+import { getProxyLlmConfig } from "@/server/lib/proxyLlm";
 import {
   aiEngineUsesModelApi,
   AI_ENGINE_LABELS,
@@ -22,19 +23,11 @@ import { scheduledChecksPerMonth } from "@/shared/rank-tracking";
 import type { EstimateAiCostInput } from "@/types/schemas/ai-visibility";
 import { projectPatch } from "./aiVisibilityMutation";
 
-/**
- * Raw DataForSEO USD for one answer. Claude and Perplexity always use the
- * model API. The other engines are live on Run now and queued otherwise.
- */
 function aiAnswerUsd(engine: AiEngine, mode: "live" | "queued") {
   if (aiEngineUsesModelApi(engine)) return llmResponseUsd(engine, true);
   return mode === "live" ? AI_LIVE_RECORD_COST_USD : AI_RECORD_COST_USD;
 }
 
-/**
- * The customer's cost for a check, given one engine per answer: credits when
- * hosted, else provider USD.
- */
 export function aiCostForAnswers(
   engines: AiEngine[],
   hosted: boolean,
@@ -78,6 +71,10 @@ export async function estimateCost(
   const scheduleInterval =
     input.scheduleInterval ?? current?.tracker.scheduleInterval ?? "weekly";
   const checksPerMonth = scheduledChecksPerMonth(scheduleInterval);
+  const hasProvider = Boolean(
+    (await getOptionalEnvValue("DATAFORSEO_API_KEY")) ||
+      (await getProxyLlmConfig()),
+  );
   return {
     promptCount: scope.prompts.length,
     engineCount: scope.engines.length,
@@ -99,7 +96,7 @@ export async function estimateCost(
             `${liveEngines.map((e) => AI_ENGINE_LABELS[e]).join(" and ")} ${liveEngines.length === 1 ? "uses" : "use"} live API pricing, which costs more per answer.`,
           ]
         : []),
-      ...(!(await getOptionalEnvValue("DATAFORSEO_API_KEY"))
+      ...(!hasProvider
         ? [
             "DataForSEO is not configured on this server. Setup is available; collection needs an operator to add its API key.",
           ]

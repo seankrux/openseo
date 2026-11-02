@@ -239,6 +239,13 @@
       "when": 1791953919444,
       "tag": "0033_lively_killer_shrike",
       "breakpoints": true
+    },
+    {
+      "idx": 34,
+      "version": "7",
+      "when": 1792425555745,
+      "tag": "0034_bing_site_bindings",
+      "breakpoints": true
     }
   ]
 }

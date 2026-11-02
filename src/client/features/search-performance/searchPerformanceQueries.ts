@@ -3,6 +3,8 @@ import type { z } from "zod";
 import { getSearchPerformanceTable } from "@/serverFunctions/searchPerformance";
 import type {
   searchPerformanceInputSchema,
+  SearchPerformanceSort,
+  SearchPerformanceSortOrder,
   SearchPerformanceTableDimension,
 } from "@/types/schemas/search-performance";
 
@@ -18,6 +20,8 @@ export function tableQueryOptions(
   page: number,
   pageSize: number,
   filterInput: FilterInput,
+  sort: SearchPerformanceSort = "clicks",
+  order: SearchPerformanceSortOrder = "desc",
 ) {
   return queryOptions({
     queryKey: [
@@ -27,10 +31,20 @@ export function tableQueryOptions(
       page,
       pageSize,
       filterInput,
+      sort,
+      order,
     ],
     queryFn: () =>
       getSearchPerformanceTable({
-        data: { projectId, dimension, page, pageSize, ...filterInput },
+        data: {
+          projectId,
+          dimension,
+          page,
+          pageSize,
+          sort,
+          order,
+          ...filterInput,
+        },
       }),
   });
 }

@@ -202,6 +202,7 @@ export class SamChatAgent extends Think {
       apiKey,
       getEnvValueSync(this.env, "OPENROUTER_MODEL"),
       reasoningEffort,
+      getEnvValueSync(this.env, "OPENROUTER_BASE_URL"),
     );
   }
 

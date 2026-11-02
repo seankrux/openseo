@@ -21,8 +21,6 @@ export const dataforseoCallsPerDay = {
   "spam-score-checker": 600,
   "domain-age-checker": null,
   "serp-simulator": null,
-  "google-review-link-generator": null,
-  "google-cid-converter": null,
 } satisfies Record<FreeToolSlug, number | null>;
 
 /** Ceiling across every paid tool combined, below the sum of the per-tool caps. */

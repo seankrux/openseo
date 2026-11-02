@@ -88,6 +88,10 @@ export async function researchWebsite(
   let searched = false;
   let searchSucceeded = false;
   let searchOutage = false;
+  // CityThrive fork: without a DataForSEO key there is no live SERP. Treat it
+  // as a search outage so the rest of the research (offer, audience, topics,
+  // keywords) is kept and competitors start empty instead of failing the run.
+  const noLiveSerp = !(await getOptionalEnvValue("DATAFORSEO_API_KEY"));
   let sitesRead = 0;
   const outputSchema = z.object({
     ...(missingOverview
@@ -123,6 +127,7 @@ export async function researchWebsite(
         await getRequiredEnvValue("OPENROUTER_API_KEY"),
         await getOptionalEnvValue("OPENROUTER_MODEL"),
         "low",
+        await getOptionalEnvValue("OPENROUTER_BASE_URL"),
       ),
       output: Output.object({
         schema: outputSchema,
@@ -175,6 +180,13 @@ export async function researchWebsite(
                     "The search budget is exhausted. Use the existing results.",
                   );
                 searched = true;
+                if (noLiveSerp) {
+                  searchOutage = true;
+                  return {
+                    error:
+                      "Live search is unavailable. Skip competitor research and return no competitors.",
+                  };
+                }
                 const results = await Promise.allSettled(
                   queries.map(async (keyword) => {
                     // Searches belong to the already-admitted research task; collect
@@ -320,6 +332,7 @@ export async function researchWebsite(
         "INTERNAL_ERROR",
         "Website research returned duplicate tracking suggestions. Please try again.",
       );
+    if (noLiveSerp) searchOutage = true;
     if (missingCompetitors && !searchSucceeded && !searchOutage)
       throw new AppError(
         "INTERNAL_ERROR",
