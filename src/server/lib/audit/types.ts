@@ -3,10 +3,10 @@ import type { LocalSignals } from "./local-signals";
  * Shared types for the site audit system.
  */
 
-import { z } from "zod";
 import type { PageFetchClass } from "@/shared/audit-fetch-class";
 import { MIN_AUDIT_PAGES, PAID_MAX_AUDIT_PAGES } from "@/shared/audit-limits";
 import { jsonCodec } from "@/shared/json";
+import { z } from "zod";
 
 export type LighthouseStrategy = "auto" | "none";
 

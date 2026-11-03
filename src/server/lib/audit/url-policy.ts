@@ -1,6 +1,6 @@
+import { auditRequestHeaders } from "@/server/lib/audit/web-bot-auth";
 import { AppError } from "@/server/lib/errors";
 import type { CrawlerAccess } from "@/shared/crawler-access";
-import { auditRequestHeaders } from "@/server/lib/audit/web-bot-auth";
 
 const BLOCKED_HOSTS = new Set([
   "localhost",
@@ -144,8 +144,9 @@ type DnsJsonResponse = {
 async function resolveAddressRecords(
   hostname: string,
   type: "A" | "AAAA",
+  fetchImpl: typeof globalThis.fetch = globalThis.fetch,
 ): Promise<string[]> {
-  const response = await fetch(
+  const response = await fetchImpl(
     `${DOH_ENDPOINT}?name=${encodeURIComponent(hostname)}&type=${type}`,
     {
       headers: { Accept: "application/dns-json" },
@@ -167,14 +168,15 @@ async function resolveAddressRecords(
 
 async function hostnameResolvesToBlockedAddress(
   hostname: string,
+  fetchImpl: typeof globalThis.fetch,
 ): Promise<boolean> {
   const host = normalizeHost(hostname);
   if (!host || isIpLiteral(host)) return false;
 
   try {
     const [v4, v6] = await Promise.all([
-      resolveAddressRecords(host, "A"),
-      resolveAddressRecords(host, "AAAA"),
+      resolveAddressRecords(host, "A", fetchImpl),
+      resolveAddressRecords(host, "AAAA", fetchImpl),
     ]);
 
     const addresses = [...v4, ...v6];
@@ -227,11 +229,15 @@ export function isCrawlableUrl(url: string): boolean {
 
 export async function normalizeAndValidateStartUrl(
   input: string,
+  fetchImpl: typeof globalThis.fetch = globalThis.fetch,
 ): Promise<string> {
   let raw = input.trim();
   if (!raw) throw new AppError("VALIDATION_ERROR");
 
-  if (!raw.startsWith("http://") && !raw.startsWith("https://")) {
+  if (/^[a-z][a-z\d+.-]*:\/\//i.test(raw) && !/^https?:\/\//i.test(raw)) {
+    throw new AppError("VALIDATION_ERROR");
+  }
+  if (!/^https?:\/\//i.test(raw)) {
     raw = `https://${raw}`;
   }
 
@@ -250,7 +256,7 @@ export async function normalizeAndValidateStartUrl(
     throw new AppError("CRAWL_TARGET_BLOCKED");
   }
 
-  if (await hostnameResolvesToBlockedAddress(parsed.hostname)) {
+  if (await hostnameResolvesToBlockedAddress(parsed.hostname, fetchImpl)) {
     throw new AppError("CRAWL_TARGET_BLOCKED");
   }
 

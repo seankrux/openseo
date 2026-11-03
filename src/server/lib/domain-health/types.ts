@@ -13,14 +13,6 @@ export const DOMAIN_HEALTH_CLASSES = [
 
 export type DomainHealthClass = (typeof DOMAIN_HEALTH_CLASSES)[number];
 
-export type DomainHealthStatusChangeKind =
-  | "went_down"
-  | "came_back"
-  | "ssl_expiring_soon"
-  | "ga4_tag_removed"
-  | "gtm_tag_removed"
-  | "class_changed";
-
 export interface DnsResult {
   ok: boolean;
   a: string[];
@@ -98,10 +90,4 @@ export interface CheckDomainHealthOptions {
   probeSsl?: (hostname: string, timeoutMs: number) => Promise<SslInfo>;
   /** Skip RDAP/WHOIS (always skipped when slow; reserved for future). */
   skipRdap?: boolean;
-}
-
-export interface CheckBatchOptions extends CheckDomainHealthOptions {
-  /** Concurrent checks (default 20). Keep low on small boxes. */
-  concurrency?: number;
-  onProgress?: (done: number, total: number, latest: DomainHealthResult) => void;
 }

@@ -3,11 +3,11 @@
  * cheerio/DOM reference implementation — the exact logic the analyzer
  * replaced. Cheerio stays as a devDependency for this test only.
  */
+import { analyzeHtml } from "@/server/lib/audit/page-analyzer";
+import type { PageAnalysis, PageLink } from "@/server/lib/audit/types";
+import { isSameOrigin, normalizeUrl } from "@/server/lib/audit/url-utils";
 import * as cheerio from "cheerio";
 import { describe, expect, it } from "vitest";
-import { analyzeHtml } from "@/server/lib/audit/page-analyzer";
-import { normalizeUrl, isSameOrigin } from "@/server/lib/audit/url-utils";
-import type { PageAnalysis, PageLink } from "@/server/lib/audit/types";
 
 /**
  * The previous cheerio implementation (minus passthrough fields), plus
@@ -121,7 +121,11 @@ const PAGE_URL = "https://example.com/blog/post";
 function expectParity(html: string) {
   const streamed = analyzeHtml(html, PAGE_URL, 200, 0);
   const reference = analyzeHtmlWithCheerio(html, PAGE_URL);
-  const { javascriptShell: _javascriptShell, local: _local, ...existingAnalysis } = streamed;
+  const {
+    javascriptShell: _javascriptShell,
+    local: _local,
+    ...existingAnalysis
+  } = streamed;
   expect(existingAnalysis).toEqual(reference);
 }
 

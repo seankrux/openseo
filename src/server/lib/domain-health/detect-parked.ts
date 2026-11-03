@@ -57,7 +57,12 @@ export function isCloudflareErrorPage(
 ): boolean {
   if (status != null && status >= 520 && status <= 530) return true;
   if (/Error code (10\d{2}|52\d)/i.test(html)) return true;
-  if (/cloudflare/i.test(html) && /(?:error|bad gateway|web server is down)/i.test(html) && status != null && status >= 500) {
+  if (
+    /cloudflare/i.test(html) &&
+    /(?:error|bad gateway|web server is down)/i.test(html) &&
+    status != null &&
+    status >= 500
+  ) {
     return true;
   }
   return false;

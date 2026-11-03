@@ -11,14 +11,14 @@
  * tokenizer keeps only the accumulated text and extracted fields in memory.
  */
 import { Parser } from "htmlparser2";
-import { normalizeUrl, isSameOrigin } from "./url-utils";
-import type { PageAnalysis, PageLink } from "./types";
 import {
   MAX_LD_JSON_CHARS,
   MAX_LOCAL_ITEMS,
   collectSchemaTypes,
   isPhoneLikeHref,
 } from "./local-signals";
+import type { PageAnalysis, PageLink } from "./types";
+import { isSameOrigin, normalizeUrl } from "./url-utils";
 
 const SKIPPED_LINK_PROTOCOLS = /^(javascript:|mailto:|tel:|#)/;
 /** Subtrees whose text is not visible content. */
@@ -226,6 +226,29 @@ export function analyzeHtml(
     });
   };
 
+  const handleAnchorTag = (attribs: Record<string, string>) => {
+    // HTML forbids nested <a>; browsers implicitly close the open
+    // one, and the tokenizer has no tree correction, so mirror that.
+    closeAnchor();
+    const href = attribs["href"];
+    if (href && /^\s*tel:/i.test(href) && telHrefs.length < MAX_LOCAL_ITEMS) {
+      telHrefs.push(href.trim());
+    } else if (
+      href &&
+      phoneLikeHrefs.length < MAX_LOCAL_ITEMS &&
+      isPhoneLikeHref(href)
+    ) {
+      phoneLikeHrefs.push(href.trim());
+    }
+    if (href && !SKIPPED_LINK_PROTOCOLS.test(href)) {
+      openAnchor = {
+        href,
+        rel: attribs["rel"]?.toLowerCase() ?? "",
+        text: [],
+      };
+    }
+  };
+
   const parser = new Parser(
     {
       onopentag(name, attribs) {
@@ -282,25 +305,9 @@ export function analyzeHtml(
               ldJsonChars = 0;
             }
             break;
-          case "a": {
-            // HTML forbids nested <a>; browsers implicitly close the open
-            // one, and the tokenizer has no tree correction, so mirror that.
-            closeAnchor();
-            const href = attribs["href"];
-            if (href && /^\s*tel:/i.test(href) && telHrefs.length < MAX_LOCAL_ITEMS) {
-              telHrefs.push(href.trim());
-            } else if (href && phoneLikeHrefs.length < MAX_LOCAL_ITEMS && isPhoneLikeHref(href)) {
-              phoneLikeHrefs.push(href.trim());
-            }
-            if (href && !SKIPPED_LINK_PROTOCOLS.test(href)) {
-              openAnchor = {
-                href,
-                rel: attribs["rel"]?.toLowerCase() ?? "",
-                text: [],
-              };
-            }
+          case "a":
+            handleAnchorTag(attribs);
             break;
-          }
         }
         const headingLevel = HEADING_LEVELS[name];
         if (headingLevel !== undefined) {

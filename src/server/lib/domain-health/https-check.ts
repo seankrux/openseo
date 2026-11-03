@@ -1,55 +1,17 @@
-import { isPrivateHost } from "./dns";
+import { readTextUpTo } from "@/server/lib/audit/html-response";
+import { normalizeAndValidateStartUrl } from "@/server/lib/audit/url-policy";
+import { getDomain } from "tldts";
 import type { HttpsResult } from "./types";
 
-function registrableHint(hostname: string): string {
-  const parts = hostname.toLowerCase().replace(/\.$/, "").split(".");
-  if (parts.length <= 2) return parts.join(".");
-  // Cheap eTLD+1 approximation — good enough for redirect-other-domain.
-  return parts.slice(-2).join(".");
-}
-
 function sameSite(a: string, b: string): boolean {
-  const ha = registrableHint(a);
-  const hb = registrableHint(b);
-  return ha === hb || ha.endsWith(`.${hb}`) || hb.endsWith(`.${ha}`);
-}
-
-async function readBoundedText(
-  response: Response,
-  maxBytes: number,
-): Promise<string> {
-  if (!response.body) return "";
-  const reader = response.body.getReader();
-  const decoder = new TextDecoder();
-  const parts: string[] = [];
-  let bytesRead = 0;
-  try {
-    while (bytesRead < maxBytes) {
-      const { done, value } = await reader.read();
-      if (done) break;
-      const remaining = maxBytes - bytesRead;
-      const chunk =
-        value.byteLength > remaining ? value.subarray(0, remaining) : value;
-      bytesRead += chunk.byteLength;
-      parts.push(decoder.decode(chunk, { stream: true }));
-      if (bytesRead >= maxBytes) {
-        await reader.cancel();
-        break;
-      }
-    }
-  } finally {
-    reader.releaseLock();
-  }
-  parts.push(decoder.decode());
-  return parts.join("");
+  const options = { allowPrivateDomains: true };
+  return (getDomain(a, options) ?? a) === (getDomain(b, options) ?? b);
 }
 
 function isSslFailure(err: unknown): boolean {
   const msg = err instanceof Error ? err.message : String(err);
   const cause =
-    err instanceof Error && err.cause instanceof Error
-      ? err.cause.message
-      : "";
+    err instanceof Error && err.cause instanceof Error ? err.cause.message : "";
   const hay = `${msg} ${cause}`.toLowerCase();
   return (
     hay.includes("cert") ||
@@ -91,8 +53,11 @@ export async function fetchHttpsRoot(
   let current = start;
   let hops = 0;
   const t0 = Date.now();
+  let targetValidated = false;
 
   try {
+    current = await normalizeAndValidateStartUrl(start, fetchImpl);
+    targetValidated = true;
     for (let hop = 0; hop <= maxRedirects; hop++) {
       const response = await fetchImpl(current, {
         method: "GET",
@@ -120,11 +85,14 @@ export async function fetchHttpsRoot(
             sslError: false,
           };
         }
+        await response.body?.cancel();
         const nextUrl = new URL(location, current);
-        if (
-          (nextUrl.protocol !== "https:" && nextUrl.protocol !== "http:") ||
-          isPrivateHost(nextUrl.hostname)
-        ) {
+        try {
+          current = await normalizeAndValidateStartUrl(
+            nextUrl.toString(),
+            fetchImpl,
+          );
+        } catch {
           return {
             ok: false,
             finalUrl: nextUrl.toString(),
@@ -138,12 +106,11 @@ export async function fetchHttpsRoot(
             sslError: false,
           };
         }
-        current = nextUrl.toString();
         hops += 1;
         continue;
       }
 
-      const bodySnippet = await readBoundedText(response, maxBodyBytes);
+      const bodySnippet = await readTextUpTo(response, maxBodyBytes);
       const finalHost = new URL(current).hostname;
       const redirectedOtherDomain = !sameSite(domain, finalHost);
 
@@ -181,7 +148,13 @@ export async function fetchHttpsRoot(
     // workerd reports TLS handshake and certificate failures as an opaque
     // "internal error; reference = ...". If the first HTTPS request failed that
     // way but plain HTTP answers, the server is up and TLS is the problem.
-    if (!timedOut && !sslError && hops === 0 && (await answersOverHttp(domain, fetchImpl, userAgent, timeoutMs))) {
+    if (
+      targetValidated &&
+      !timedOut &&
+      !sslError &&
+      hops === 0 &&
+      (await answersOverHttp(domain, fetchImpl, userAgent, timeoutMs))
+    ) {
       sslError = true;
       error = `HTTPS failed but HTTP answers (certificate or TLS problem): ${message}`;
     }

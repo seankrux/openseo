@@ -1,10 +1,17 @@
+import { z } from "zod";
 import type { DnsResult } from "./types";
 
 /** Cloudflare DoH JSON endpoint — works in Workers and Docker (no system DNS). */
-export const DOH_ENDPOINT = "https://cloudflare-dns.com/dns-query";
+const DOH_ENDPOINT = "https://cloudflare-dns.com/dns-query";
 
-type DnsJsonAnswer = { type?: number; data?: string };
-type DnsJsonResponse = { Status?: number; Answer?: DnsJsonAnswer[] };
+const dnsResponseSchema = z.object({
+  Status: z.number().optional(),
+  Answer: z
+    .array(
+      z.object({ type: z.number().optional(), data: z.string().optional() }),
+    )
+    .optional(),
+});
 
 const TYPE_A = 1;
 const TYPE_AAAA = 28;
@@ -29,7 +36,7 @@ async function dohQuery(
   });
   if (!response.ok) return [];
 
-  const body = (await response.json()) as DnsJsonResponse;
+  const body = dnsResponseSchema.parse(await response.json());
   if (body.Status !== 0 || !Array.isArray(body.Answer)) return [];
 
   const expected =
@@ -92,7 +99,10 @@ export async function resolveDomainDns(
  * fetches an internal address on behalf of a caller.
  */
 export function isPrivateAddress(ip: string): boolean {
-  const v = ip.trim().toLowerCase().replace(/^\[|\]$/g, "");
+  const v = ip
+    .trim()
+    .toLowerCase()
+    .replace(/^\[|\]$/g, "");
   const m = v.match(/^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/);
   if (m) {
     const [a, b] = [Number(m[1]), Number(m[2])];
@@ -112,13 +122,19 @@ export function isPrivateAddress(ip: string): boolean {
   if (!v.includes(":")) return false;
   if (v === "::" || v === "::1") return true;
   const mapped = v.match(/^::ffff:(\d+\.\d+\.\d+\.\d+)$/);
-  if (mapped) return isPrivateAddress(mapped[1]!);
+  if (mapped) return isPrivateAddress(mapped[1]);
   return /^(fc|fd|fe8|fe9|fea|feb|ff)/.test(v);
 }
 
 /** True when a URL host is an IP literal in a private range or a local name. */
 export function isPrivateHost(hostname: string): boolean {
   const h = hostname.toLowerCase().replace(/\.$/, "");
-  if (h === "localhost" || h.endsWith(".localhost") || h.endsWith(".internal") || h.endsWith(".ts.net")) return true;
+  if (
+    h === "localhost" ||
+    h.endsWith(".localhost") ||
+    h.endsWith(".internal") ||
+    h.endsWith(".ts.net")
+  )
+    return true;
   return isPrivateAddress(h);
 }
