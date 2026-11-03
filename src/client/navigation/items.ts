@@ -12,6 +12,7 @@ import {
   LayoutList,
   LayoutDashboard,
   Link2,
+  ListTodo,
   MessageSquare,
   Search,
   TrendingUp,
@@ -51,6 +52,11 @@ const projectNavItems = [
     to: "/p/$projectId/search-performance" as const,
     label: "GSC Insights",
     icon: GoogleGlyphMuted,
+  },
+  {
+    to: "/p/$projectId/execution" as const,
+    label: "Action Planner",
+    icon: ListTodo,
   },
   {
     to: "/p/$projectId/domain" as const,
@@ -174,6 +180,7 @@ export function getProjectNavGroups(projectId: string) {
       label: "My Site",
       items: [
         byPath("/p/$projectId/search-performance"),
+        byPath("/p/$projectId/execution"),
         byPath("/p/$projectId/rank-tracking"),
         byPath("/p/$projectId/saved"),
         byPath("/p/$projectId/audit"),

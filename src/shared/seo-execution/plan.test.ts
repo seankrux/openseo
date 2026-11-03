@@ -125,7 +125,7 @@ describe("SEO execution planner", () => {
 
   it("sanitizes non-finite metrics instead of making numerical claims", () => {
     const bad = {
-      ...source.rows[0]!,
+      ...source.rows[0],
       clicks: Number.NaN,
       impressions: -8,
       ctr: Number.POSITIVE_INFINITY,
@@ -151,10 +151,10 @@ describe("SEO execution planner", () => {
   it("builds a deterministic approved-for-review packet containing selected genuine actions only", () => {
     const plan = buildSeoExecutionPlan(source);
     const packet = buildSeoReviewPacket(plan, [
-      plan.actions[2]!.id,
+      plan.actions[2].id,
       "forged-action",
-      plan.actions[0]!.id,
-      plan.actions[0]!.id,
+      plan.actions[0].id,
+      plan.actions[0].id,
     ]);
     expect(packet.kind).toBe("openseo_review_packet_v1");
     expect(packet.reviewOnly).toBe(true);
