@@ -57,10 +57,11 @@ export function collectSchemaTypes(jsonText: string, into: Set<string>): void {
       return;
     }
     if (!node || typeof node !== "object") return;
-    const t = (node as Record<string, unknown>)["@type"];
+    const t: unknown = Reflect.get(node, "@type");
     if (typeof t === "string") into.add(t);
-    else if (Array.isArray(t)) for (const x of t) if (typeof x === "string") into.add(x);
-    for (const v of Object.values(node as Record<string, unknown>)) {
+    else if (Array.isArray(t))
+      for (const x of t) if (typeof x === "string") into.add(x);
+    for (const v of Object.values(node)) {
       if (v && typeof v === "object") walk(v, depth + 1);
     }
   };
@@ -72,11 +73,15 @@ const LOCAL_TYPE_RE =
   /(LocalBusiness|Organization|Corporation|Contractor|Business|Plumber|Electrician|Locksmith|MovingCompany|HousePainter|RoofingContractor|GeneralContractor|HVACBusiness|ProfessionalService|HomeAndConstructionBusiness|AutomotiveBusiness|Store|Dentist|Attorney|LegalService|MedicalBusiness|EmergencyService|FinancialService)$/;
 
 export function hasLocalBusinessSchema(types: string[]): boolean {
-  return types.some((t) => LOCAL_TYPE_RE.test(t.replace(/^https?:\/\/schema\.org\//, "")));
+  return types.some((t) =>
+    LOCAL_TYPE_RE.test(t.replace(/^https?:\/\/schema\.org\//, "")),
+  );
 }
 
 const US_STATES = new Set(
-  "al ak az ar ca co ct de fl ga hi id il in ia ks ky la me md ma mi mn ms mo mt ne nv nh nj nm ny nc nd oh ok or pa ri sc sd tn tx ut vt va wa wv wi wy dc".split(" "),
+  "al ak az ar ca co ct de fl ga hi id il in ia ks ky la me md ma mi mn ms mo mt ne nv nh nj nm ny nc nd oh ok or pa ri sc sd tn tx ut vt va wa wv wi wy dc".split(
+    " ",
+  ),
 );
 
 /**
@@ -85,11 +90,22 @@ const US_STATES = new Set(
  * null when the slug doesn't end with a state code. Returns up to the last
  * 3 words before the state code (words after an "-in-" marker when present).
  */
-export function citySlugFromPath(path: string): { words: string[]; state: string } | null {
-  const seg = path.toLowerCase().split(/[?#]/, 1)[0]!.replace(/\/+$/, "").split("/").pop() ?? "";
-  const parts = seg.replace(/\.(html?|php)$/, "").split("-").filter(Boolean);
+export function citySlugFromPath(
+  path: string,
+): { words: string[]; state: string } | null {
+  const seg =
+    path
+      .toLowerCase()
+      .split(/[?#]/, 1)[0]
+      .replace(/\/+$/, "")
+      .split("/")
+      .pop() ?? "";
+  const parts = seg
+    .replace(/\.(html?|php)$/, "")
+    .split("-")
+    .filter(Boolean);
   if (parts.length < 2) return null;
-  const state = parts[parts.length - 1]!;
+  const state = parts[parts.length - 1];
   if (!US_STATES.has(state)) return null;
   let words = parts.slice(0, -1);
   const inIdx = words.lastIndexOf("in");
@@ -99,8 +115,11 @@ export function citySlugFromPath(path: string): { words: string[]; state: string
 }
 
 /** The site's own city is assumed to be spelled inside its domain. */
-export function slugMatchesDomain(words: string[], host: string): boolean {
-  const compact = host.toLowerCase().replace(/^www\./, "").replace(/[^a-z]/g, "");
+function slugMatchesDomain(words: string[], host: string): boolean {
+  const compact = host
+    .toLowerCase()
+    .replace(/^www\./, "")
+    .replace(/[^a-z]/g, "");
   for (let n = 1; n <= words.length; n++) {
     const joined = words.slice(-n).join("");
     if (joined.length >= 4 && compact.includes(joined)) return true;

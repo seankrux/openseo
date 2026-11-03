@@ -1,18 +1,19 @@
+import { sort as sortArray } from "remeda";
 // CityThrive fork: per-project Search Console and GA4 fetchers and the audit
 // summary query behind the fleet pages. Results are cached per project in the
 // R2 cache (12h TTL); FleetDashboardService warms them on a budget and serves
 // the site table and dashboard from one assembled snapshot.
-import { eq, inArray, sql } from "drizzle-orm";
 import { db } from "@/db";
 import {
-  gscConnections,
-  ga4Connections,
-  audits,
   auditIssues,
   auditLighthouseResults,
+  audits,
+  ga4Connections,
+  gscConnections,
 } from "@/db/schema";
 import { GscService } from "@/server/features/gsc/services/GscService";
 import { createGa4DataClient } from "@/server/lib/ga4Client";
+import { eq, inArray, sql } from "drizzle-orm";
 import { ga4CacheKey } from "./PortfolioCacheKeys";
 
 export { ga4CacheKey } from "./PortfolioCacheKeys";
@@ -115,14 +116,16 @@ export async function fetchGsc(projectId: string): Promise<PortfolioGsc> {
         position: impressions > 0 ? posWeighted / impressions : null,
       };
     };
-    const daily: Array<[string, number, number]> = res.rows
-      .map((r): [string, number, number] => [
-        r.keys?.[0] ?? "",
-        r.clicks,
-        r.impressions,
-      ])
-      .filter((d) => d[0] >= w.prevStart && d[0] <= w.end)
-      .sort((a, b) => (a[0] < b[0] ? -1 : 1));
+    const daily: Array<[string, number, number]> = sortArray(
+      res.rows
+        .map((r): [string, number, number] => [
+          r.keys?.[0] ?? "",
+          r.clicks,
+          r.impressions,
+        ])
+        .filter((d) => d[0] >= w.prevStart && d[0] <= w.end),
+      (a, b) => (a[0] < b[0] ? -1 : 1),
+    );
     const cur = agg(w.curStart, w.end);
     const prev = agg(w.prevStart, w.prevEnd);
     return {
@@ -178,7 +181,12 @@ export async function fetchGa4(conn: {
       keepEmptyRows: false,
       returnPropertyQuota: true,
     });
-    const out = { sessions: 0, activeUsers: 0, prevSessions: 0, prevActiveUsers: 0 };
+    const out = {
+      sessions: 0,
+      activeUsers: 0,
+      prevSessions: 0,
+      prevActiveUsers: 0,
+    };
     for (const row of res.rows ?? []) {
       const range = row.dimensionValues?.[0]?.value ?? "date_range_0";
       const sessions = Number(row.metricValues?.[0]?.value ?? 0);
@@ -246,7 +254,9 @@ export async function getAuditSummaries(projectIds: string[]) {
       .select({
         auditId: auditLighthouseResults.auditId,
         seo: sql<number | null>`avg(${auditLighthouseResults.seoScore})`,
-        perf: sql<number | null>`avg(${auditLighthouseResults.performanceScore})`,
+        perf: sql<
+          number | null
+        >`avg(${auditLighthouseResults.performanceScore})`,
       })
       .from(auditLighthouseResults)
       .where(inArray(auditLighthouseResults.auditId, chunk))
@@ -277,12 +287,18 @@ export async function getAuditSummaries(projectIds: string[]) {
 
 async function clearCache(organizationId: string) {
   const rows = await db
-    .select({ projectId: gscConnections.projectId, siteUrl: gscConnections.siteUrl })
+    .select({
+      projectId: gscConnections.projectId,
+      siteUrl: gscConnections.siteUrl,
+    })
     .from(gscConnections)
     .where(eq(gscConnections.organizationId, organizationId));
   const { env } = await import("cloudflare:workers");
   const ga4Rows = await db
-    .select({ projectId: ga4Connections.projectId, propertyId: ga4Connections.propertyId })
+    .select({
+      projectId: ga4Connections.projectId,
+      propertyId: ga4Connections.propertyId,
+    })
     .from(ga4Connections)
     .where(eq(ga4Connections.organizationId, organizationId));
   const keys = [

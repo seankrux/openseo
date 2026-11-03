@@ -1,17 +1,17 @@
-import { z } from "zod";
-import { GscConnectionRepository } from "@/server/features/gsc/repositories/GscConnectionRepository";
 import { Ga4ConnectionRepository } from "@/server/features/ga4/repositories/Ga4ConnectionRepository";
-import { getCached } from "@/server/lib/r2-cache";
+import { GscConnectionRepository } from "@/server/features/gsc/repositories/GscConnectionRepository";
+import {
+  ga4EvidenceLimitations,
+  ga4ProvenanceSchema,
+  gscProvenanceSchema,
+  type StoredGa4Provenance,
+  type StoredGscProvenance,
+} from "@/server/features/project-alerts/GoogleSnapshotProvenance";
 import { ProjectRepository } from "@/server/features/projects/repositories/ProjectRepository";
 import { AppError } from "@/server/lib/errors";
+import { getCached } from "@/server/lib/r2-cache";
+import { z } from "zod";
 import { ga4CacheKey } from "./PortfolioCacheKeys";
-import {
-  gscProvenanceSchema,
-  ga4ProvenanceSchema,
-  ga4EvidenceLimitations,
-  type StoredGscProvenance,
-  type StoredGa4Provenance,
-} from "@/server/features/project-alerts/GoogleSnapshotProvenance";
 
 type EvidenceStatus =
   | "available"
@@ -38,7 +38,7 @@ export type StoredGscEvidence = Evidence<
   { clicks: number; impressions: number; position: number | null },
   StoredGscProvenance
 >;
-export type StoredGa4Evidence = Evidence<
+type StoredGa4Evidence = Evidence<
   { sessions: number; activeUsers: number },
   StoredGa4Provenance
 >;
