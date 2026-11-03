@@ -1,6 +1,3 @@
-import { symmetricDecrypt, symmetricEncrypt } from "better-auth/crypto";
-import { and, eq, sql } from "drizzle-orm";
-import { z } from "zod";
 import { db } from "@/db";
 import { account } from "@/db/schema";
 import { getAuth } from "@/lib/auth";
@@ -8,7 +5,6 @@ import { resolveUserContextFromHeaders } from "@/middleware/ensure-user/resolve"
 import { AppError } from "@/server/lib/errors";
 import { responseForAppError } from "@/server/lib/http-errors";
 import { getPublicOrigin } from "@/server/mcp/public-origin";
-import { getOptionalEnvValue } from "@/server/lib/runtime-env";
 import {
   GA4_DATA_SCOPE,
   GA4_OAUTH_PROVIDER_ID,
@@ -23,17 +19,21 @@ import {
   GSC_OAUTH_PROVIDER_ID,
   GSC_OAUTH_SCOPES,
 } from "@/shared/gsc";
-import {
-  getGoogleOAuthClientConfig,
-  hasGoogleOAuthConfig,
-} from "./oauth-config";
+import { symmetricDecrypt, symmetricEncrypt } from "better-auth/crypto";
+import { and, eq, sql } from "drizzle-orm";
+import { z } from "zod";
 import { getGoogleAccountId } from "./googleIdToken";
+import { getRequestedScopes } from "./googleOAuthScopes";
 import {
   consumeState,
   createState,
   getCodeChallenge,
   getCodeVerifier,
 } from "./googleOAuthState";
+import {
+  getGoogleOAuthClientConfig,
+  hasGoogleOAuthConfig,
+} from "./oauth-config";
 
 /**
  * Google data grants (Search Console, Analytics) are linked here rather than
@@ -82,38 +82,6 @@ export const GA4_INTEGRATION: GoogleOAuthIntegration = {
   scopes: GA4_OAUTH_SCOPES,
   requiredScope: GA4_DATA_SCOPE,
 };
-
-/** CityThrive fork: when GSC_OAUTH_MANAGE_SCOPES=1, the Search Console connect
- *  also asks for `webmasters` (add sites) and `siteverification` (DNS TXT
- *  verification) so the gsc_onboard_domain MCP tool can add and verify new
- *  properties with that login. Off by default (read-only, upstream behaviour). */
-export const GSC_MANAGE_SCOPES = [
-  "https://www.googleapis.com/auth/webmasters",
-  "https://www.googleapis.com/auth/siteverification",
-] as const;
-
-/** CityThrive fork: GA4_OAUTH_MANAGE_SCOPES=1 adds analytics.edit so GA4 setup can create
- *  properties and web streams with the connected login. */
-export const GA4_MANAGE_SCOPES = ["https://www.googleapis.com/auth/analytics.edit"] as const;
-
-async function getRequestedScopes(
-  integration: GoogleOAuthIntegration,
-): Promise<string[]> {
-  const scopes = [...integration.scopes];
-  const on = async (name: string) => {
-    const f = (await getOptionalEnvValue(name))?.trim();
-    // CityThrive fork: full edit scopes are the default; set the flag to 0/false to opt out.
-    return !(f === "0" || f?.toLowerCase() === "false");
-  };
-  const extra =
-    integration.provider === "gsc" && (await on("GSC_OAUTH_MANAGE_SCOPES"))
-      ? GSC_MANAGE_SCOPES
-      : integration.provider === "ga4" && (await on("GA4_OAUTH_MANAGE_SCOPES"))
-        ? GA4_MANAGE_SCOPES
-        : [];
-  for (const s of extra) if (!scopes.includes(s)) scopes.push(s);
-  return scopes;
-}
 
 const googleTokenResponseSchema = z.object({
   access_token: z.string().min(1),

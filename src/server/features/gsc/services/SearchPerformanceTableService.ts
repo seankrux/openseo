@@ -1,7 +1,5 @@
-import { z } from "zod";
 import { DashboardCacheService } from "@/server/features/dashboard/services/DashboardCacheService";
 import { GscConnectionRepository } from "@/server/features/gsc/repositories/GscConnectionRepository";
-import { GscNotConnectedError, GscService } from "./GscService";
 import type { GscPerformanceFilter } from "@/server/features/gsc/searchAnalytics";
 import { toDimensionRows } from "@/server/features/gsc/searchPerformanceReport";
 import type {
@@ -9,6 +7,9 @@ import type {
   SearchPerformanceSortOrder,
   SearchPerformanceTableDimension,
 } from "@/types/schemas/search-performance";
+import { sort as sortArray } from "remeda";
+import { z } from "zod";
+import { GscNotConnectedError, GscService } from "./GscService";
 
 const ROW_LIMIT = 25000;
 const rowSchema = z.object({
@@ -71,7 +72,7 @@ async function getPage(input: {
       }));
     },
   });
-  const rows = [...result.value].sort((a, b) => {
+  const rows = sortArray([...result.value], (a, b) => {
     const first = a[input.sort];
     const second = b[input.sort];
     // Unknown values stay last in either direction; a real zero stays numeric.
