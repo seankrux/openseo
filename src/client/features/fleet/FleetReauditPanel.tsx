@@ -1,7 +1,6 @@
 // CityThrive fork: fleet re-audit controls on the site table. A schedule
 // re-runs stale audits a few at a time; "this view" re-audits whatever the
 // table is filtered to, through the same paced queue.
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Button } from "@/client/components/ui/button";
 import {
   clearFleetReauditQueue,
@@ -9,6 +8,7 @@ import {
   queueFleetReaudit,
   setFleetReauditMode,
 } from "@/serverFunctions/portfolio";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
 type Status = Awaited<ReturnType<typeof getFleetReauditStatus>>;
 type Mode = Status["mode"];
@@ -29,7 +29,7 @@ function pace(status: Status) {
   return status.rates[status.mode === "off" ? "normal" : status.mode].perTick;
 }
 
-export function drainTime(sites: number, perTick: number) {
+function drainTime(sites: number, perTick: number) {
   const minutes = Math.ceil(sites / perTick) * TICK_MINUTES;
   if (minutes < 90) return `about ${minutes} minutes`;
   const hours = minutes / 60;
@@ -140,7 +140,8 @@ export function FleetReauditPanel({
     onSuccess: onDone,
   });
   const queue = useMutation({
-    mutationFn: () => queueFleetReaudit({ data: { projectIds: viewProjectIds } }),
+    mutationFn: () =>
+      queueFleetReaudit({ data: { projectIds: viewProjectIds } }),
     onSuccess: onDone,
   });
   const cancel = useMutation({
