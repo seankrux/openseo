@@ -252,23 +252,25 @@ export const AUDIT_ISSUE_TYPES = {
     severity: "critical",
     title: "Malformed phone link",
     explanation:
-      "A link that should dial the business is broken: either a tel: link without a valid 10-15 digit number, or a phone number written as a plain href (e.g. \"/+1-580-271-9887”\") that the browser treats as a page URL and 404s. Visitors tapping it cannot call, and crawlers record a broken internal link.",
+      'A link that should dial the business is broken: either a tel: link without a valid 10-15 digit number, or a phone number written as a plain href (e.g. "/+1-580-271-9887”") that the browser treats as a page URL and 404s. Visitors tapping it cannot call, and crawlers record a broken internal link.',
     howToFix:
-      "Use href=\"tel:+15802719887\" (digits only, optional leading +1). Fix it in the shared site template so every clone picks it up.",
+      'Use href="tel:+15802719887" (digits only, optional leading +1). Fix it in the shared site template so every clone picks it up.',
   },
   "missing-click-to-call": {
     severity: "warning",
     title: "No click-to-call link on homepage",
     explanation:
       "The homepage has no tel: link. For local-service sites most leads come from mobile visitors tapping the phone number.",
-    howToFix: "Wrap the displayed phone number in an <a href=\"tel:+1XXXXXXXXXX\"> link in the header and hero.",
+    howToFix:
+      'Wrap the displayed phone number in an <a href="tel:+1XXXXXXXXXX"> link in the header and hero.',
   },
   "missing-callrail": {
     severity: "info",
     title: "CallRail tracking script not detected",
     explanation:
       "No CallRail script (cdn.callrail.com / swap.js) was found in the homepage HTML, so calls from this site may not be tracked or number-swapped.",
-    howToFix: "If this site should use CallRail, add the company's swap.js snippet to the site template.",
+    howToFix:
+      "If this site should use CallRail, add the company's swap.js snippet to the site template.",
   },
   "missing-local-business-schema": {
     severity: "warning",
@@ -283,7 +285,8 @@ export const AUDIT_ISSUE_TYPES = {
     title: "Homepage is noindex",
     explanation:
       "The homepage carries a noindex directive (meta robots or X-Robots-Tag). Search engines will drop the entire site's main entry point from results.",
-    howToFix: "Remove noindex from the homepage (check SEO plugin settings and 'Discourage search engines' in WordPress).",
+    howToFix:
+      "Remove noindex from the homepage (check SEO plugin settings and 'Discourage search engines' in WordPress).",
   },
   "other-city-reference": {
     severity: "warning",

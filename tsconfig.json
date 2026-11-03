@@ -1,6 +1,12 @@
 {
   "include": ["**/*.ts", "**/*.tsx"],
-  "exclude": ["web/**/*", "tests/badseo/**/*", "src/report-widgets/**/*"],
+  "exclude": [
+    "web/**/*",
+    "tests/badseo/**/*",
+    "src/report-widgets/**/*",
+    // Archived partial source for an old review image, not application code.
+    "fork-build-tools-review-20261021/**/*"
+  ],
   "compilerOptions": {
     "strict": true,
     "esModuleInterop": true,

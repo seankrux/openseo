@@ -1,5 +1,5 @@
-import { fileURLToPath } from "node:url";
 import type { Page } from "@playwright/test";
+import { fileURLToPath } from "node:url";
 import { build } from "vite";
 import type { getBingConnection } from "../src/serverFunctions/bing";
 

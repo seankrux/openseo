@@ -1,7 +1,3 @@
-import { createServerFn } from "@tanstack/react-start";
-import { z } from "zod";
-import { requireAuthenticatedContext } from "@/serverFunctions/middleware";
-import { PortfolioService } from "@/server/features/portfolio/PortfolioService";
 import {
   getFleetDashboard as loadFleetDashboard,
   getPortfolioOverview as loadPortfolioOverview,
@@ -12,6 +8,10 @@ import {
   queueFleetReaudit as queueReaudit,
   setFleetReauditMode as setReauditMode,
 } from "@/server/features/portfolio/FleetReauditService";
+import { PortfolioService } from "@/server/features/portfolio/PortfolioService";
+import { requireAuthenticatedContext } from "@/serverFunctions/middleware";
+import { createServerFn } from "@tanstack/react-start";
+import { z } from "zod";
 
 // CityThrive fork: the site table reads the fleet snapshot (one cache object
 // plus a database query). It never calls Google; the scheduler warms caches.
@@ -73,7 +73,11 @@ export const queueFleetReaudit = createServerFn({ method: "POST" })
   .middleware(requireAuthenticatedContext)
   .validator(z.object({ projectIds: z.array(z.string()).min(1).max(5_000) }))
   .handler(async ({ context, data }) => {
-    await queueReaudit(context.organizationId, data.projectIds, actorOf(context));
+    await queueReaudit(
+      context.organizationId,
+      data.projectIds,
+      actorOf(context),
+    );
     return loadReauditStatus(context.organizationId);
   });
 
