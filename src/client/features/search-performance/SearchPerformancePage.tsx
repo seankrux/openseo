@@ -1,31 +1,13 @@
-import { useEffect, useMemo, useState } from "react";
-import { Link } from "@tanstack/react-router";
-import {
-  keepPreviousData,
-  useQuery,
-  useQueryClient,
-} from "@tanstack/react-query";
-import { SlidersHorizontal } from "lucide-react";
-import { toast } from "sonner";
-import { QueryError } from "@/client/components/QueryState";
 import { ExportMenu } from "@/client/components/ExportMenu";
+import { QueryError } from "@/client/components/QueryState";
+import { DataTableTabs } from "@/client/components/table/DataTableToolbar";
 import { Badge } from "@/client/components/ui/badge";
 import { Button } from "@/client/components/ui/button";
 import { Spinner } from "@/client/components/ui/spinner";
-import { DataTableTabs } from "@/client/components/table/DataTableToolbar";
 import { TabsTrigger } from "@/client/components/ui/tabs";
 import { GoogleConnectionCard } from "@/client/features/integrations/GoogleConnectionCard";
 import { DimensionSection } from "@/client/features/search-performance/SearchPerformanceDimensionSection";
-import { SearchPerformanceSelects } from "@/client/features/search-performance/SearchPerformanceSelects";
 import { SearchPerformanceLoadingState } from "@/client/features/search-performance/SearchPerformanceLoadingState";
-import {
-  tableQueryOptions,
-  type FilterInput,
-} from "@/client/features/search-performance/searchPerformanceQueries";
-import {
-  SearchPerformanceTextFilters,
-  type TextFilters,
-} from "@/client/features/search-performance/SearchPerformanceTextFilters";
 import {
   exportDimensionRows,
   exportStriking,
@@ -33,6 +15,15 @@ import {
   TotalsTable,
   type ExportTarget,
 } from "@/client/features/search-performance/SearchPerformanceParts";
+import {
+  tableQueryOptions,
+  type FilterInput,
+} from "@/client/features/search-performance/searchPerformanceQueries";
+import { SearchPerformanceSelects } from "@/client/features/search-performance/SearchPerformanceSelects";
+import {
+  SearchPerformanceTextFilters,
+  type TextFilters,
+} from "@/client/features/search-performance/SearchPerformanceTextFilters";
 import { getStandardErrorMessage } from "@/client/lib/error-messages";
 import {
   exportSearchPerformanceTable,
@@ -45,6 +36,15 @@ import {
   type SearchPerformanceTab,
   type SearchPerformanceTableDimension,
 } from "@/types/schemas/search-performance";
+import {
+  keepPreviousData,
+  useQuery,
+  useQueryClient,
+} from "@tanstack/react-query";
+import { Link } from "@tanstack/react-router";
+import { SlidersHorizontal } from "lucide-react";
+import { useEffect, useMemo, useState } from "react";
+import { toast } from "sonner";
 
 function tabDimension(
   tab: SearchPerformanceTab,
@@ -122,15 +122,15 @@ export function SearchPerformancePage({
   const isTableTab = tab === "queries" || tab === "pages";
   const dimension = tabDimension(tab);
   const tableQuery = useQuery({
-    ...tableQueryOptions(
-      projectId,
-      dimension,
-      page,
-      pageSize,
-      filterInput,
-      sort,
-      order,
-    ),
+    ...tableQueryOptions({
+      projectId: projectId,
+      dimension: dimension,
+      page: page,
+      pageSize: pageSize,
+      filterInput: filterInput,
+      sort: sort,
+      order: order,
+    }),
     enabled: report?.connected === true && isTableTab,
     // Hold the current rows while paging or filtering, but not across a tab
     // or project change: Query rows must not render under the Pages header.
@@ -146,15 +146,18 @@ export function SearchPerformancePage({
   useEffect(() => {
     if (report?.connected !== true) return;
     void queryClient.prefetchQuery(
-      tableQueryOptions(
-        projectId,
-        "query",
-        1,
-        SEARCH_PERFORMANCE_DEFAULT_PAGE_SIZE,
-        { ...buildFilterInput({ range, device, country }), ...textFilters },
-        sort,
-        order,
-      ),
+      tableQueryOptions({
+        projectId: projectId,
+        dimension: "query",
+        page: 1,
+        pageSize: SEARCH_PERFORMANCE_DEFAULT_PAGE_SIZE,
+        filterInput: {
+          ...buildFilterInput({ range, device, country }),
+          ...textFilters,
+        },
+        sort: sort,
+        order: order,
+      }),
     );
   }, [
     report?.connected,
@@ -347,8 +350,12 @@ export function SearchPerformancePage({
                         keyLabel={tab === "queries" ? "Query" : "Page"}
                         sort={sort}
                         order={order}
-                        onSortChange={(sort, order) =>
-                          onSearchChange({ sort, order, page: undefined })
+                        onSortChange={(nextSort, nextOrder) =>
+                          onSearchChange({
+                            sort: nextSort,
+                            order: nextOrder,
+                            page: undefined,
+                          })
                         }
                         page={page}
                         pageSize={pageSize}

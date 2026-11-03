@@ -1,8 +1,7 @@
+import { sort as sortArray } from "remeda";
+import { z } from "zod";
 // CityThrive fork: free rankings from Search Console (no DataForSEO needed).
-import { useMemo, useState } from "react";
-import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { RefreshCw } from "lucide-react";
-import { getProjectGscRankings } from "@/serverFunctions/gscRankings";
+import { EmptyState } from "@/client/components/EmptyState";
 import { Button } from "@/client/components/ui/button";
 import {
   Card,
@@ -12,8 +11,11 @@ import {
   CardTitle,
 } from "@/client/components/ui/card";
 import { Input } from "@/client/components/ui/input";
-import { EmptyState } from "@/client/components/EmptyState";
 import { formatRelativeTime } from "@/client/lib/relative-time";
+import { getProjectGscRankings } from "@/serverFunctions/gscRankings";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { RefreshCw } from "lucide-react";
+import { useMemo, useState } from "react";
 
 type SortKey = "impressions" | "clicks" | "position" | "change";
 
@@ -41,7 +43,7 @@ export function GscRankingsCard({ projectId }: { projectId: string }) {
     const list = (data?.rows ?? []).filter((r) => !f || r.query.includes(f));
     const change = (r: { position: number; prevPosition: number | null }) =>
       r.prevPosition == null ? -Infinity : r.prevPosition - r.position;
-    return [...list].sort((a, b) =>
+    return sortArray([...list], (a, b) =>
       sort === "position"
         ? a.position - b.position
         : sort === "change"
@@ -131,7 +133,13 @@ export function GscRankingsCard({ projectId }: { projectId: string }) {
                 aria-label="Sort queries"
                 className="h-9 w-full rounded-lg border border-input bg-background px-2 text-sm outline-none focus-visible:ring-3 focus-visible:ring-ring/50 sm:w-auto"
                 value={sort}
-                onChange={(e) => setSort(e.target.value as SortKey)}
+                onChange={(e) =>
+                  setSort(
+                    z
+                      .enum(["impressions", "clicks", "position", "change"])
+                      .parse(e.target.value),
+                  )
+                }
               >
                 <option value="impressions">Sort by impressions</option>
                 <option value="clicks">Sort by clicks</option>

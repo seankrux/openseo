@@ -1,12 +1,12 @@
+import { isHostedClientAuthMode } from "@/lib/auth-mode";
 import { FREE_MAX_AUDIT_PAGES } from "@/shared/audit-limits";
 import { isErrorCode, type ErrorCode } from "@/shared/error-codes";
-import { isHostedClientAuthMode } from "@/lib/auth-mode";
 
 /**
  * Copy for an error we did not expect. Hosted users cannot read our logs, so
  * they get support; a self-hoster runs the server and can.
  */
-export const UNEXPECTED_ERROR_MESSAGE = isHostedClientAuthMode()
+const UNEXPECTED_ERROR_MESSAGE = isHostedClientAuthMode()
   ? "Something went wrong on our end. Please try again, and contact support if it keeps happening."
   : "Something went wrong. Please try again, or check the server logs for details.";
 

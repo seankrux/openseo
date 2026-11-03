@@ -1,8 +1,5 @@
 import { describe, expect, it } from "vitest";
-import {
-  googleMapsSearchUrl,
-  mapsSearchQuery,
-} from "./local-operator-links";
+import { googleMapsSearchUrl, mapsSearchQuery } from "./local-operator-links";
 
 describe("local-operator-links", () => {
   it("builds a Maps search URL", () => {

@@ -1,5 +1,3 @@
-import { queryOptions } from "@tanstack/react-query";
-import type { z } from "zod";
 import { getSearchPerformanceTable } from "@/serverFunctions/searchPerformance";
 import type {
   searchPerformanceInputSchema,
@@ -7,6 +5,8 @@ import type {
   SearchPerformanceSortOrder,
   SearchPerformanceTableDimension,
 } from "@/types/schemas/search-performance";
+import { queryOptions } from "@tanstack/react-query";
+import type { z } from "zod";
 
 export type FilterInput = Omit<
   z.infer<typeof searchPerformanceInputSchema>,
@@ -14,15 +14,23 @@ export type FilterInput = Omit<
 >;
 
 // Shared by the live table and prefetch so the query key and request agree.
-export function tableQueryOptions(
-  projectId: string,
-  dimension: SearchPerformanceTableDimension,
-  page: number,
-  pageSize: number,
-  filterInput: FilterInput,
-  sort: SearchPerformanceSort = "clicks",
-  order: SearchPerformanceSortOrder = "desc",
-) {
+export function tableQueryOptions({
+  projectId,
+  dimension,
+  page,
+  pageSize,
+  filterInput,
+  sort = "clicks",
+  order = "desc",
+}: {
+  projectId: string;
+  dimension: SearchPerformanceTableDimension;
+  page: number;
+  pageSize: number;
+  filterInput: FilterInput;
+  sort?: SearchPerformanceSort;
+  order?: SearchPerformanceSortOrder;
+}) {
   return queryOptions({
     queryKey: [
       "searchPerformanceTable",

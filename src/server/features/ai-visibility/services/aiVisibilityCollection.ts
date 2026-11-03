@@ -1,4 +1,3 @@
-import { NonRetryableError } from "cloudflare:workflows";
 import type { BillingCustomerContext } from "@/server/billing/subscription";
 import {
   createDataforseoClient,
@@ -11,23 +10,22 @@ import { DataforseoChargedTaskError } from "@/server/lib/dataforseo/envelope";
 import { resolveLatestLlmModelName } from "@/server/lib/dataforseo/llm-models";
 import { AppError, asAppError } from "@/server/lib/errors";
 import { getProxyLlmConfig, proxyLlmResponse } from "@/server/lib/proxyLlm";
-import type { ErrorCode } from "@/shared/error-codes";
-import { getIsoCountryCode } from "@/shared/keyword-locations";
 import {
   aiEngineUsesModelApi,
   type AiBrand,
   type AiEngine,
 } from "@/shared/ai-visibility";
-import { AiVisibilityRepository as repo } from "../repositories/AiVisibilityRepository";
+import type { ErrorCode } from "@/shared/error-codes";
+import { getIsoCountryCode } from "@/shared/keyword-locations";
+import { NonRetryableError } from "cloudflare:workflows";
 import {
   parseDataforseoAnswer,
   parseLlmResponseAnswer,
   type ParsedAiAnswer,
 } from "../providers/dataforseoEvidence";
+import { AiVisibilityRepository as repo } from "../repositories/AiVisibilityRepository";
 import { aiBrands } from "./aiVisibilityConfiguration";
-import { AI_ANSWER_FAILURES } from "./aiVisibilityErrors";
 import { matchAiBrand } from "./aiVisibilityMatching";
-import { failAiRun } from "./aiVisibilityRuns";
 
 interface AiTask {
   tag: string;
@@ -417,30 +415,4 @@ async function saveAiAnswer(
   });
 }
 
-export async function finalizeAiRun(runId: string) {
-  const run = await repo.getRunInternal(runId);
-  if (!run || run.status !== "running") return;
-  await repo.failPendingObservations(runId, AI_ANSWER_FAILURES.notArrived);
-  const statuses = await repo.getObservationStatuses([runId]);
-  const completed = statuses.filter((row) => row.status === "completed").length;
-  const status =
-    completed === statuses.length
-      ? "completed"
-      : completed > 0
-        ? "partial"
-        : "failed";
-  await repo.updateRun(runId, {
-    status,
-    completedAt: new Date().toISOString(),
-  });
-  await repo.updateTracker(run.trackerId, {
-    lastSkipReason: status === "failed" ? AI_ANSWER_FAILURES.runFailed : null,
-  });
-}
-
-export async function markAiRunFailed(runId: string) {
-  const message = AI_ANSWER_FAILURES.runFailed;
-  await failAiRun(runId, message);
-  const run = await repo.getRunInternal(runId);
-  if (run) await repo.updateTracker(run.trackerId, { lastSkipReason: message });
-}
+export { finalizeAiRun, markAiRunFailed } from "./aiVisibilityCompletion";

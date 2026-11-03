@@ -1,6 +1,6 @@
 /** Fleet / operator shortcuts to public local SEO utilities (openseo.so). */
 
-export const OPENSEO_MARKETING_ORIGIN = "https://openseo.so";
+const OPENSEO_MARKETING_ORIGIN = "https://openseo.so";
 
 export function googleMapsSearchUrl(query: string): string {
   const q = query.trim();
@@ -17,6 +17,9 @@ export function googleCidConverterToolUrl(): string {
 }
 
 /** Prefer domain; fall back to project display name for Maps search. */
-export function mapsSearchQuery(domain: string | null | undefined, name: string): string {
+export function mapsSearchQuery(
+  domain: string | null | undefined,
+  name: string,
+): string {
   return (domain?.trim() || name.trim() || "").replace(/^https?:\/\//, "");
 }

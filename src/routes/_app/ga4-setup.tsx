@@ -1,134 +1,45 @@
-// CityThrive fork: GA4 setup status, with explicit per-site and fleet scopes.
-import { createFileRoute, Link } from "@tanstack/react-router";
-import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { useRef, useState } from "react";
 import { PageHeader } from "@/client/components/PageHeader";
-import { TablePagination } from "@/client/components/table/TablePagination";
 import { Button } from "@/client/components/ui/button";
 import { Input } from "@/client/components/ui/input";
 import { Label } from "@/client/components/ui/label";
 import {
-  TableBody,
-  TableCaption,
-  TableCard,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from "@/client/components/ui/table";
+  ATTENTION,
+  confirmApply,
+  statusLabel,
+} from "@/client/features/ga4-setup/Ga4SetupModel";
+import { Ga4SetupTable } from "@/client/features/ga4-setup/Ga4SetupTable";
+import { useGa4Setup } from "@/client/features/ga4-setup/useGa4Setup";
 import { getStandardErrorMessage } from "@/client/lib/error-messages";
-import {
-  getGa4SetupOverview,
-  runGa4SetupBulk,
-  runGa4SetupSite,
-} from "@/serverFunctions/ga4Setup";
-
+import { createFileRoute, Link } from "@tanstack/react-router";
+import { sort as sortArray } from "remeda";
 export const Route = createFileRoute("/_app/ga4-setup")({
   component: Ga4SetupPage,
   validateSearch: (s: Record<string, unknown>) => ({
     projectId: typeof s.projectId === "string" ? s.projectId : undefined,
   }),
 });
-
-type Step = { step: string; status: string; detail?: string };
-/** Human labels for the stored setup states (the raw values are enum-like). */
-const STATUS_LABELS: Record<string, string> = {
-  pending: "Not started",
-  preview: "Previewed",
-  created: "Property created",
-  tagged: "Tag installed, not yet live",
-  live: "Tag live",
-  linked: "Linked",
-  blocked: "Blocked",
-  waiting: "Waiting for reconnect",
-  error: "Error",
-};
-const statusLabel = (status: string) => STATUS_LABELS[status] ?? status;
-/** States that need a person: a failed, blocked or waiting setup attempt. */
-const ATTENTION = new Set(["error", "blocked", "waiting"]);
-type Result = {
-  domain: string;
-  final: string;
-  steps: Step[];
-  measurementId?: string;
-};
-const PAGE_SIZE = 50;
-
 function Ga4SetupPage() {
   const { projectId } = Route.useSearch();
-  const qc = useQueryClient();
-  const q = useQuery({
-    queryKey: ["ga4-setup"],
-    queryFn: () => getGa4SetupOverview(),
-    refetchInterval: 30_000,
-  });
-  const [results, setResults] = useState<Result[]>([]);
-  const [filter, setFilter] = useState("");
-  const [page, setPage] = useState(1);
-  // "missing": sites with no GA4 property link yet. "attention": sites whose
-  // last setup attempt failed, was blocked or is waiting, which used to be
-  // visible only as a count.
-  const [view, setView] = useState<"missing" | "attention">("missing");
-  const tableRegion = useRef<HTMLDivElement>(null);
-  const site = useMutation({
-    mutationFn: (v: { projectId: string; apply: boolean }) =>
-      runGa4SetupSite({ data: { ...v, confirm: v.apply } }),
-    onSuccess: (r) => {
-      const result = r as Result;
-      setResults((current) => [
-        result,
-        ...current.filter((entry) => entry.domain !== result.domain),
-      ]);
-      void qc.invalidateQueries({ queryKey: ["ga4-setup"] });
-    },
-  });
-  const bulk = useMutation({
-    mutationFn: (v: { apply: boolean; limit: number }) =>
-      runGa4SetupBulk({ data: { ...v, confirm: v.apply } }),
-    onSuccess: (r) => {
-      setResults((r as { results: Result[] }).results);
-      void qc.invalidateQueries({ queryKey: ["ga4-setup"] });
-    },
-  });
-  const data = q.data;
-  const states = (data?.state ?? []).filter(
-    (state) => !projectId || state.projectId === projectId,
-  );
-  const stateBy = new Map(states.map((state) => [state.domain, state]));
-  const counts: Record<string, number> = {};
-  for (const state of states)
-    counts[state.status] = (counts[state.status] ?? 0) + 1;
-  const scopeMissing = (data?.missing ?? []).filter(
-    (entry) => !projectId || entry.projectId === projectId,
-  );
-  const scopeAttention = states
-    .filter((state) => ATTENTION.has(state.status))
-    .map((state) => ({ projectId: state.projectId, domain: state.domain }));
-  const needle = filter.trim().toLowerCase();
-  const missing = (view === "missing" ? scopeMissing : scopeAttention).filter(
-    (entry) => entry.domain.toLowerCase().includes(needle),
-  );
-  const currentPage = Math.min(
-    page,
-    Math.max(1, Math.ceil(missing.length / PAGE_SIZE)),
-  );
-  const start = (currentPage - 1) * PAGE_SIZE;
-  const visibleRows = missing.slice(start, start + PAGE_SIZE);
-  const busy = site.isPending || bulk.isPending;
-  const error = site.error ?? bulk.error ?? q.error;
-  const confirmApply = (what: string) =>
-    window.confirm(
-      `Apply GA4 setup for ${what}? This creates GA4 properties, installs the tag through Cloudflare and links them.`,
-    );
-
-  function changePage(nextPage: number) {
-    setPage(nextPage);
-    requestAnimationFrame(() => {
-      tableRegion.current?.focus();
-      tableRegion.current?.scrollIntoView({ block: "start" });
-    });
-  }
-
+  const model = useGa4Setup(projectId);
+  const {
+    q,
+    results,
+    filter,
+    setFilter,
+    setPage,
+    view,
+    setView,
+    bulk,
+    data,
+    states,
+    counts,
+    scopeMissing,
+    scopeAttention,
+    needle,
+    missing,
+    busy,
+    error,
+  } = model;
   return (
     <div className="h-full overflow-auto px-4 py-4 pb-24 md:px-6 md:py-6">
       <div className="mx-auto min-w-0 max-w-7xl space-y-6">
@@ -170,9 +81,8 @@ function Ga4SetupPage() {
               shows only sites still missing a GA4 property link.
             </p>
             <div className="flex flex-wrap gap-2">
-              {Object.entries(counts)
-                .sort((a, b) => b[1] - a[1])
-                .map(([status, count]) => (
+              {sortArray(Object.entries(counts), (a, b) => b[1] - a[1]).map(
+                ([status, count]) => (
                   <span
                     key={status}
                     className={
@@ -184,7 +94,8 @@ function Ga4SetupPage() {
                   >
                     {statusLabel(status)}: {count.toLocaleString()}
                   </span>
-                ))}
+                ),
+              )}
             </div>
           </section>
         ) : null}
@@ -282,146 +193,7 @@ function Ga4SetupPage() {
             }}
           />
         </div>
-        <section
-          aria-labelledby="ga4-missing-heading"
-          className="min-w-0 space-y-3"
-        >
-          <h2 id="ga4-missing-heading" className="text-lg font-semibold">
-            {view === "missing"
-              ? "Sites missing a GA4 link"
-              : "Sites whose setup needs attention"}
-          </h2>
-          {visibleRows.length > 0 ? (
-            <p className="text-sm text-muted-foreground">
-              Scroll the table horizontally on a small screen to see each site's
-              last result and actions.
-            </p>
-          ) : null}
-          <TableCard>
-            {!q.isPending && visibleRows.length === 0 ? (
-              <p role="status" className="p-6 text-sm text-muted-foreground">
-                {q.isError && !data
-                  ? "Unable to load sites. Please try again."
-                  : needle
-                    ? "No sites match this domain filter."
-                    : view === "attention"
-                      ? "No setup attempt needs attention."
-                      : projectId
-                        ? "This project has no missing GA4 link."
-                        : "Every project with a domain has a GA4 link."}
-              </p>
-            ) : (
-              <div
-                ref={tableRegion}
-                role="region"
-                aria-label="GA4 links and setup actions"
-                tabIndex={0}
-                className="overflow-x-auto focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-ring"
-              >
-                <table
-                  id="ga4-missing-sites"
-                  className="w-full min-w-[56rem] text-sm"
-                >
-                  <TableCaption className="sr-only">
-                    {view === "missing"
-                      ? "Missing GA4 links, with the latest setup attempt and per-site actions."
-                      : "Sites whose last GA4 setup attempt failed, was blocked or is waiting, with per-site actions."}
-                  </TableCaption>
-                  <TableHeader>
-                    <TableRow>
-                      <TableHead scope="col">Site</TableHead>
-                      <TableHead scope="col">Latest status</TableHead>
-                      <TableHead scope="col">Measurement ID</TableHead>
-                      <TableHead scope="col">Last result</TableHead>
-                      <TableHead scope="col">Actions</TableHead>
-                    </TableRow>
-                  </TableHeader>
-                  <TableBody>
-                    {visibleRows.map((entry) => {
-                      const state = stateBy.get(entry.domain);
-                      return (
-                        <TableRow key={entry.projectId}>
-                          <TableCell className="max-w-xs break-words">
-                            {entry.domain}
-                          </TableCell>
-                          <TableCell>
-                            {state ? statusLabel(state.status) : "Not attempted"}
-                          </TableCell>
-                          <TableCell className="whitespace-nowrap">
-                            {state?.measurementId ?? "—"}
-                          </TableCell>
-                          <TableCell className="min-w-64 max-w-md break-words text-muted-foreground">
-                            {state?.detail || "No setup result recorded"}
-                          </TableCell>
-                          <TableCell>
-                            <div className="flex gap-2">
-                              <Button
-                                size="sm"
-                                variant="outline"
-                                disabled={busy}
-                                aria-label={`Preview GA4 setup for ${entry.domain}`}
-                                onClick={() =>
-                                  site.mutate({
-                                    projectId: entry.projectId,
-                                    apply: false,
-                                  })
-                                }
-                              >
-                                Preview
-                              </Button>
-                              <Button
-                                size="sm"
-                                disabled={busy}
-                                aria-label={`Set up GA4 for ${entry.domain}`}
-                                onClick={() =>
-                                  confirmApply(entry.domain) &&
-                                  site.mutate({
-                                    projectId: entry.projectId,
-                                    apply: true,
-                                  })
-                                }
-                              >
-                                Set up
-                              </Button>
-                            </div>
-                          </TableCell>
-                        </TableRow>
-                      );
-                    })}
-                    {visibleRows.length === 0 ? (
-                      <TableRow>
-                        <TableCell
-                          colSpan={5}
-                          className="py-8 text-center text-muted-foreground"
-                        >
-                          {q.isPending
-                            ? "Loading sites…"
-                            : q.isError && !data
-                              ? "Unable to load sites. Please try again."
-                              : needle
-                                ? "No sites match this domain filter."
-                                : view === "attention"
-                                  ? "No setup attempt needs attention."
-                                  : projectId
-                                    ? "This project has no missing GA4 link."
-                                    : "Every project with a domain has a GA4 link."}
-                        </TableCell>
-                      </TableRow>
-                    ) : null}
-                  </TableBody>
-                </table>
-              </div>
-            )}
-            {missing.length > PAGE_SIZE ? (
-              <TablePagination
-                page={currentPage}
-                pageSize={PAGE_SIZE}
-                totalCount={missing.length}
-                onPageChange={changePage}
-              />
-            ) : null}
-          </TableCard>
-        </section>
+        <Ga4SetupTable model={model} />
         {results.length > 0 ? (
           <section
             aria-labelledby="ga4-last-run"
