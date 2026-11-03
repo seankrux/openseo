@@ -1,9 +1,9 @@
+import { createOpenAICompatible } from "@ai-sdk/openai-compatible";
 import {
   createOpenRouter,
   type LanguageModelV3,
   type OpenRouterProvider,
 } from "@openrouter/ai-sdk-provider";
-import { createOpenAICompatible } from "@ai-sdk/openai-compatible";
 import { wrapLanguageModel } from "ai";
 
 // OpenRouter model slug used for the SAM in-app chat agent. Override with
@@ -74,7 +74,12 @@ export function buildChatAgentModel(
   // custom base URL goes through the generic OpenAI-compatible client, which
   // accepts nullish fields. Unset = OpenRouter's default endpoint.
   if (baseURL?.trim()) {
-    return openAiCompatibleModel(apiKey, baseURL.trim(), model, reasoningEffort);
+    return openAiCompatibleModel(
+      apiKey,
+      baseURL.trim(),
+      model,
+      reasoningEffort,
+    );
   }
   const openrouter = createOpenRouter({ apiKey });
   const primary = openRouterModel(openrouter, model, reasoningEffort);
@@ -142,7 +147,7 @@ function openAiCompatibleModel(
   });
   // Proxies expect plain model ids ("gpt-5.6-luna"), not OpenRouter slugs.
   const id = model.includes("/") ? model.slice(model.indexOf("/") + 1) : model;
-  const base = provider.chatModel(id) as unknown as LanguageModelV3;
+  const base = provider.chatModel(id);
   // OpenAI-style effort values; "max" is OpenRouter-only.
   const effort = reasoningEffort === "low" ? "low" : "medium";
   return wrapLanguageModel({

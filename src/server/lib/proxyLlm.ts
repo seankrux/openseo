@@ -1,12 +1,12 @@
 // An OpenAI-compatible proxy can supply model answers and prompt ideation.
 // It cannot supply measured SEO metrics or captured Google AI Overview results.
-import { z } from "zod";
-import { getOptionalEnvValue } from "@/server/lib/runtime-env";
 import type { LlmResponseResult } from "@/server/lib/dataforseoLlmSchemas";
 import { AppError } from "@/server/lib/errors";
+import { getOptionalEnvValue } from "@/server/lib/runtime-env";
 import { safeHttpUrl } from "@/shared/safe-url";
+import { z } from "zod";
 
-export type ProxyModelSlug =
+type ProxyModelSlug =
   | "chat_gpt"
   | "chatgpt"
   | "claude"

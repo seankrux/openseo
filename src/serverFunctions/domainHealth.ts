@@ -1,21 +1,25 @@
 // CityThrive fork: Domain health server functions (page + Run now button).
-import { createServerFn } from "@tanstack/react-start";
-import { z } from "zod";
-import { waitUntil } from "cloudflare:workers";
-import { requireAuthenticatedContext } from "@/serverFunctions/middleware";
 import { DomainHealthRepository } from "@/server/features/domain-health/repositories/DomainHealthRepository";
 import {
   domainHealthProgress,
   queueDomainHealthRunNow,
   runDomainHealthTick,
 } from "@/server/features/domain-health/services/domainHealthTick";
+import { requireAuthenticatedContext } from "@/serverFunctions/middleware";
+import { createServerFn } from "@tanstack/react-start";
+import { waitUntil } from "cloudflare:workers";
+import { z } from "zod";
 
 export const getDomainHealth = createServerFn({ method: "POST" })
   .middleware(requireAuthenticatedContext)
   .handler(async ({ context }) => {
     const [rows, changes, progress] = await Promise.all([
-      DomainHealthRepository.listCurrent(context.organizationId, { limit: 5000 }),
-      DomainHealthRepository.listChanges(context.organizationId, { limit: 100 }),
+      DomainHealthRepository.listCurrent(context.organizationId, {
+        limit: 5000,
+      }),
+      DomainHealthRepository.listChanges(context.organizationId, {
+        limit: 100,
+      }),
       domainHealthProgress(context.organizationId),
     ]);
     return {
@@ -51,14 +55,18 @@ export const triggerDomainHealthRun = createServerFn({ method: "POST" })
   .handler(async ({ context }) => {
     const res = await queueDomainHealthRunNow(context.organizationId);
     // Start the first chunk right away; later ticks continue at the usual pace.
-    waitUntil(runDomainHealthTick().catch((e) => console.error("[domain-health] run now", e)));
+    waitUntil(
+      runDomainHealthTick().catch((e) =>
+        console.error("[domain-health] run now", e),
+      ),
+    );
     return res;
   });
 
 function safeIds(json: string | null): string[] {
   try {
-    const v = JSON.parse(json ?? "[]");
-    return Array.isArray(v) ? v.map(String) : [];
+    const v: unknown = JSON.parse(json ?? "[]");
+    return z.array(z.string()).safeParse(v).data ?? [];
   } catch {
     return [];
   }

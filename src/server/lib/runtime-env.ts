@@ -16,10 +16,7 @@ export async function getOptionalEnvValue(
  * In Vitest, explicit mocked worker env bindings take precedence over the
  * container's process.env so unit tests can override AUTH_MODE / secrets.
  */
-export function getEnvValueSync(
-  env: object,
-  name: string,
-): string | undefined {
+export function getEnvValueSync(env: object, name: string): string | undefined {
   const isVitest =
     typeof process !== "undefined" && process.env?.VITEST === "true";
   if (isVitest) {
