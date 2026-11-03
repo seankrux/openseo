@@ -58,9 +58,24 @@ export type SearchPerformanceTableDimension =
 
 export const SEARCH_PERFORMANCE_PAGE_SIZES = [25, 50, 100] as const;
 export const SEARCH_PERFORMANCE_DEFAULT_PAGE_SIZE = 25;
+export const SEARCH_PERFORMANCE_SORT_FIELDS = [
+  "clicks",
+  "impressions",
+  "ctr",
+  "position",
+] as const;
+export type SearchPerformanceSort =
+  (typeof SEARCH_PERFORMANCE_SORT_FIELDS)[number];
+export type SearchPerformanceSortOrder = "asc" | "desc";
+
+const searchPerformanceSortShape = {
+  sort: z.enum(SEARCH_PERFORMANCE_SORT_FIELDS).default("clicks"),
+  order: z.enum(["asc", "desc"]).default("desc"),
+};
 
 export const searchPerformanceTableInputSchema = z.object({
   ...searchPerformanceFilterShape,
+  ...searchPerformanceSortShape,
   dimension: z.enum(SEARCH_PERFORMANCE_TABLE_DIMENSIONS),
   page: z.number().int().positive().default(1),
   pageSize: z
@@ -100,6 +115,8 @@ export const searchPerformanceSearchSchema = z.object({
   pageMatch: textMatchParam,
   queryText: searchTextParam,
   queryMatch: textMatchParam,
+  sort: z.enum(SEARCH_PERFORMANCE_SORT_FIELDS).optional().catch(undefined),
+  order: z.enum(["asc", "desc"]).optional().catch(undefined),
   page: optionalSearchPositiveIntParam,
   size: z.coerce
     .number()

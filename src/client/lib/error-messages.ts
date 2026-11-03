@@ -1,12 +1,12 @@
+import { isHostedClientAuthMode } from "@/lib/auth-mode";
 import { FREE_MAX_AUDIT_PAGES } from "@/shared/audit-limits";
 import { isErrorCode, type ErrorCode } from "@/shared/error-codes";
-import { isHostedClientAuthMode } from "@/lib/auth-mode";
 
 /**
  * Copy for an error we did not expect. Hosted users cannot read our logs, so
  * they get support; a self-hoster runs the server and can.
  */
-export const UNEXPECTED_ERROR_MESSAGE = isHostedClientAuthMode()
+const UNEXPECTED_ERROR_MESSAGE = isHostedClientAuthMode()
   ? "Something went wrong on our end. Please try again, and contact support if it keeps happening."
   : "Something went wrong. Please try again, or check the server logs for details.";
 
@@ -41,8 +41,12 @@ const STANDARD_MESSAGES: Record<ErrorCode, string> = {
     "The connected DataForSEO account has a billing or balance issue.",
   AI_VISIBILITY_ERROR:
     "The AI visibility request could not be completed. Review the tracking settings and try again.",
+  AI_MODEL_NOT_CONFIGURED:
+    "This AI engine is not configured on this instance. Choose a configured engine or connect the matching provider before trying again.",
   DATAFORSEO_AUTH_FAILED:
     "DataForSEO rejected the credentials. Check that DATAFORSEO_API_KEY is the base64 of your DataForSEO login:password, and that the DataForSEO account is verified and has API access.",
+  DATAFORSEO_NOT_CONFIGURED:
+    "Measured SEO data is unavailable because DataForSEO is not configured. Follow the DataForSEO setup guide to connect the data provider.",
   RATE_LIMITED: "Too many requests. Please wait and try again.",
   UPSTREAM_UNAVAILABLE:
     "The data provider is temporarily unavailable. Please retry in a moment.",

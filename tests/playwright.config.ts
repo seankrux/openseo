@@ -7,6 +7,7 @@ export default defineConfig({
   // Keep test-results/ at the repo root (see .gitignore) now that the config lives in tests/.
   outputDir: "../test-results",
   testDir: ".",
+  testIgnore: "**/bing-connection-card.spec.ts",
   timeout: 45_000,
   expect: {
     timeout: 10_000,

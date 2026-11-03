@@ -11,8 +11,14 @@
  * tokenizer keeps only the accumulated text and extracted fields in memory.
  */
 import { Parser } from "htmlparser2";
-import { normalizeUrl, isSameOrigin } from "./url-utils";
+import {
+  MAX_LD_JSON_CHARS,
+  MAX_LOCAL_ITEMS,
+  collectSchemaTypes,
+  isPhoneLikeHref,
+} from "./local-signals";
 import type { PageAnalysis, PageLink } from "./types";
+import { isSameOrigin, normalizeUrl } from "./url-utils";
 
 const SKIPPED_LINK_PROTOCOLS = /^(javascript:|mailto:|tel:|#)/;
 /** Subtrees whose text is not visible content. */
@@ -139,6 +145,14 @@ export function analyzeHtml(
   let hasAppRoot = false;
   let hasExecutableScript = false;
   const hreflangTags: string[] = [];
+  // CityThrive local-service signals.
+  const telHrefs: string[] = [];
+  const phoneLikeHrefs: string[] = [];
+  const schemaTypes = new Set<string>();
+  let callrail = false;
+  let ldJson: string[] | null = null;
+  let ldJsonChars = 0;
+  let inScript = false;
 
   const h1s: string[] = [];
   const headingOrder: number[] = [];
@@ -212,6 +226,29 @@ export function analyzeHtml(
     });
   };
 
+  const handleAnchorTag = (attribs: Record<string, string>) => {
+    // HTML forbids nested <a>; browsers implicitly close the open
+    // one, and the tokenizer has no tree correction, so mirror that.
+    closeAnchor();
+    const href = attribs["href"];
+    if (href && /^\s*tel:/i.test(href) && telHrefs.length < MAX_LOCAL_ITEMS) {
+      telHrefs.push(href.trim());
+    } else if (
+      href &&
+      phoneLikeHrefs.length < MAX_LOCAL_ITEMS &&
+      isPhoneLikeHref(href)
+    ) {
+      phoneLikeHrefs.push(href.trim());
+    }
+    if (href && !SKIPPED_LINK_PROTOCOLS.test(href)) {
+      openAnchor = {
+        href,
+        rel: attribs["rel"]?.toLowerCase() ?? "",
+        text: [],
+      };
+    }
+  };
+
   const parser = new Parser(
     {
       onopentag(name, attribs) {
@@ -260,24 +297,17 @@ export function analyzeHtml(
               "text/javascript",
               "application/javascript",
             ].includes(attribs["type"]?.toLowerCase() ?? "");
-            if (attribs["type"] === "application/ld+json") {
+            inScript = true;
+            if (/callrail/i.test(attribs["src"] ?? "")) callrail = true;
+            if (attribs["type"]?.toLowerCase() === "application/ld+json") {
               hasStructuredData = true;
+              ldJson = [];
+              ldJsonChars = 0;
             }
             break;
-          case "a": {
-            // HTML forbids nested <a>; browsers implicitly close the open
-            // one, and the tokenizer has no tree correction, so mirror that.
-            closeAnchor();
-            const href = attribs["href"];
-            if (href && !SKIPPED_LINK_PROTOCOLS.test(href)) {
-              openAnchor = {
-                href,
-                rel: attribs["rel"]?.toLowerCase() ?? "",
-                text: [],
-              };
-            }
+          case "a":
+            handleAnchorTag(attribs);
             break;
-          }
         }
         const headingLevel = HEADING_LEVELS[name];
         if (headingLevel !== undefined) {
@@ -286,6 +316,14 @@ export function analyzeHtml(
         }
       },
       ontext(text) {
+        if (inScript) {
+          if (ldJson && ldJsonChars < MAX_LD_JSON_CHARS) {
+            ldJson.push(text);
+            ldJsonChars += text.length;
+          } else if (!callrail && /callrail/i.test(text)) {
+            callrail = true;
+          }
+        }
         if (suppressDepth > 0) return;
         if (titleDepth > 0) {
           if (title !== null) title += text;
@@ -296,6 +334,13 @@ export function analyzeHtml(
         addVisibleText(text);
       },
       onclosetag(name) {
+        if (name === "script") {
+          inScript = false;
+          if (ldJson) {
+            collectSchemaTypes(ldJson.join(""), schemaTypes);
+            ldJson = null;
+          }
+        }
         if (NON_CONTENT_TAGS.has(name) && suppressDepth > 0) {
           suppressDepth -= 1;
         }
@@ -355,5 +400,22 @@ export function analyzeHtml(
     links: Array.from(linksByTarget.values()),
     hasStructuredData,
     hreflangTags,
+    local: {
+      telHrefs,
+      phoneLikeHrefs,
+      callrail,
+      schemaTypes: [...schemaTypes],
+      linkPaths: Array.from(linksByTarget.values())
+        .filter((l) => l.isInternal)
+        .slice(0, 300)
+        .map((l) => {
+          try {
+            return new URL(l.targetUrl).pathname;
+          } catch {
+            return "";
+          }
+        })
+        .filter(Boolean),
+    },
   };
 }

@@ -4,6 +4,8 @@ import { createFileRoute } from "@tanstack/react-router";
 import { GoogleConnectionCard } from "@/client/features/integrations/GoogleConnectionCard";
 import { CrawlerAccessSettings } from "@/client/features/settings/CrawlerAccessSettings";
 import { IndexNowSettings } from "@/client/features/settings/IndexNowSettings";
+import { BingConnectionCard } from "@/client/features/integrations/BingConnectionCard";
+import { isHostedClientAuthMode } from "@/lib/auth-mode";
 
 export const Route = createFileRoute(
   "/_app/p/$projectId/settings/integrations",
@@ -37,6 +39,12 @@ function ProjectIntegrationsRoute() {
       </section>
 
       <IndexNowSettings projectId={projectId} />
+
+      {!isHostedClientAuthMode() ? (
+        <section id="bing-webmaster-tools" className="scroll-mt-6">
+          <BingConnectionCard projectId={projectId} />
+        </section>
+      ) : null}
 
       <CrawlerAccessSettings projectId={projectId} />
     </div>

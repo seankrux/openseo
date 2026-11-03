@@ -1,6 +1,3 @@
-import { symmetricDecrypt, symmetricEncrypt } from "better-auth/crypto";
-import { and, eq, sql } from "drizzle-orm";
-import { z } from "zod";
 import { db } from "@/db";
 import { account } from "@/db/schema";
 import { getAuth } from "@/lib/auth";
@@ -22,17 +19,21 @@ import {
   GSC_OAUTH_PROVIDER_ID,
   GSC_OAUTH_SCOPES,
 } from "@/shared/gsc";
-import {
-  getGoogleOAuthClientConfig,
-  hasGoogleOAuthConfig,
-} from "./oauth-config";
+import { symmetricDecrypt, symmetricEncrypt } from "better-auth/crypto";
+import { and, eq, sql } from "drizzle-orm";
+import { z } from "zod";
 import { getGoogleAccountId } from "./googleIdToken";
+import { getRequestedScopes } from "./googleOAuthScopes";
 import {
   consumeState,
   createState,
   getCodeChallenge,
   getCodeVerifier,
 } from "./googleOAuthState";
+import {
+  getGoogleOAuthClientConfig,
+  hasGoogleOAuthConfig,
+} from "./oauth-config";
 
 /**
  * Google data grants (Search Console, Analytics) are linked here rather than
@@ -212,7 +213,10 @@ export async function createGoogleAuthorizationUrl(input: {
     getRedirectUri(input.publicOrigin, input.integration),
   );
   url.searchParams.set("response_type", "code");
-  url.searchParams.set("scope", input.integration.scopes.join(" "));
+  url.searchParams.set(
+    "scope",
+    (await getRequestedScopes(input.integration)).join(" "),
+  );
   url.searchParams.set("access_type", "offline");
   url.searchParams.set("prompt", "select_account consent");
   url.searchParams.set("state", state);

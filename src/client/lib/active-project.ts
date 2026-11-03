@@ -1,3 +1,9 @@
+import { createContext } from "react";
+
+// The shell validates remembered selection against active workspace projects.
+// Consumers must share that result rather than snapshot raw localStorage.
+export const ActiveProjectContext = createContext<string | null>(null);
+
 // Remembers the last project the user was looking at so the app can return them
 // there on the next visit. Browser-local only (per-device); the server never
 // trusts it — the project route's access check re-validates the id and clears

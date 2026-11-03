@@ -49,6 +49,9 @@ declare namespace Cloudflare {
     GOOGLE_CLIENT_ID?: string;
     GOOGLE_CLIENT_SECRET?: string;
     GOOGLE_MAPS_API_KEY?: string;
+    // Server-only Bing reads require exact opt-in and this multisite-capable key.
+    BING_WEBMASTER_ENABLED?: string;
+    BING_WEBMASTER_API_KEY?: string;
     LOOPS_API_KEY?: string;
     LOOPS_TRANSACTIONAL_VERIFY_EMAIL_ID?: string;
     LOOPS_TRANSACTIONAL_RESET_PASSWORD_ID?: string;
@@ -99,6 +102,8 @@ declare namespace Cloudflare {
     OPENROUTER_API_KEY?: string;
     // Optional OpenRouter model slug override (defaults in openrouter.ts).
     OPENROUTER_MODEL?: string;
+    // Optional OpenAI-compatible base URL (e.g. CLIProxyAPI) for the AI client.
+    OPENROUTER_BASE_URL?: string;
   }
 }
 

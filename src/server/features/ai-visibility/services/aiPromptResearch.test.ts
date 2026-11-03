@@ -12,6 +12,10 @@ const {
   getCached,
   getTracker,
   listResearchKeywords,
+  key,
+  optionalEnvValue,
+  buildCacheKey,
+  setCached,
 } = vi.hoisted(() => ({
   assertPaidPlan: vi.fn(),
   mentionsSearch: vi.fn(),
@@ -22,6 +26,10 @@ const {
   getCached: vi.fn(),
   getTracker: vi.fn(),
   listResearchKeywords: vi.fn(),
+  key: vi.fn(),
+  optionalEnvValue: vi.fn(),
+  buildCacheKey: vi.fn(),
+  setCached: vi.fn(),
 }));
 
 vi.mock("ai", () => ({
@@ -33,8 +41,8 @@ vi.mock("@/server/lib/chatAgent", () => ({
   requireOpenRouterCostUsd: () => 0.003,
 }));
 vi.mock("@/server/lib/runtime-env", () => ({
-  getRequiredEnvValue: async () => "key",
-  getOptionalEnvValue: vi.fn(),
+  getRequiredEnvValue: key,
+  getOptionalEnvValue: optionalEnvValue,
   isHostedServerAuthMode: isHosted,
 }));
 vi.mock("@/server/billing/researchSpend", () => ({ billResearchSpend }));
@@ -47,9 +55,9 @@ vi.mock("@/server/lib/dataforseo", () => ({
   createDataforseoClient: () => ({ aiSearch: { mentionsSearch } }),
 }));
 vi.mock("@/server/lib/r2-cache", () => ({
-  buildCacheKey: async (prefix: string) => prefix,
+  buildCacheKey,
   getCached,
-  setCached: async () => undefined,
+  setCached,
 }));
 vi.mock("./aiVisibilityState", () => ({ getTracker }));
 vi.mock("@/server/features/ai-search/services/access", () => ({
@@ -66,6 +74,7 @@ vi.mock(
   () => ({ ProjectContextRepository: { listSections: async () => [] } }),
 );
 
+import { buildChatAgentModel } from "@/server/lib/openrouter";
 import { listAiResearchKeywords, researchAiPrompts } from "./aiPromptResearch";
 import { customer } from "./aiVisibilityTestFixtures";
 
@@ -73,6 +82,10 @@ const input = { projectId: "project", keyword: "seo tool" } as const;
 
 describe("researchAiPrompts", () => {
   beforeEach(() => {
+    key.mockResolvedValue("configured-key");
+    optionalEnvValue.mockResolvedValue(undefined);
+    buildCacheKey.mockImplementation(async (prefix: string) => prefix);
+    setCached.mockResolvedValue(undefined);
     assertPaidPlan.mockResolvedValue(undefined);
     isHosted.mockResolvedValue(true);
     creditsDepleted.mockResolvedValue({ depleted: false });
@@ -140,6 +153,23 @@ describe("researchAiPrompts", () => {
     );
   });
 
+  it("uses the configured model proxy for relevance without substituting generated prompt observations", async () => {
+    optionalEnvValue.mockImplementation(async (name: string) =>
+      name === "OPENROUTER_BASE_URL" ? "https://proxy.example/v1" : undefined,
+    );
+
+    const result = await researchAiPrompts(input, customer);
+
+    expect(buildChatAgentModel).toHaveBeenCalledWith(
+      "configured-key",
+      undefined,
+      "low",
+      "https://proxy.example/v1",
+    );
+    expect(mentionsSearch).toHaveBeenCalledOnce();
+    expect(result.prompts).toHaveLength(2);
+  });
+
   it("refuses research when hosted credits are used up before buying any data", async () => {
     creditsDepleted.mockResolvedValue({ depleted: true });
 
@@ -161,8 +191,8 @@ describe("researchAiPrompts", () => {
   });
 
   it("does not buy the same research or relevance check twice within the cache window", async () => {
-    getCached.mockImplementation(async (key: string) =>
-      key === "ai-visibility:prompt-research"
+    getCached.mockImplementation(async (cacheKey: string) =>
+      cacheKey === "ai-visibility:prompt-research:v2"
         ? {
             prompts: [
               {
@@ -181,6 +211,28 @@ describe("researchAiPrompts", () => {
     expect(mentionsSearch).not.toHaveBeenCalled();
     expect(generateText).not.toHaveBeenCalled();
     expect(result.prompts[0].text).toBe("Which seo tool is free?");
+  });
+
+  it("does not invent citations or brand observations when measured research is unavailable", async () => {
+    key.mockImplementation(async (name: string) => {
+      if (name === "DATAFORSEO_API_KEY")
+        throw new Error(
+          "Missing required environment variable: DATAFORSEO_API_KEY",
+        );
+      return "configured-key";
+    });
+
+    await expect(researchAiPrompts(input, customer)).rejects.toMatchObject({
+      code: "DATAFORSEO_NOT_CONFIGURED",
+    });
+
+    expect(buildCacheKey).toHaveBeenCalledWith(
+      "ai-visibility:prompt-research:v2",
+      expect.any(Object),
+    );
+    expect(mentionsSearch).not.toHaveBeenCalled();
+    expect(generateText).not.toHaveBeenCalled();
+    expect(setCached).not.toHaveBeenCalled();
   });
 });
 

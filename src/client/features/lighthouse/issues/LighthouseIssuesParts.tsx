@@ -226,7 +226,9 @@ export function LighthouseIssueList({
     <Table>
       <TableHeader>
         <TableRow>
-          <TableHead className="w-8" />
+          <TableHead className="w-8">
+            <span className="sr-only">Details</span>
+          </TableHead>
           <TableHead className="w-24">Severity</TableHead>
           <TableHead>Issue</TableHead>
           <TableHead className="hidden w-28 sm:table-cell">Category</TableHead>

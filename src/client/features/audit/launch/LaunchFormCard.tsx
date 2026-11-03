@@ -69,6 +69,7 @@ export function LaunchFormCard({
                   className="lg:col-span-9"
                   aria-label="Site URL"
                   aria-invalid={urlError ? true : undefined}
+                  aria-describedby={urlError ? "audit-url-error" : undefined}
                   placeholder="https://example.com"
                   value={field.state.value}
                   onBlur={field.handleBlur}
@@ -277,7 +278,9 @@ function LaunchErrors({
         {(field) => {
           const urlError = getFieldError(field.state.meta.errors);
 
-          return urlError ? <FieldError>{urlError}</FieldError> : null;
+          return urlError ? (
+            <FieldError id="audit-url-error">{urlError}</FieldError>
+          ) : null;
         }}
       </launchForm.Field>
 

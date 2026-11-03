@@ -10,6 +10,8 @@ data, or sensitive paths.
 
 ## Open
 
+- [ ] `2026-11-02T21:53:00Z` — `cursor` — Root `package.json` declares a `pnpm.overrides` Zod pin that the configured pnpm ignores, warning on every install. Move the intended pin into `pnpm-workspace.yaml`'s existing `overrides` block and regenerate the lockfile when updating dependency policy.
+
 - [ ] `2026-10-19T19:28:32Z` — `codex` — `pnpm cf-typegen` regenerates thousands of unrelated runtime types and changes `Env` inheritance, breaking existing Workflow fixtures and ambient bindings. Split binding generation from runtime updates so a new binding can be generated without an unrelated type migration; meanwhile declare new bindings in `src/env.d.ts`.
 
 - [ ] `2026-10-06T04:32:17Z` — `claude` — `npm --prefix web run types:check` (the web-content skill's final check) fails on a fresh worktree with only `web/` deps installed: `web/tsconfig.json` includes `**/*.ts`, so it type-checks `web/tests/free-tool-verification.spec.ts`, which imports the root-only `@playwright/test` and reports TS2307 plus a dozen implicit-any errors unrelated to the change. Add `@playwright/test` to `web` devDependencies or exclude that spec from `web/tsconfig.json`.
@@ -39,6 +41,8 @@ data, or sensitive paths.
 - `2026-07-19T02:55:56Z` — `claude` — Docs folders with an explicit Overview link need their index removed by the allowlist in `web/src/lib/source.ts`. Both current folders using that convention are covered as of 2026-09-05; revisit when adding another such section, rather than generalizing navigation now.
 
 ## Resolved
+
+- [x] `2026-11-02T22:28:00Z` — `cursor` — Root TypeScript and lint checks include the tracked `fork-build-tools-review-20261021/` partial source copy; its missing sibling imports and outdated route types fail checks unrelated to application changes. Exclude this review artifact from the root check inputs, or remove it once its review is finished. Resolved 2026-11-03: application TypeScript, lint and unused-code checks exclude the archived partial source copy.
 
 - [x] `2026-09-17T18:50:14Z` — `codex` — Fumadocs MDX 11 compiles `.md?raw` imports into components, so shared prompt imports pass type checking but crash docs rendering with `trim is not a function`. Resolved 2026-09-17: the web Vite config leaves `?raw` imports to Vite; browser-check shared Markdown prompts when changing this integration.
 

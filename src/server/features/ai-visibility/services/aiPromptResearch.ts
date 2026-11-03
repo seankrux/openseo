@@ -18,6 +18,7 @@ import {
 } from "@/server/lib/dataforseo";
 import { AppError } from "@/server/lib/errors";
 import { buildChatAgentModel } from "@/server/lib/openrouter";
+import { requireDataforseoApiKey } from "@/server/lib/dataforseo/config";
 import { buildCacheKey, getCached, setCached } from "@/server/lib/r2-cache";
 import {
   getOptionalEnvValue,
@@ -48,7 +49,7 @@ const RELEVANCE_ANSWER_CHARS = 300;
 const cachedPromptSchema = z.object({
   question: z.string(),
   answer: z.string(),
-  volume: z.number(),
+  volume: z.number().nullable(),
   sources: z.array(
     z.object({
       domain: z.string(),
@@ -158,13 +159,14 @@ async function loadPrompts(
   },
   customer: BillingCustomerContext,
 ): Promise<CachedResearch> {
-  const cacheKey = await buildCacheKey("ai-visibility:prompt-research", {
+  const cacheKey = await buildCacheKey("ai-visibility:prompt-research:v2", {
     organizationId: customer.organizationId,
     ...request,
   });
   const cached = cachedResearchSchema.safeParse(await getCached(cacheKey));
   if (cached.success) return cached.data;
 
+  await requireDataforseoApiKey();
   const client = createDataforseoClient(customer);
   // Answers often use the category words when the question doesn't. Short
   // keywords match as a phrase; longer ones rarely appear verbatim.
@@ -187,7 +189,7 @@ async function loadPrompts(
           {
             question: item.question.trim(),
             answer: item.answer ?? "",
-            volume: item.ai_search_volume ?? 0,
+            volume: item.ai_search_volume ?? null,
             sources: (item.sources ?? []).flatMap((source) =>
               source.domain && source.url
                 ? [
@@ -261,6 +263,7 @@ async function relevantQuestions(
       input.openRouterApiKey,
       await getOptionalEnvValue("OPENROUTER_MODEL"),
       "low",
+      await getOptionalEnvValue("OPENROUTER_BASE_URL"),
     ),
     output: Output.object({ schema: relevanceOutputSchema }),
     maxOutputTokens: 4000,
@@ -320,7 +323,10 @@ function words(text: string) {
 
 function mergeNearDuplicates(prompts: CachedPrompt[]): CachedPrompt[][] {
   const groups = new Map<string, CachedPrompt[]>();
-  for (const prompt of sortBy(prompts, [(item) => item.volume, "desc"])) {
+  for (const prompt of sortBy(prompts, [
+    (item) => item.volume ?? -Infinity,
+    "desc",
+  ])) {
     const key = mergeKey(prompt.question);
     groups.set(key, [...(groups.get(key) ?? []), prompt]);
   }

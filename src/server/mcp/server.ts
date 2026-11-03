@@ -1,47 +1,56 @@
 import {
-  getAiVisibilityTrackerTool,
-  generateAiVisibilityPromptsTool,
-  researchAiVisibilityPromptsTool,
-  completeAiResearchSetupTool,
-  saveAiVisibilityTrackerTool,
-  estimateAiVisibilityCostTool,
-  setAiVisibilityScheduleTool,
-  runAiVisibilityCheckTool,
-  getAiVisibilityRunTool,
-  getAiVisibilityResultsTool,
-  getAiVisibilityAnswerTool,
-  getAiVisibilitySourcesTool,
-  getAiVisibilityTrendTool,
-  exportAiVisibilityDataTool,
-} from "@/server/mcp/tools/ai-visibility-tools";
-import {
-  type CallToolResult,
-  McpServer,
-  type StandardSchemaWithJSON,
-  type ToolAnnotations,
-} from "@modelcontextprotocol/server";
-import { z } from "zod";
-import {
   createMcpToolContext,
   type McpProps,
   type ToolContext,
 } from "@/server/mcp/context";
-import { objectSchema } from "@/server/mcp/output-schemas";
-import { memoizeJsonSchema } from "@/server/mcp/json-schema-memo";
 import { instrumentMcpToolHandler } from "@/server/mcp/instrumentation";
-import { submitIndexNowUrlsTool } from "@/server/mcp/tools/submit-indexnow-urls";
+import { memoizeJsonSchema } from "@/server/mcp/json-schema-memo";
+import { objectSchema } from "@/server/mcp/output-schemas";
+import { addRankTrackingKeywordsTool } from "@/server/mcp/tools/add-rank-tracking-keywords";
+import {
+  completeAiResearchSetupTool,
+  estimateAiVisibilityCostTool,
+  exportAiVisibilityDataTool,
+  generateAiVisibilityPromptsTool,
+  getAiVisibilityAnswerTool,
+  getAiVisibilityResultsTool,
+  getAiVisibilityRunTool,
+  getAiVisibilitySourcesTool,
+  getAiVisibilityTrackerTool,
+  getAiVisibilityTrendTool,
+  researchAiVisibilityPromptsTool,
+  runAiVisibilityCheckTool,
+  saveAiVisibilityTrackerTool,
+  setAiVisibilityScheduleTool,
+} from "@/server/mcp/tools/ai-visibility-tools";
+import { refreshBingWebmasterSnapshotTool } from "@/server/mcp/tools/bing-tools";
+import { createProjectTool } from "@/server/mcp/tools/create-project";
+import { createRankTrackerTool } from "@/server/mcp/tools/create-rank-tracker";
+import {
+  findSerpCompetitorsTool,
+  getGoogleBusinessQuestionsTool,
+  getKeywordMetricsTool,
+  getLocalSerpResultsTool,
+  getRankedKeywordsTool,
+  searchLocalBusinessesTool,
+} from "@/server/mcp/tools/dataforseo-research-tools";
+import {
+  domainHealthTool,
+  recheckDomainTool,
+  runDomainHealthTool,
+} from "@/server/mcp/tools/domain-health-tools";
+import { estimateRankTrackerCostTool } from "@/server/mcp/tools/estimate-rank-tracker-cost";
+import { explorePromptTool } from "@/server/mcp/tools/explore-prompt";
+import {
+  ga4SetupBulkTool,
+  ga4SetupSiteTool,
+  ga4SetupStatusTool,
+} from "@/server/mcp/tools/ga4-setup-tool";
 import { getBacklinksOverviewTool } from "@/server/mcp/tools/get-backlinks-overview";
 import { getBacklinksProfileTool } from "@/server/mcp/tools/get-backlinks-profile";
 import { getDomainKeywordSuggestionsTool } from "@/server/mcp/tools/get-domain-keyword-suggestions";
 import { getDomainOverviewTool } from "@/server/mcp/tools/get-domain-overview";
-import { addRankTrackingKeywordsTool } from "@/server/mcp/tools/add-rank-tracking-keywords";
-import { createRankTrackerTool } from "@/server/mcp/tools/create-rank-tracker";
-import { estimateRankTrackerCostTool } from "@/server/mcp/tools/estimate-rank-tracker-cost";
 import { getRankTrackerTool } from "@/server/mcp/tools/get-rank-tracker";
-import { removeRankTrackingKeywordsTool } from "@/server/mcp/tools/remove-rank-tracking-keywords";
-import { pinRankTrackingKeywordsTool } from "@/server/mcp/tools/pin-rank-tracking-keywords";
-import { runRankTrackerTool } from "@/server/mcp/tools/run-rank-tracker";
-import { searchSerpLocationsTool } from "@/server/mcp/tools/search-serp-locations";
 import { getSerpResultsTool } from "@/server/mcp/tools/get-serp-results";
 import {
   getGoogleAnalyticsAudienceBreakdownTool,
@@ -55,32 +64,21 @@ import {
   getGoogleAnalyticsTrafficAcquisitionTool,
   getSearchOpportunitiesTool,
 } from "@/server/mcp/tools/google-analytics-tools";
-import { createProjectTool } from "@/server/mcp/tools/create-project";
 import {
   listGoogleAnalyticsPropertiesTool,
   listSearchConsoleSitesTool,
   setGoogleAnalyticsPropertyTool,
   setSearchConsoleSiteTool,
 } from "@/server/mcp/tools/google-connection-tools";
+import {
+  autoLinkGooglePropertiesTool,
+  linkGa4PropertyTool,
+  linkGscPropertyTool,
+  listGooglePropertiesTool,
+} from "@/server/mcp/tools/google-linking-tools";
+import { gscOnboardDomainTool } from "@/server/mcp/tools/gsc-onboard-tool";
 import { listProjectsTool } from "@/server/mcp/tools/list-projects";
-import {
-  researchProjectWebsiteTool,
-  saveProjectWebsiteSetupTool,
-} from "@/server/mcp/tools/project-website";
-import {
-  getProjectContextTool,
-  updateProjectContextTool,
-} from "@/server/mcp/tools/project-context";
 import { listSavedKeywordsTool } from "@/server/mcp/tools/list-saved-keywords";
-import { removeSavedKeywordsTool } from "@/server/mcp/tools/remove-saved-keywords";
-import {
-  findSerpCompetitorsTool,
-  getGoogleBusinessQuestionsTool,
-  getKeywordMetricsTool,
-  getLocalSerpResultsTool,
-  getRankedKeywordsTool,
-  searchLocalBusinessesTool,
-} from "@/server/mcp/tools/dataforseo-research-tools";
 import {
   getBusinessProfileTool,
   getBusinessReviewsTool,
@@ -88,43 +86,65 @@ import {
   getLocalRankGridTool,
   listBusinessCategoriesTool,
 } from "@/server/mcp/tools/local-seo-tools";
+import { pinRankTrackingKeywordsTool } from "@/server/mcp/tools/pin-rank-tracking-keywords";
+import { previewProjectAlertsTool } from "@/server/mcp/tools/project-alert-tools";
 import {
-  deleteReportTool,
-  getReportTool,
-  listReportsTool,
-  saveReportTool,
-} from "@/server/mcp/tools/report-tools";
+  getProjectContextTool,
+  updateProjectContextTool,
+} from "@/server/mcp/tools/project-context";
+import { generateProjectHealthReportTool } from "@/server/mcp/tools/project-health-tools";
+import {
+  researchProjectWebsiteTool,
+  saveProjectWebsiteSetupTool,
+} from "@/server/mcp/tools/project-website";
+import { removeRankTrackingKeywordsTool } from "@/server/mcp/tools/remove-rank-tracking-keywords";
+import { removeSavedKeywordsTool } from "@/server/mcp/tools/remove-saved-keywords";
 import { setReportSharingTool } from "@/server/mcp/tools/report-sharing-tools";
 import {
   deleteReportTemplateTool,
   listReportTemplatesTool,
   saveReportTemplateTool,
 } from "@/server/mcp/tools/report-template-tools";
+import {
+  deleteReportTool,
+  getReportTool,
+  listReportsTool,
+  saveReportTool,
+} from "@/server/mcp/tools/report-tools";
 import { researchKeywordsTool } from "@/server/mcp/tools/research-keywords";
+import { runRankTrackerTool } from "@/server/mcp/tools/run-rank-tracker";
 import { saveKeywordsTool } from "@/server/mcp/tools/save-keywords";
 import {
   getSearchConsolePerformanceTool,
   inspectUrlsTool,
 } from "@/server/mcp/tools/search-console-tools";
+import { searchSerpLocationsTool } from "@/server/mcp/tools/search-serp-locations";
+import {
+  deleteSiteAuditTool,
+  listSiteAuditsTool,
+} from "@/server/mcp/tools/site-audit-cleanup-tools";
 import {
   getAuditIssuesTool,
   getAuditPagesTool,
   getAuditStatusTool,
   runSiteAuditTool,
 } from "@/server/mcp/tools/site-audit-tools";
-import {
-  deleteSiteAuditTool,
-  listSiteAuditsTool,
-} from "@/server/mcp/tools/site-audit-cleanup-tools";
+import { submitIndexNowUrlsTool } from "@/server/mcp/tools/submit-indexnow-urls";
 import { whoamiTool } from "@/server/mcp/tools/whoami";
-import { explorePromptTool } from "@/server/mcp/tools/explore-prompt";
-import { registerWidgetResource } from "@/server/mcp/widget-resource";
-import { rememberWidgetResult } from "@/server/mcp/widget-results";
-import { WidgetTool } from "@/shared/mcp-contracts";
 import {
   showSearchConsolePerformanceTool,
   showSerpResultsTool,
 } from "@/server/mcp/tools/widget-tools";
+import { registerWidgetResource } from "@/server/mcp/widget-resource";
+import { rememberWidgetResult } from "@/server/mcp/widget-results";
+import { WidgetTool } from "@/shared/mcp-contracts";
+import {
+  type CallToolResult,
+  McpServer,
+  type StandardSchemaWithJSON,
+  type ToolAnnotations,
+} from "@modelcontextprotocol/server";
+import { z } from "zod";
 
 type ToolSchema = z.ZodType | z.ZodRawShape;
 
@@ -281,6 +301,17 @@ export function createOpenSeoMcpServer(
   }
 
   register(whoamiTool);
+  register(listGooglePropertiesTool);
+  register(linkGscPropertyTool);
+  register(linkGa4PropertyTool);
+  register(autoLinkGooglePropertiesTool);
+  register(gscOnboardDomainTool);
+  register(ga4SetupSiteTool);
+  register(ga4SetupBulkTool);
+  register(ga4SetupStatusTool);
+  register(domainHealthTool);
+  register(recheckDomainTool);
+  register(runDomainHealthTool);
   register(listProjectsTool);
   register(createProjectTool);
   register(researchProjectWebsiteTool);
@@ -353,6 +384,9 @@ export function createOpenSeoMcpServer(
   register(getAuditStatusTool);
   register(getAuditIssuesTool);
   register(getAuditPagesTool);
+  register(generateProjectHealthReportTool);
+  register(previewProjectAlertsTool);
+  register(refreshBingWebmasterSnapshotTool);
   register(saveReportTool);
   register(listReportsTool);
   register(getReportTool);
