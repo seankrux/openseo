@@ -1,25 +1,14 @@
-import { env } from "cloudflare:workers";
-import {
-  getDelegatedOrganizationId,
-  LOCAL_ADMIN_USER_ID,
-  SHARED_WORKSPACE_ORGANIZATION_ID,
-} from "@/server/auth/delegated-organization";
+import { LOCAL_ADMIN_USER_ID } from "@/server/auth/delegated-organization";
+import { hasSelfHostedWorkspaceAccess } from "@/server/auth/self-hosted-workspace";
 import { AppError } from "@/server/lib/errors";
 import { getEnvValueSync } from "@/server/lib/runtime-env";
+import { env } from "cloudflare:workers";
 
 // An installed API key grants access to ALL of its Bing sites. A project host
 // match is only a compatibility filter, never an external entitlement check.
 // Accept only the deployment's canonical trusted self-hosted workspace; in
 // particular, never apply auth-mode's permissive default for unknown modes.
-export function hasBingWorkspaceAccess(organizationId: string): boolean {
-  const mode = getEnvValueSync(env, "AUTH_MODE");
-  if (mode === "local_noauth")
-    return organizationId === getDelegatedOrganizationId(LOCAL_ADMIN_USER_ID);
-  return (
-    mode === "cloudflare_access" &&
-    organizationId === SHARED_WORKSPACE_ORGANIZATION_ID
-  );
-}
+export const hasBingWorkspaceAccess = hasSelfHostedWorkspaceAccess;
 
 export function requireBingWorkspaceAccess(organizationId: string): void {
   if (!hasBingWorkspaceAccess(organizationId)) throw new AppError("FORBIDDEN");

@@ -10,11 +10,9 @@
  *     zombie rows die even if nobody ever reopens the page, and the instance
  *     error is copied into the row before Workflows retention deletes it.
  */
-import { env } from "cloudflare:workers";
-import { and, eq, lt } from "drizzle-orm";
 import { db } from "@/db";
-import { audits, projects } from "@/db/schema";
 import { getDatabaseProvider } from "@/db/provider";
+import { audits, projects } from "@/db/schema";
 import { AuditRepository } from "@/server/features/audit/repositories/AuditRepository";
 import {
   classifyAuditError,
@@ -22,6 +20,8 @@ import {
 } from "@/server/lib/audit/audit-errors";
 import { captureServerEvent } from "@/server/lib/posthog";
 import { getOptionalEnvValue } from "@/server/lib/runtime-env";
+import { env } from "cloudflare:workers";
+import { and, eq, lt } from "drizzle-orm";
 
 /**
  * Don't declare an instance "lost" until the audit is comfortably older than
@@ -45,12 +45,17 @@ const WATCHDOG_BATCH_LIMIT = 100;
  */
 const DEFAULT_STALE_FAIL_AFTER_HOURS = 6;
 
-export async function getStaleFailAfterMs(): Promise<number> {
+async function getStaleFailAfterMs(): Promise<number> {
   const raw = await getOptionalEnvValue("AUDIT_STALE_FAIL_AFTER_HOURS");
   const hours = raw === undefined ? NaN : Number(raw);
-  return (Number.isFinite(hours) && hours > 0
-    ? hours
-    : DEFAULT_STALE_FAIL_AFTER_HOURS) * 60 * 60 * 1000;
+  return (
+    (Number.isFinite(hours) && hours > 0
+      ? hours
+      : DEFAULT_STALE_FAIL_AFTER_HOURS) *
+    60 *
+    60 *
+    1000
+  );
 }
 
 const NON_TERMINAL_STATUSES = new Set([
@@ -75,10 +80,11 @@ async function failStale(
 ): Promise<AuditErrorInfo> {
   const errorInfo: AuditErrorInfo = {
     errorCode: "stalled",
-    errorDetail: `${detail}; no progress since start ${audit.startedAt} (stale ceiling reached)`.slice(
-      0,
-      500,
-    ),
+    errorDetail:
+      `${detail}; no progress since start ${audit.startedAt} (stale ceiling reached)`.slice(
+        0,
+        500,
+      ),
   };
   await AuditRepository.failAudit(audit.id, audit.workflowInstanceId!, {
     ...errorInfo,

@@ -1,26 +1,26 @@
-import { AiVisibilityRepository as repo } from "../repositories/AiVisibilityRepository";
-import { AiVisibilityError } from "./aiVisibilityErrors";
-import { aiScope } from "./aiVisibilityConfiguration";
+import { llmResponseUsd } from "@/server/lib/dataforseo/pricing";
+import { getProxyLlmConfig } from "@/server/lib/proxyLlm";
 import {
   getOptionalEnvValue,
   isHostedServerAuthMode,
 } from "@/server/lib/runtime-env";
-import { getProxyLlmConfig } from "@/server/lib/proxyLlm";
 import {
-  aiEngineUsesModelApi,
   AI_ENGINE_LABELS,
   AI_LIVE_RECORD_COST_USD,
   AI_RECORD_COST_USD,
+  aiEngineUsesModelApi,
   type AiCostEstimate,
   type AiEngine,
 } from "@/shared/ai-visibility";
-import { llmResponseUsd } from "@/server/lib/dataforseo/pricing";
 import {
   AUTUMN_SEO_DATA_CREDITS_PER_USD,
   creditsForProviderUsd,
 } from "@/shared/billing";
 import { scheduledChecksPerMonth } from "@/shared/rank-tracking";
 import type { EstimateAiCostInput } from "@/types/schemas/ai-visibility";
+import { AiVisibilityRepository as repo } from "../repositories/AiVisibilityRepository";
+import { aiScope } from "./aiVisibilityConfiguration";
+import { AiVisibilityError } from "./aiVisibilityErrors";
 import { projectPatch } from "./aiVisibilityMutation";
 
 function aiAnswerUsd(engine: AiEngine, mode: "live" | "queued") {
@@ -73,7 +73,7 @@ export async function estimateCost(
   const checksPerMonth = scheduledChecksPerMonth(scheduleInterval);
   const hasProvider = Boolean(
     (await getOptionalEnvValue("DATAFORSEO_API_KEY")) ||
-      (await getProxyLlmConfig()),
+    (await getProxyLlmConfig()),
   );
   return {
     promptCount: scope.prompts.length,

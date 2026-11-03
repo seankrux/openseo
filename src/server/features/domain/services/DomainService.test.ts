@@ -239,15 +239,19 @@ describe("measured domain analytics", () => {
         offset: 25,
         limit: 25,
         orderBy: ["ranked_serp_element.serp_item.etv,desc"],
-        filters: expect.arrayContaining([
-          ["keyword_data.keyword_info.search_volume", ">=", 0],
-          [
-            ["keyword_data.keyword", "ilike", "%repair%"],
-            "or",
-            ["ranked_serp_element.serp_item.url", "ilike", "%repair%"],
-          ],
-        ]),
       }),
+    );
+    const request: unknown = mocks.rankedKeywords.mock.calls[0]?.[0];
+    expect(request).toHaveProperty(
+      "filters",
+      expect.arrayContaining([
+        ["keyword_data.keyword_info.search_volume", ">=", 0],
+        [
+          ["keyword_data.keyword", "ilike", "%repair%"],
+          "or",
+          ["ranked_serp_element.serp_item.url", "ilike", "%repair%"],
+        ],
+      ]),
     );
     expect(JSON.stringify(mocks.rankedKeywords.mock.calls[0])).toContain(
       "/services/%",

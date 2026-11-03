@@ -4,13 +4,13 @@
 // pass of ~1,600 sites is spread over a couple of hours and never spikes
 // tokyo. Every project domain is in scope (seeded from projects.domain).
 // Healthy domains come due again after 24h, problem domains after 4h.
-import { and, eq, isNull, isNotNull, lt, sql } from "drizzle-orm";
 import { db } from "@/db";
 import { domainHealthChecks, domainHealthCurrent, projects } from "@/db/schema";
-import { checkDomainHealth } from "@/server/lib/domain-health";
-import type { DomainHealthResult } from "@/server/lib/domain-health";
 import { DomainHealthRepository } from "@/server/features/domain-health/repositories/DomainHealthRepository";
+import type { DomainHealthResult } from "@/server/lib/domain-health";
+import { checkDomainHealth } from "@/server/lib/domain-health";
 import { getOptionalEnvValue } from "@/server/lib/runtime-env";
+import { and, eq, isNotNull, isNull, lt, sql } from "drizzle-orm";
 
 const CHUNK_PER_TICK = 40;
 const CONCURRENCY = 3;
@@ -22,7 +22,8 @@ const CONFIRM_TIMEOUT_MS = 20_000;
 function isTransientFailure(result: DomainHealthResult): boolean {
   return (
     result.class === "timeout" ||
-    (result.class === "dns_fail" && /timeout|timed out|aborted/i.test(result.error ?? ""))
+    (result.class === "dns_fail" &&
+      /timeout|timed out|aborted/i.test(result.error ?? ""))
   );
 }
 
@@ -36,25 +37,34 @@ const BUILTIN_REDIRECT_ALLOWLIST = [
 ];
 
 function bare(host: string) {
-  return host.toLowerCase().replace(/^www\./, "").replace(/\.$/, "");
+  return host
+    .toLowerCase()
+    .replace(/^www\./, "")
+    .replace(/\.$/, "");
 }
 
-export function normalizeFleetDomain(input: string | null | undefined): string | null {
+export function normalizeFleetDomain(
+  input: string | null | undefined,
+): string | null {
   if (!input) return null;
-  let d = input.trim().toLowerCase().replace(/^https?:\/\//, "");
-  d = d.split("/")[0]!.split("?")[0]!.replace(/\.$/, "");
+  let d = input
+    .trim()
+    .toLowerCase()
+    .replace(/^https?:\/\//, "");
+  d = d.split("/")[0].split("?")[0].replace(/\.$/, "");
   d = d.replace(/^www\./, "");
   return /^[a-z0-9.-]+\.[a-z]{2,}$/.test(d) ? d : null;
 }
 
 export async function redirectAllowlist(): Promise<Array<[string, string]>> {
-  const extra = (await getOptionalEnvValue("DOMAIN_HEALTH_REDIRECT_ALLOWLIST")) ?? "";
+  const extra =
+    (await getOptionalEnvValue("DOMAIN_HEALTH_REDIRECT_ALLOWLIST")) ?? "";
   return [...BUILTIN_REDIRECT_ALLOWLIST, ...extra.split(",")]
     .map((e) => e.trim())
     .filter((e) => e.includes(">"))
     .map((e) => {
       const [from, to] = e.split(">");
-      return [bare(from!), bare(to!)] as [string, string];
+      return [bare(from), bare(to)] as [string, string];
     });
 }
 
@@ -63,7 +73,8 @@ export function applyRedirectAllowlist(
   result: DomainHealthResult,
   allow: Array<[string, string]>,
 ): DomainHealthResult {
-  if (result.class !== "redirect_other_domain" || !result.finalUrl) return result;
+  if (result.class !== "redirect_other_domain" || !result.finalUrl)
+    return result;
   let host = "";
   try {
     host = bare(new URL(result.finalUrl).hostname);
@@ -72,7 +83,8 @@ export function applyRedirectAllowlist(
   }
   const from = bare(result.domain);
   const ok = allow.some(
-    ([f, t]) => f === from && (t === "*" || t === host || host.endsWith(`.${t}`)),
+    ([f, t]) =>
+      f === from && (t === "*" || t === host || host.endsWith(`.${t}`)),
   );
   return ok ? { ...result, class: "redirect_intended" } : result;
 }
@@ -107,13 +119,23 @@ export async function resolveFleetProject(
 ): Promise<{ projectId: string | null; inFleet: boolean } | { error: string }> {
   const fleet = await fleetDomains(organizationId);
   const fleetProject = fleet.get(domain) ?? null;
-  if (!projectId) return { projectId: fleetProject, inFleet: fleetProject !== null };
+  if (!projectId)
+    return { projectId: fleetProject, inFleet: fleetProject !== null };
   const [row] = await db
     .select({ id: projects.id })
     .from(projects)
-    .where(and(eq(projects.id, projectId), eq(projects.organizationId, organizationId), isNull(projects.archivedAt)))
+    .where(
+      and(
+        eq(projects.id, projectId),
+        eq(projects.organizationId, organizationId),
+        isNull(projects.archivedAt),
+      ),
+    )
     .limit(1);
-  if (!row) return { error: `Project ${projectId} was not found in this organization.` };
+  if (!row)
+    return {
+      error: `Project ${projectId} was not found in this organization.`,
+    };
   return { projectId: row.id, inFleet: fleetProject !== null };
 }
 
@@ -145,7 +167,7 @@ async function dueDomains(organizationId: string, limit: number) {
   };
 }
 
-export async function checkAndRecord(
+async function checkAndRecord(
   organizationId: string,
   items: Array<{ domain: string; projectId: string | null }>,
   trigger: "scheduled_full" | "scheduled_problem" | "recheck" | "manual",
@@ -156,17 +178,23 @@ export async function checkAndRecord(
   await Promise.all(
     Array.from({ length: CONCURRENCY }, async () => {
       while (cursor < items.length) {
-        const item = items[cursor++]!;
+        const item = items[cursor++];
         try {
           let result = applyRedirectAllowlist(
-            await checkDomainHealth(item.domain, { timeoutMs: TIMEOUT_MS, maxBodyBytes: 150_000 }),
+            await checkDomainHealth(item.domain, {
+              timeoutMs: TIMEOUT_MS,
+              maxBodyBytes: 150_000,
+            }),
             allow,
           );
           // Checker timeouts used to flip healthy sites to "down" and back on
           // the next pass, burying real outages in noise. Confirm first.
           if (isTransientFailure(result)) {
             const again = applyRedirectAllowlist(
-              await checkDomainHealth(item.domain, { timeoutMs: CONFIRM_TIMEOUT_MS, maxBodyBytes: 150_000 }),
+              await checkDomainHealth(item.domain, {
+                timeoutMs: CONFIRM_TIMEOUT_MS,
+                maxBodyBytes: 150_000,
+              }),
               allow,
             );
             if (!isTransientFailure(again)) result = again;
@@ -213,21 +241,35 @@ export async function runDomainHealthTick(): Promise<void> {
 async function pruneHistory() {
   if (Date.now() - lastPruneAt < PRUNE_EVERY_MS) return;
   lastPruneAt = Date.now();
-  const cutoff = new Date(Date.now() - HISTORY_RETENTION_DAYS * 86400_000).toISOString();
-  await db.delete(domainHealthChecks).where(lt(domainHealthChecks.checkedAt, cutoff));
+  const cutoff = new Date(
+    Date.now() - HISTORY_RETENTION_DAYS * 86400_000,
+  ).toISOString();
+  await db
+    .delete(domainHealthChecks)
+    .where(lt(domainHealthChecks.checkedAt, cutoff));
 }
 
 async function runDomainHealthTickOnce() {
-  await pruneHistory().catch((e) => console.error("[domain-health] prune failed", e));
+  await pruneHistory().catch((e) =>
+    console.error("[domain-health] prune failed", e),
+  );
   const orgs = await db
     .selectDistinct({ organizationId: projects.organizationId })
     .from(projects)
     .where(isNull(projects.archivedAt));
   for (const { organizationId } of orgs) {
-    const { picked, total, pending } = await dueDomains(organizationId, CHUNK_PER_TICK);
+    const { picked, total, pending } = await dueDomains(
+      organizationId,
+      CHUNK_PER_TICK,
+    );
     if (picked.length === 0) continue;
     const res = await checkAndRecord(organizationId, picked, "scheduled_full");
-    console.log("[domain-health] tick", { organizationId, total, pending, ...res });
+    console.log("[domain-health] tick", {
+      organizationId,
+      total,
+      pending,
+      ...res,
+    });
   }
 }
 
@@ -247,8 +289,16 @@ export async function queueDomainHealthRunNow(organizationId: string) {
 export async function domainHealthProgress(organizationId: string) {
   const { total, pending } = await dueDomains(organizationId, 0);
   const [row] = await db
-    .select({ n: sql<number>`count(*)`, last: sql<string | null>`max(${domainHealthCurrent.checkedAt})` })
+    .select({
+      n: sql<number>`count(*)`,
+      last: sql<string | null>`max(${domainHealthCurrent.checkedAt})`,
+    })
     .from(domainHealthCurrent)
     .where(eq(domainHealthCurrent.organizationId, organizationId));
-  return { total, pending, checked: Number(row?.n ?? 0), lastCheckedAt: row?.last ?? null };
+  return {
+    total,
+    pending,
+    checked: Number(row?.n ?? 0),
+    lastCheckedAt: row?.last ?? null,
+  };
 }

@@ -1,3 +1,4 @@
+import { sort as sortArray } from "remeda";
 import { describe, expect, it } from "vitest";
 import { detectStatusChanges } from "./detectStatusChanges";
 
@@ -7,8 +8,15 @@ describe("detectStatusChanges", () => {
       { class: "live_ok", sslDaysRemaining: 90, ga4Ids: ["G-A"], gtmIds: [] },
       { class: "timeout", sslDaysRemaining: 90, ga4Ids: ["G-A"], gtmIds: [] },
     );
-    expect(changes.map((c) => c.kind).sort()).toEqual(
-      ["class_changed", "went_down"].sort(),
+    expect(
+      sortArray(
+        changes.map((c) => c.kind),
+        (a, b) => (a < b ? -1 : a > b ? 1 : 0),
+      ),
+    ).toEqual(
+      sortArray(["class_changed", "went_down"], (a, b) =>
+        a < b ? -1 : a > b ? 1 : 0,
+      ),
     );
   });
 

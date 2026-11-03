@@ -1,21 +1,23 @@
+import { DOMAIN_HEALTH_CLASSES } from "@/shared/domain-health";
+import { z } from "zod";
 /**
  * Persistence for fleet domain health. Agent wires this to the shared db
  * client (same pattern as RankTrackingRepository). Methods are sketched so
  * the scheduled runner and MCP tools compile once copied into open-seo.
  */
-import { and, asc, desc, eq, inArray, lte, sql } from "drizzle-orm";
 import { db } from "@/db";
 import {
   domainHealthChanges,
   domainHealthChecks,
   domainHealthCurrent,
 } from "@/db/schema";
-import type { DomainHealthClass } from "@/shared/domain-health";
-import type { DomainHealthResult } from "@/server/lib/domain-health";
 import {
   detectStatusChanges,
   type DetectedChange,
 } from "@/server/features/domain-health/services/detectStatusChanges";
+import type { DomainHealthResult } from "@/server/lib/domain-health";
+import type { DomainHealthClass } from "@/shared/domain-health";
+import { and, asc, desc, eq, inArray, lte, sql } from "drizzle-orm";
 
 function newId(prefix: string) {
   return `${prefix}_${crypto.randomUUID().replace(/-/g, "")}`;
@@ -32,7 +34,10 @@ function parseIds(raw: string | null | undefined): string[] {
 }
 
 export const DomainHealthRepository = {
-  async listCurrent(organizationId: string, opts?: { class?: DomainHealthClass; limit?: number }) {
+  async listCurrent(
+    organizationId: string,
+    opts?: { class?: DomainHealthClass; limit?: number },
+  ) {
     const limit = opts?.limit ?? 500;
     const rows = await db
       .select()
@@ -133,7 +138,7 @@ export const DomainHealthRepository = {
     const changes = detectStatusChanges(
       prev
         ? {
-            class: prev.class as DomainHealthClass,
+            class: z.enum(DOMAIN_HEALTH_CLASSES).parse(prev.class),
             sslDaysRemaining: prev.sslDaysRemaining,
             ga4Ids: parseIds(prev.ga4IdsJson),
             gtmIds: parseIds(prev.gtmIdsJson),
