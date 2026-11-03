@@ -4,11 +4,11 @@ Scope: how to improve OpenSEO vs free SEO utilities (especially PlePer) and adja
 
 ## 1. Positioning snapshot
 
-| Player | Wedge | Monetization | Agent / API |
-|--------|--------|--------------|-------------|
-| **OpenSEO** | MCP + skills, BYO DataForSEO, self-host, modern app | Hosted $10/mo or own API spend | Strong (60+ MCP tools) |
-| **PlePer** | Local SEO utility belt (~20 tools) | ~$10–25/mo tools + Scrape API ($0.005/credit) | Chrome ext, scrape API, no agent story |
-| **Ahrefs / Semrush free** | Traffic/keyword/backlink teasers | Upsell to $100+/mo suites | Weak / gated |
+| Player                    | Wedge                                               | Monetization                                  | Agent / API                            |
+| ------------------------- | --------------------------------------------------- | --------------------------------------------- | -------------------------------------- |
+| **OpenSEO**               | MCP + skills, BYO DataForSEO, self-host, modern app | Hosted $10/mo or own API spend                | Strong (60+ MCP tools)                 |
+| **PlePer**                | Local SEO utility belt (~20 tools)                  | ~$10–25/mo tools + Scrape API ($0.005/credit) | Chrome ext, scrape API, no agent story |
+| **Ahrefs / Semrush free** | Traffic/keyword/backlink teasers                    | Upsell to $100+/mo suites                     | Weak / gated                           |
 
 OpenSEO marketing free tools today (10): the eight national/technical tools above plus **Google review link generator** and **Google CID converter** (local cluster P1, category A — client-side only). Registry: `web/src/lib/free-tools/tool-pages.ts`. Paid DataForSEO tools use Turnstile + daily budgets (`spend.ts`); local utilities have `null` spend.
 
@@ -32,7 +32,7 @@ PlePer tools today (20 `sdo=` routes, from homepage crawl): duplicate GBP finder
 
 - Keyword research, rank tracking, site audit, GSC/GA4, AI visibility, reports, fleet table/dashboard (CityThrive), domain health, project health MCP
 
-**OpenSEO gap in *distribution***
+**OpenSEO gap in _distribution_**
 
 - PlePer tools are SEO’d individually and shared in local SEO communities; OpenSEO free tools are generic national SEO, not local-operator landing pages.
 
@@ -44,12 +44,12 @@ Use shipped-artifact evidence, not guesswork.
 
 For each `index.php?do=tools&sdo=<name>`:
 
-| Field | How |
-|-------|-----|
-| Inputs | Form fields from HTML |
-| Output | Table/CSV/download |
-| Auth | Guest vs login |
-| Paid gate | Prices page + trial copy |
+| Field         | How                                   |
+| ------------- | ------------------------------------- |
+| Inputs        | Form fields from HTML                 |
+| Output        | Table/CSV/download                    |
+| Auth          | Guest vs login                        |
+| Paid gate     | Prices page + trial copy              |
 | Backend class | Scrape API credit vs included in plan |
 
 Deliverable: spreadsheet `ops/pleper-tool-matrix.csv`.
@@ -88,11 +88,11 @@ For each tool, classify:
 
 Ship **4 utilities** on marketing site (category A/B), link to local MCP skills:
 
-| Tool | Build path |
-|------|------------|
-| CID / place_id converter | A — client-side + validation |
-| Google review link generator | A — URL templates from place_id |
-| GBP category helper | B — cache `fetchBusinessListingsCategories` subset; search UI |
+| Tool                              | Build path                                                      |
+| --------------------------------- | --------------------------------------------------------------- |
+| CID / place_id converter          | A — client-side + validation                                    |
+| Google review link generator      | A — URL templates from place_id                                 |
+| GBP category helper               | B — cache `fetchBusinessListingsCategories` subset; search UI   |
 | Local rank check (single keyword) | B — one DataForSEO local SERP call; strict budget in `spend.ts` |
 
 Reuse patterns: `free-tool-paths.js`, `server.ts`, Playwright `playwright.free-tools.config.ts`.
@@ -120,12 +120,12 @@ Reuse patterns: `free-tool-paths.js`, `server.ts`, Playwright `playwright.free-t
 
 ## 6. Success metrics
 
-| Metric | Target |
-|--------|--------|
-| Free tool → app signup | +20% from local cluster |
-| Organic landing sessions | 10 indexed local tool pages in 90 days |
-| Fleet operator time | −30% clicks to complete “review link + category check” per site |
-| API spend per free local tool | &lt; $0.02/run at fixed caps |
+| Metric                        | Target                                                          |
+| ----------------------------- | --------------------------------------------------------------- |
+| Free tool → app signup        | +20% from local cluster                                         |
+| Organic landing sessions      | 10 indexed local tool pages in 90 days                          |
+| Fleet operator time           | −30% clicks to complete “review link + category check” per site |
+| API spend per free local tool | &lt; $0.02/run at fixed caps                                    |
 
 ## 7. Next actions (concrete)
 
@@ -136,4 +136,4 @@ Reuse patterns: `free-tool-paths.js`, `server.ts`, Playwright `playwright.free-t
 
 ---
 
-*Sources: PlePer homepage/prices fetch 2026-10-26; OpenSEO repo `web/src/lib/free-tools/*`, `src/server/mcp/tools/local-seo-tools.ts`; live stack on tokyo `ux-fleet-20261025`.*
+_Sources: PlePer homepage/prices fetch 2026-10-26; OpenSEO repo `web/src/lib/free-tools/*`, `src/server/mcp/tools/local-seo-tools.ts`; live stack on tokyo `ux-fleet-20261025`._

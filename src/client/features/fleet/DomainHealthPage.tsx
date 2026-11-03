@@ -1,20 +1,21 @@
+import { sort as sortArray } from "remeda";
 // CityThrive fork: Domain health for every project domain. Results come from
 // the daily in-app check (a few domains every 5 minutes).
-import * as React from "react";
-import { Link } from "@tanstack/react-router";
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { RefreshCw } from "lucide-react";
 import { PageHeader } from "@/client/components/PageHeader";
+import { QueryError } from "@/client/components/QueryState";
 import { Button } from "@/client/components/ui/button";
 import { Input } from "@/client/components/ui/input";
 import { Skeleton } from "@/client/components/ui/skeleton";
-import { QueryError } from "@/client/components/QueryState";
 import {
   getDomainHealth,
   triggerDomainHealthRun,
 } from "@/serverFunctions/domainHealth";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { Link } from "@tanstack/react-router";
+import { RefreshCw } from "lucide-react";
+import * as React from "react";
 
-export const HEALTH_LABELS: Record<string, string> = {
+const HEALTH_LABELS: Record<string, string> = {
   live_ok: "Live",
   redirect_intended: "Intended redirect",
   redirect_other_domain: "Redirects to another domain",
@@ -69,7 +70,7 @@ function when(iso: string | null) {
       });
 }
 
-type Filter = "problems" | "all" | "noTag" | string;
+type Filter = string;
 
 export function DomainHealthPage() {
   const qc = useQueryClient();
@@ -166,9 +167,9 @@ export function DomainHealthPage() {
             <div className="flex flex-wrap items-center gap-1.5">
               {chip("problems", "Needs attention", problems)}
               {chip("all", "All", d.rows.length)}
-              {Object.entries(counts)
-                .sort((a, b) => b[1] - a[1])
-                .map(([c, n]) => chip(c, HEALTH_LABELS[c] ?? c, n))}
+              {sortArray(Object.entries(counts), (a, b) => b[1] - a[1]).map(
+                ([c, n]) => chip(c, HEALTH_LABELS[c] ?? c, n),
+              )}
               {chip("noTag", "Live, no GA4 or GTM tag", noTag)}
               <Input
                 className="h-8 w-full sm:ml-auto sm:w-56"
@@ -273,25 +274,27 @@ export function DomainHealthPage() {
               <div>
                 <h2 className="mb-2 text-sm font-semibold">Recent changes</h2>
                 <ul className="divide-y divide-border rounded-md border border-border text-sm">
-                  {dedupeChanges(d.changes).slice(0, 30).map((c, i) => (
-                    <li
-                      key={i}
-                      className="flex flex-col gap-1 px-3 py-1.5 sm:flex-row sm:justify-between sm:gap-3"
-                    >
-                      <span className="min-w-0 break-words">
-                        <span className="font-medium">{c.domain}</span>{" "}
-                        <span className="text-muted-foreground">
-                          {CHANGE_LABELS[c.kind] ?? c.kind.replace(/_/g, " ")}
-                          {c.fromClass || c.toClass
-                            ? `: ${HEALTH_LABELS[c.fromClass ?? ""] ?? c.fromClass ?? "new"} to ${HEALTH_LABELS[c.toClass ?? ""] ?? c.toClass}`
-                            : ""}
+                  {dedupeChanges(d.changes)
+                    .slice(0, 30)
+                    .map((c, i) => (
+                      <li
+                        key={i}
+                        className="flex flex-col gap-1 px-3 py-1.5 sm:flex-row sm:justify-between sm:gap-3"
+                      >
+                        <span className="min-w-0 break-words">
+                          <span className="font-medium">{c.domain}</span>{" "}
+                          <span className="text-muted-foreground">
+                            {CHANGE_LABELS[c.kind] ?? c.kind.replace(/_/g, " ")}
+                            {c.fromClass || c.toClass
+                              ? `: ${HEALTH_LABELS[c.fromClass ?? ""] ?? c.fromClass ?? "new"} to ${HEALTH_LABELS[c.toClass ?? ""] ?? c.toClass}`
+                              : ""}
+                          </span>
                         </span>
-                      </span>
-                      <span className="shrink-0 whitespace-nowrap text-xs text-muted-foreground sm:text-sm">
-                        {when(c.detectedAt)}
-                      </span>
-                    </li>
-                  ))}
+                        <span className="shrink-0 whitespace-nowrap text-xs text-muted-foreground sm:text-sm">
+                          {when(c.detectedAt)}
+                        </span>
+                      </li>
+                    ))}
                 </ul>
               </div>
             ) : null}
