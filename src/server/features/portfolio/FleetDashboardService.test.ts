@@ -29,6 +29,7 @@ import {
   buildFleetDashboard,
   getFleetDashboard,
   getPortfolioOverview,
+  runScheduledFleetDashboard,
   warmFleetCaches,
 } from "./FleetDashboardService";
 import { cacheKey, ga4CacheKey } from "./PortfolioService";
@@ -610,6 +611,42 @@ describe("bounded resumable warming", () => {
     expect(await warming).toMatchObject({ timedOut: true, ran: 3 });
     expect(mocks.performance).toHaveBeenCalledTimes(3);
   });
+});
+
+it("rebuilds a stale snapshot from stored rows instead of rereading every site cache", async () => {
+  await seed(400);
+  await getFleetDashboard(org);
+  const warm = await warmFleetCaches(org, 90);
+  expect(warm.ran).toBeGreaterThan(0);
+  const fetchedId = mocks.performance.mock.calls[0]![0].projectId as string;
+  const stored = (await getCached(
+    cacheKey(fetchedId, `sc-domain:${fetchedId}.example`),
+  )) as { fetchedAt?: string } | null;
+  expect(typeof stored?.fetchedAt).toBe("string");
+
+  mocks.readDelayMs = 120;
+  vi.setSystemTime(new Date(Date.now() + 31 * 60 * 1000));
+  const beforeGet = Date.now();
+  const dashboard = await getFleetDashboard(org);
+  const getMoved = Date.now() - beforeGet;
+  // The page read writes a new snapshot. Age that one too so the scheduler
+  // takes the same stale-snapshot path instead of scanning the fleet to warm.
+  vi.setSystemTime(new Date(Date.now() + 31 * 60 * 1000));
+  const beforeScheduled = Date.now();
+  await runScheduledFleetDashboard();
+  const scheduledMoved = Date.now() - beforeScheduled;
+
+  expect(getMoved).toBeLessThan(5_000);
+  expect(scheduledMoved).toBeLessThan(5_000);
+  expect(dashboard.coverage.projects).toBe(400);
+  expect(
+    dashboard.inventory.find((row) => row.projectId === fetchedId)?.gsc,
+  ).toMatchObject({ status: "available", fetchedAt: stored!.fetchedAt });
+  const scheduled = await getFleetDashboard(org);
+  expect(scheduled.coverage.projects).toBe(400);
+  expect(
+    scheduled.inventory.find((row) => row.projectId === fetchedId)?.gsc.status,
+  ).toBe("available");
 });
 
 it("ignores old snapshot versions and rebuilds a v4 snapshot past the 30-minute max-age without provider calls", async () => {
