@@ -45,6 +45,8 @@ const mocks = vi.hoisted(() => ({
     { value: string; customMetadata: Record<string, string> }
   >(),
   bing: new Map<string, BingSnapshot>(),
+  /** Simulated R2 read latency: each read advances the fake clock this much. */
+  readDelayMs: 0,
 }));
 vi.mock("@/db", () => ({
   get db() {
@@ -58,6 +60,8 @@ vi.mock("cloudflare:workers", () => ({
     },
     R2: {
       get: async (key: string) => {
+        if (mocks.readDelayMs)
+          vi.setSystemTime(new Date(Date.now() + mocks.readDelayMs));
         const object = mocks.objects.get(key);
         return object
           ? {
@@ -133,6 +137,7 @@ beforeEach(async () => {
   mocks.settings.AUTH_MODE = "local_noauth";
   mocks.objects.clear();
   mocks.bing.clear();
+  mocks.readDelayMs = 0;
   mocks.token.mockResolvedValue("test-token");
   mocks.performance.mockResolvedValue({ rows: [] });
   mocks.runReport.mockResolvedValue({ rows: [] });
@@ -568,6 +573,32 @@ describe("bounded resumable warming", () => {
         (r) => r.ga4.status === "available" && r.ga4.metrics?.sessions === 0,
       ),
     ).toBe(true);
+  });
+
+  it("still runs provider work when reading every site's cache would use up the deadline", async () => {
+    // Live tokyo: ~6,500 reads took 55-123 s, so the 100 s warm (which stops
+    // scheduling 20 s early) ran nothing for days while 6,467 refreshes waited.
+    await seed(400);
+    mocks.readDelayMs = 120; // 400 sites x 2 reads x 120 ms = 96 s if read at once.
+    const result = await warmFleetCaches(org, 90);
+    expect(result.ran).toBeGreaterThan(0);
+    expect(mocks.performance).toHaveBeenCalled();
+  });
+
+  it("moves past a stretch of up-to-date sites in the same warm", async () => {
+    await seed(400);
+    for (let i = 0; i < 300; i++) {
+      await setCached(cacheKey(id(i), site(i)), gsc(), 43200);
+      await setCached(
+        `portfolio-gscq:v1:${id(i)}:${site(i)}`,
+        { fetchedAt: now(), rows: [] },
+        129600,
+      );
+    }
+    await warmFleetCaches(org, 90);
+    const called = mocks.performance.mock.calls.map(([input]) => input.projectId);
+    expect(called.length).toBeGreaterThan(0);
+    expect(called.every((p: string) => p >= id(300))).toBe(true);
   });
 
   it("stops scheduling at its deadline rather than spawning replacements for three hung provider calls", async () => {

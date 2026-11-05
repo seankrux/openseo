@@ -50,7 +50,9 @@ const QUERIES_TTL_SECONDS = 36 * 60 * 60;
 const QUERIES_REFRESH_AFTER_MS = 24 * 60 * 60 * 1000;
 const QUERIES_PER_SITE = 25;
 const WARM_CONCURRENCY = 3;
-const WARM_BUDGET_DEFAULT = 90;
+const WARM_BUDGET_DEFAULT = 120;
+/** Sites whose cached evidence is read per window (about 5 R2 reads each). */
+const WARM_SCAN_ROWS = 150;
 /** Leave room for cache-only assembly inside the self-hosted 150s scheduler. */
 const WARM_MAX_MS = 100_000;
 const ERROR_RETRY_MS = 30 * 60 * 1000;
@@ -649,18 +651,17 @@ async function warmFleetCachesOnce(
 ) {
   const deadline = Date.now() + WARM_MAX_MS;
   const limit = Math.max(0, Math.min(WARM_BUDGET_DEFAULT, Math.floor(budget)));
-  const rows = await listFleet(organizationId);
-  const [evidence, checks] = await Promise.all([
-    readFleetEvidence(rows, organizationId),
-    readAuthChecks(rows, organizationId),
-  ]);
+  const allRows = await listFleet(organizationId);
+  // Authorization checks are a handful of keys; per-site evidence is read
+  // one window at a time below so the read never eats the whole deadline.
+  const checks = await readAuthChecks(allRows, organizationId);
   type Task = {
     id: string;
     cost: number;
     google?: GoogleIdentity;
     run: () => Promise<void>;
   };
-  const tasks: Task[] = [];
+  let tasks: Task[] = [];
   let timedOut = false;
   let used = 0;
   let ran = 0;
@@ -683,169 +684,24 @@ async function warmFleetCachesOnce(
       !!(updatedAt && Date.parse(v.fetchedAt) < connectionTime(updatedAt))
     );
   };
-  for (let i = 0; i < rows.length; i++) {
-    const r = rows[i]!;
-    const e = evidence[i]!;
-    if (r.siteUrl) {
-      const google = googleIdentity(r, "gsc", organizationId);
-      const saveGsc = async (
-        key: string,
-        value: PortfolioGsc | SiteQueries,
-        ttl: number,
-      ) => {
-        const current = await GscConnectionRepository.getByProjectId(
-          r.projectId,
-        );
-        if (
-          canWrite() &&
-          current?.organizationId === organizationId &&
-          current.siteUrl === r.siteUrl &&
-          current.connectedByUserId === r.gscUserId &&
-          current.gscAccountId === r.gscAccountId &&
-          current.updatedAt === r.gscUpdatedAt
-        )
-          await setCached(
-            key,
-            value,
-            value.error ? ERROR_RETRY_MS / 1000 : ttl,
-          );
-      };
-      const parsed = gscSchema.safeParse(e.gsc);
-      if (
-        due(e.gsc, REFRESH_AFTER_MS, "UTC", r.gscUpdatedAt) ||
-        (parsed.success && !parsed.data.error && !parsed.data.daily)
-      )
-        tasks.push({
-          id: `${r.projectId}:gsc`,
-          cost: 1,
-          google,
-          run: async () => {
-            const value = await fetchGsc(r.projectId);
-            await saveGsc(
-              cacheKey(r.projectId, r.siteUrl!),
-              value,
-              TTL_SECONDS,
-            );
-          },
-        });
-      if (due(e.queries, QUERIES_REFRESH_AFTER_MS, "UTC", r.gscUpdatedAt))
-        tasks.push({
-          id: `${r.projectId}:queries`,
-          cost: 1,
-          google,
-          run: async () => {
-            await saveGsc(
-              queriesKey(r.projectId, r.siteUrl!),
-              await fetchTopQueries(r.projectId),
-              QUERIES_TTL_SECONDS,
-            );
-          },
-        });
-    }
-    if (
-      r.ga4PropertyId &&
-      due(
-        e.ga4,
-        REFRESH_AFTER_MS,
-        r.ga4PropertyTimeZone ?? "UTC",
-        r.ga4UpdatedAt,
-      )
-    ) {
-      const google = googleIdentity(r, "ga4", organizationId);
-      tasks.push({
-        id: `${r.projectId}:ga4`,
-        cost: 1,
-        google,
-        run: async () => {
-          // The preflight fails closed on missing explicit account/user identity.
-          if (!r.ga4UserId || !r.ga4AccountId) return;
-          const value = await fetchGa4({
-            projectId: r.projectId,
-            propertyId: r.ga4PropertyId!,
-            userId: r.ga4UserId,
-            ga4AccountId: r.ga4AccountId,
-          });
-          const current = await Ga4ConnectionRepository.getByProjectId(
-            r.projectId,
-          );
-          if (
-            canWrite() &&
-            current?.organizationId === organizationId &&
-            current.propertyId === r.ga4PropertyId &&
-            current.connectedByUserId === r.ga4UserId &&
-            current.ga4AccountId === r.ga4AccountId &&
-            current.updatedAt === r.ga4UpdatedAt
-          )
-            await setCached(
-              ga4CacheKey(r.projectId, r.ga4PropertyId!),
-              value,
-              value.error ? ERROR_RETRY_MS / 1000 : TTL_SECONDS,
-            );
-        },
-      });
-    }
-    const attempt = cacheEvidenceSchema.safeParse(e.bingAttempt);
-    const bingFailedRecently =
-      attempt.success &&
-      attempt.data.error &&
-      ageMs(attempt.data.fetchedAt) >= 0 &&
-      ageMs(attempt.data.fetchedAt) < ERROR_RETRY_MS;
-    if (
-      r.bingSiteUrl &&
-      hasBingWorkspaceAccess(organizationId) &&
-      !bingFailedRecently &&
-      (!e.bing || ageMs(e.bing.fetchedAt) >= BING_REFRESH_AFTER_MS)
-    )
-      tasks.push({
-        id: `${r.projectId}:bing`,
-        cost: 2,
-        run: async () => {
-          try {
-            await BingWebmasterService.refreshSnapshot({
-              projectId: r.projectId,
-              organizationId,
-            });
-            if (canWrite())
-              await setCached(
-                bingAttemptKey(organizationId, r),
-                { fetchedAt: new Date().toISOString() },
-                ERROR_RETRY_MS / 1000,
-              );
-          } catch {
-            if (canWrite())
-              await setCached(
-                bingAttemptKey(organizationId, r),
-                {
-                  fetchedAt: new Date().toISOString(),
-                  error:
-                    "Bing snapshot refresh failed; check connector access or retry.",
-                },
-                ERROR_RETRY_MS / 1000,
-              );
-          }
-        },
-      });
-  }
-  // Stable identity, not array offset: additions/removals and an always-missing
-  // failed prefix cannot reset progress. Persist across scheduler invocations.
-  tasks.sort((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
   const cursorKey = `fleet-warm-cursor:v1:${organizationId}`;
   const savedCursor = await getCached(cursorKey);
-  const after =
-    typeof savedCursor === "string"
-      ? tasks.findIndex((t) => t.id > savedCursor)
-      : 0;
-  const start = after < 0 ? 0 : after;
-  const ordered = [...tasks.slice(start), ...tasks.slice(0, start)];
-  let next = 0;
+  const cursorProject =
+    typeof savedCursor === "string" ? savedCursor.split(":")[0]! : "";
+  const sortedRows = [...allRows].sort((a, b) =>
+    a.projectId < b.projectId ? -1 : a.projectId > b.projectId ? 1 : 0,
+  );
+  const startRow = Math.max(
+    0,
+    sortedRows.findIndex((r) => r.projectId >= cursorProject),
+  );
+  const rotatedRows = [
+    ...sortedRows.slice(startRow),
+    ...sortedRows.slice(0, startRow),
+  ];
   let lastId: string | null = null;
-  let lastProcessed = -1;
-  const markProcessed = (index: number, task: Task) => {
-    if (index > lastProcessed) {
-      lastProcessed = index;
-      lastId = task.id;
-    }
-  };
+  let scannedRows = 0;
+  let totalTasks = 0;
   // Existing Google clients do not expose AbortSignal for OAuth. Bound awaiting
   // and stop ALL further work on timeout; never fan out replacements for a hung
   // request. At most three requests can remain in flight, and late results are
@@ -906,41 +762,225 @@ async function warmFleetCachesOnce(
     preflights.set(id.key, work);
     return work;
   }
-  await Promise.all(
-    Array.from({ length: WARM_CONCURRENCY }, async () => {
-      while (
-        next < ordered.length &&
-        !timedOut &&
-        Date.now() < deadline - 20_000 &&
-        used < limit
-      ) {
-        const index = next++;
-        const task = ordered[index]!;
-        try {
-          if (task.google) {
-            const check = await preflight(task.google);
-            if (!check) break;
-            // One failed grant explains every project, without a refresh per site.
-            if (check.error) {
-              markProcessed(index, task);
-              continue;
-            }
-          }
-          if (timedOut || used + task.cost > limit) break;
-          used += task.cost;
-          markProcessed(index, task);
-          ran++;
-          await bounded(task.run());
-        } catch {
-          /* Failed provider/cache tasks do not stop fair fleet progress. */
-        }
+  for (
+    let offset = 0;
+    offset < rotatedRows.length;
+    offset += WARM_SCAN_ROWS
+  ) {
+    if (timedOut || Date.now() >= deadline - 20_000 || used >= limit) break;
+    const rows = rotatedRows.slice(offset, offset + WARM_SCAN_ROWS);
+    const evidence = await readFleetEvidence(rows, organizationId);
+    scannedRows += rows.length;
+    tasks = [];
+    for (let i = 0; i < rows.length; i++) {
+      const r = rows[i]!;
+      const e = evidence[i]!;
+      if (r.siteUrl) {
+        const google = googleIdentity(r, "gsc", organizationId);
+        const saveGsc = async (
+          key: string,
+          value: PortfolioGsc | SiteQueries,
+          ttl: number,
+        ) => {
+          const current = await GscConnectionRepository.getByProjectId(
+            r.projectId,
+          );
+          if (
+            canWrite() &&
+            current?.organizationId === organizationId &&
+            current.siteUrl === r.siteUrl &&
+            current.connectedByUserId === r.gscUserId &&
+            current.gscAccountId === r.gscAccountId &&
+            current.updatedAt === r.gscUpdatedAt
+          )
+            await setCached(
+              key,
+              value,
+              value.error ? ERROR_RETRY_MS / 1000 : ttl,
+            );
+        };
+        const parsed = gscSchema.safeParse(e.gsc);
+        if (
+          due(e.gsc, REFRESH_AFTER_MS, "UTC", r.gscUpdatedAt) ||
+          (parsed.success && !parsed.data.error && !parsed.data.daily)
+        )
+          tasks.push({
+            id: `${r.projectId}:gsc`,
+            cost: 1,
+            google,
+            run: async () => {
+              const value = await fetchGsc(r.projectId);
+              await saveGsc(
+                cacheKey(r.projectId, r.siteUrl!),
+                value,
+                TTL_SECONDS,
+              );
+            },
+          });
+        if (due(e.queries, QUERIES_REFRESH_AFTER_MS, "UTC", r.gscUpdatedAt))
+          tasks.push({
+            id: `${r.projectId}:queries`,
+            cost: 1,
+            google,
+            run: async () => {
+              await saveGsc(
+                queriesKey(r.projectId, r.siteUrl!),
+                await fetchTopQueries(r.projectId),
+                QUERIES_TTL_SECONDS,
+              );
+            },
+          });
       }
-    }),
-  );
+      if (
+        r.ga4PropertyId &&
+        due(
+          e.ga4,
+          REFRESH_AFTER_MS,
+          r.ga4PropertyTimeZone ?? "UTC",
+          r.ga4UpdatedAt,
+        )
+      ) {
+        const google = googleIdentity(r, "ga4", organizationId);
+        tasks.push({
+          id: `${r.projectId}:ga4`,
+          cost: 1,
+          google,
+          run: async () => {
+            // The preflight fails closed on missing explicit account/user identity.
+            if (!r.ga4UserId || !r.ga4AccountId) return;
+            const value = await fetchGa4({
+              projectId: r.projectId,
+              propertyId: r.ga4PropertyId!,
+              userId: r.ga4UserId,
+              ga4AccountId: r.ga4AccountId,
+            });
+            const current = await Ga4ConnectionRepository.getByProjectId(
+              r.projectId,
+            );
+            if (
+              canWrite() &&
+              current?.organizationId === organizationId &&
+              current.propertyId === r.ga4PropertyId &&
+              current.connectedByUserId === r.ga4UserId &&
+              current.ga4AccountId === r.ga4AccountId &&
+              current.updatedAt === r.ga4UpdatedAt
+            )
+              await setCached(
+                ga4CacheKey(r.projectId, r.ga4PropertyId!),
+                value,
+                value.error ? ERROR_RETRY_MS / 1000 : TTL_SECONDS,
+              );
+          },
+        });
+      }
+      const attempt = cacheEvidenceSchema.safeParse(e.bingAttempt);
+      const bingFailedRecently =
+        attempt.success &&
+        attempt.data.error &&
+        ageMs(attempt.data.fetchedAt) >= 0 &&
+        ageMs(attempt.data.fetchedAt) < ERROR_RETRY_MS;
+      if (
+        r.bingSiteUrl &&
+        hasBingWorkspaceAccess(organizationId) &&
+        !bingFailedRecently &&
+        (!e.bing || ageMs(e.bing.fetchedAt) >= BING_REFRESH_AFTER_MS)
+      )
+        tasks.push({
+          id: `${r.projectId}:bing`,
+          cost: 2,
+          run: async () => {
+            try {
+              await BingWebmasterService.refreshSnapshot({
+                projectId: r.projectId,
+                organizationId,
+              });
+              if (canWrite())
+                await setCached(
+                  bingAttemptKey(organizationId, r),
+                  { fetchedAt: new Date().toISOString() },
+                  ERROR_RETRY_MS / 1000,
+                );
+            } catch (error) {
+              // Keep the provider's reason (capped) so the fleet alert says
+              // what is wrong instead of a generic retry hint.
+              const reason =
+                error instanceof Error && error.message
+                  ? `: ${error.message.slice(0, 160)}`
+                  : "; check connector access or retry.";
+              if (canWrite())
+                await setCached(
+                  bingAttemptKey(organizationId, r),
+                  {
+                    fetchedAt: new Date().toISOString(),
+                    error: `Bing snapshot refresh failed${reason}`,
+                  },
+                  ERROR_RETRY_MS / 1000,
+                );
+            }
+          },
+        });
+    }
+    // Stable identity, not array offset: additions/removals and an always-missing
+    // failed prefix cannot reset progress. Persist across scheduler invocations.
+    tasks.sort((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
+    const after =
+      offset === 0 && typeof savedCursor === "string"
+        ? tasks.findIndex((t) => t.id > savedCursor)
+        : 0;
+    const start = after < 0 ? 0 : after;
+    const ordered = [...tasks.slice(start), ...tasks.slice(0, start)];
+    let next = 0;
+    let lastProcessed = -1;
+    let processed = 0;
+    const markProcessed = (index: number, task: Task) => {
+      processed++;
+      if (index > lastProcessed) {
+        lastProcessed = index;
+        lastId = task.id;
+      }
+    };
+    await Promise.all(
+      Array.from({ length: WARM_CONCURRENCY }, async () => {
+        while (
+          next < ordered.length &&
+          !timedOut &&
+          Date.now() < deadline - 20_000 &&
+          used < limit
+        ) {
+          const index = next++;
+          const task = ordered[index]!;
+          try {
+            if (task.google) {
+              const check = await preflight(task.google);
+              if (!check) break;
+              // One failed grant explains every project, without a refresh per site.
+              if (check.error) {
+                markProcessed(index, task);
+                continue;
+              }
+            }
+            if (timedOut || used + task.cost > limit) break;
+            used += task.cost;
+            markProcessed(index, task);
+            ran++;
+            await bounded(task.run());
+          } catch {
+            /* Failed provider/cache tasks do not stop fair fleet progress. */
+          }
+        }
+      }),
+    );
+    totalTasks += tasks.length;
+    // Stop where work ran out; otherwise the whole window is done, so the
+    // next warm (or the next window) starts after its last site.
+    if (processed < ordered.length) break;
+    lastId = `${rows.at(-1)!.projectId}:~`;
+  }
   if (lastId) await setCached(cursorKey, lastId, 7 * 24 * 3600);
   return {
     ran,
-    pending: Math.max(0, tasks.length - ran),
+    pending: Math.max(0, totalTasks - ran),
+    scannedRows,
     budgetUsed: used,
     timedOut,
     skipped: false,
@@ -1582,7 +1622,8 @@ export async function getPortfolioOverview(organizationId: string): Promise<{
  * (Bing costs two calls), three workers and a 100s awaiting deadline. Coverage
  * is intentionally honest while a large/cold fleet gradually fills in.
  */
-const WARM_EVERY_MS = 9.5 * 60 * 1000;
+/** Every five-minute tick (minus jitter) that is not rebuilding the snapshot. */
+const WARM_EVERY_MS = 4.5 * 60 * 1000;
 const WARM_BUDGET = WARM_BUDGET_DEFAULT;
 // Skip a tick while the previous one is still running (same isolate).
 let scheduledStartedAt = 0;
@@ -1611,17 +1652,32 @@ async function runScheduledFleetDashboardOnce() {
     orgs[0]!;
   await setCached(orgCursorKey, selected.organizationId, 7 * 24 * 3600);
   const { organizationId } = selected;
+  // A snapshot rebuild reads every site's evidence and takes most of a tick on
+  // a large fleet, so a tick does either the rebuild or a warm, never both
+  // (both together overran the 150 s scheduler limit).
+  const snap = (await getCached(
+    snapshotKey(organizationId),
+  )) as FleetDashboard | null;
+  if (!isFreshDashboard(snap, organizationId)) {
+    const startedAt = Date.now();
+    const fresh = await buildFleetDashboard(organizationId);
+    await setCached(snapshotKey(organizationId), fresh, SNAPSHOT_TTL_SECONDS);
+    console.log("[fleet] rebuilt snapshot", {
+      organizationId,
+      ms: Date.now() - startedAt,
+    });
+    return;
+  }
   const guardKey = `fleet-warm:v2:${organizationId}`;
   const guard = (await getCached(guardKey)) as { at: string } | null;
   if (!guard || ageMs(guard.at) > WARM_EVERY_MS) {
     await setCached(guardKey, { at: new Date().toISOString() }, 24 * 3600);
+    const startedAt = Date.now();
     const warm = await warmFleetCaches(organizationId, WARM_BUDGET);
-    console.log("[fleet] warmed caches", { organizationId, ...warm });
+    console.log("[fleet] warmed caches", {
+      organizationId,
+      ...warm,
+      ms: Date.now() - startedAt,
+    });
   }
-  const snap = (await getCached(
-    snapshotKey(organizationId),
-  )) as FleetDashboard | null;
-  if (isFreshDashboard(snap, organizationId)) return;
-  const fresh = await buildFleetDashboard(organizationId);
-  await setCached(snapshotKey(organizationId), fresh, SNAPSHOT_TTL_SECONDS);
 }
