@@ -61,10 +61,12 @@ function Delta({
   value,
   invert = false,
   suffix = "%",
+  precision = 1,
 }: {
   value: number | null;
   invert?: boolean;
   suffix?: string;
+  precision?: number;
 }) {
   if (value === null || !Number.isFinite(value))
     return <span className="text-xs text-muted-foreground">new</span>;
@@ -87,7 +89,7 @@ function Delta({
         <ArrowDownRight className="size-3" />
       ) : null}
       {value > 0 ? "+" : ""}
-      {Math.abs(value) < 10 ? value.toFixed(1) : Math.round(value)}
+      {Math.abs(value) < 10 ? value.toFixed(precision) : Math.round(value)}
       {suffix}
     </span>
   );
@@ -608,20 +610,27 @@ function FleetBody({ d }: { d: Fleet }) {
                 <strong>{PROVIDER_LABELS[issue.provider]}</strong> data is
                 unavailable for {fmt(issue.sites)} sites: {issue.error}
               </span>
-              {issue.provider === "bing" ? null : (
-                <Link
-                  to="/p/$projectId/settings/integrations"
-                  params={{ projectId: issue.projectId }}
-                  className="font-medium text-primary underline underline-offset-4"
-                >
-                  Reconnect {PROVIDER_LABELS[issue.provider]}
-                </Link>
-              )}
+              <Link
+                to="/p/$projectId/settings/integrations"
+                params={{ projectId: issue.projectId }}
+                hash={
+                  issue.provider === "bing"
+                    ? "bing-webmaster-tools"
+                    : issue.provider === "ga4"
+                      ? "google-analytics"
+                      : "search-console"
+                }
+                className="font-medium text-primary underline underline-offset-4"
+              >
+                {issue.provider === "bing"
+                  ? "Review Bing connection"
+                  : `Reconnect ${PROVIDER_LABELS[issue.provider]}`}
+              </Link>
             </div>
           ))}
           <p className="text-xs text-muted-foreground">
-            Reconnecting a Google account once fixes every site that uses it.
-            The dashboard picks the numbers up on its next rebuild.
+            Reconnecting a Google account can restore access for sites that use
+            it. The dashboard picks the numbers up on its next rebuild.
           </p>
         </div>
       ) : null}
@@ -669,7 +678,7 @@ function FleetBody({ d }: { d: Fleet }) {
           }
           delta={
             d.gsc.impressions > 0 && d.gsc.prevImpressions > 0 ? (
-              <Delta value={ctr - prevCtr} suffix=" pts" />
+              <Delta value={ctr - prevCtr} suffix=" pts" precision={2} />
             ) : undefined
           }
           sub={

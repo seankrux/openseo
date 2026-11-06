@@ -196,6 +196,7 @@ export function GoogleConnectionCard({
           canManageAccounts={hasGrant}
           email={connection?.connectedByEmail}
           onChange={startPicking}
+          onReconnect={handleConnect}
           onDisconnect={() => {
             setPropertyMutation.reset();
             disconnectMutation.mutate();
@@ -274,7 +275,7 @@ function ConnectionStatusPill({
     >
       <span className="size-1.5 rounded-full bg-current" />
       {connected
-        ? "Connected"
+        ? "Property linked"
         : setupRequired
           ? "Setup required"
           : "Not connected"}

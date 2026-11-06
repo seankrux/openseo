@@ -512,8 +512,8 @@ function OverviewPage() {
                   </div>
                 ))}
                 <p className="text-xs text-muted-foreground">
-                  Reconnecting the Google account once fixes every site that
-                  uses it. Numbers refill in the background afterwards.
+                  Reconnecting the Google account can restore access for sites
+                  that use it. Numbers refill in the background afterwards.
                 </p>
               </div>
             ) : null}
@@ -618,7 +618,9 @@ function OverviewPage() {
                 >
                   {[
                     data.pendingGsc > 0
-                      ? providerIssues.some((i) => i.provider === "Search Console")
+                      ? providerIssues.some(
+                          (i) => i.provider === "Search Console",
+                        )
                         ? `Search Console for ${data.pendingGsc.toLocaleString()} sites is blocked until it is reconnected`
                         : `Search Console for ${data.pendingGsc.toLocaleString()} sites is still being collected`
                       : null,
@@ -798,9 +800,7 @@ function OverviewPage() {
                             </td>
                           ) : (
                             <>
-                              <td {...gscCell}>
-                                {g.clicks.toLocaleString()}
-                              </td>
+                              <td {...gscCell}>{g.clicks.toLocaleString()}</td>
                               <td {...gscCell}>
                                 <Delta v={g.clicks - g.prevClicks} />
                               </td>
