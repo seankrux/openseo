@@ -300,4 +300,26 @@ describe("Bing Webmaster read-only client", () => {
       { url: "https://example.com/", isVerified: true },
     ]);
   });
+
+  it("maps Bing ThrottleUser (ErrorCode 4) and HTTP 429 to RATE_LIMITED without leaking secrets", async () => {
+    fetchMock.mockResolvedValueOnce(
+      new Response(
+        JSON.stringify({ ErrorCode: 4, Message: "ERROR!!! ThrottleUser mock-bing-key" }),
+        { status: 400, headers: { "content-type": "application/json" } },
+      ),
+    );
+    const err1 = await BingWebmasterClient.getUserSites().catch((e: unknown) => e);
+    expect(err1).toMatchObject({
+      code: "RATE_LIMITED",
+      message: "RATE_LIMITED",
+    });
+    expect(JSON.stringify(err1, Object.getOwnPropertyNames(err1))).not.toContain("mock-bing-key");
+
+    fetchMock.mockResolvedValueOnce(new Response("rate limit", { status: 429 }));
+    const err2 = await BingWebmasterClient.getUserSites().catch((e: unknown) => e);
+    expect(err2).toMatchObject({
+      code: "RATE_LIMITED",
+      message: "RATE_LIMITED",
+    });
+  });
 });

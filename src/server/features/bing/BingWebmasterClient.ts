@@ -86,6 +86,11 @@ const crawlSchema = z.object({
     .max(1000),
 });
 
+const providerErrorSchema = z.object({
+  ErrorCode: z.number().optional(),
+  Message: z.string().optional(),
+});
+
 function getConfiguredKey(): string | null {
   const apiKey = getEnvValueSync(env, "BING_WEBMASTER_API_KEY");
   return getEnvValueSync(env, "BING_WEBMASTER_ENABLED") === "true" &&
@@ -96,6 +101,44 @@ function getConfiguredKey(): string | null {
 
 function isAvailable(): boolean {
   return getConfiguredKey() !== null;
+}
+
+async function readBoundedText(response: Response): Promise<string> {
+  if (!response.body) throw new Error();
+  const reader = response.body.getReader();
+  const decoder = new TextDecoder();
+  let bytes = 0;
+  let text = "";
+  try {
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      bytes += value.byteLength;
+      if (bytes > 1_048_576) throw new Error();
+      text += decoder.decode(value, { stream: true });
+    }
+    text += decoder.decode();
+  } finally {
+    await reader.cancel().catch(() => undefined);
+    reader.releaseLock();
+  }
+  return text;
+}
+
+function isThrottleError(status: number, bodyText: string): boolean {
+  if (status === 429) return true;
+  if (status !== 400) return false;
+  try {
+    const parsed = providerErrorSchema.safeParse(JSON.parse(bodyText));
+    if (!parsed.success) return false;
+    return (
+      parsed.data.ErrorCode === 4 ||
+      (typeof parsed.data.Message === "string" &&
+        parsed.data.Message.includes("ThrottleUser"))
+    );
+  } catch {
+    return false;
+  }
 }
 
 async function read<T>(
@@ -118,27 +161,25 @@ async function read<T>(
       redirect: "manual",
       signal: AbortSignal.timeout(10_000),
     });
-    if (!response.ok) throw new Error();
-    if (!response.body) throw new Error();
-    const reader = response.body.getReader();
-    const decoder = new TextDecoder();
-    let bytes = 0;
-    let text = "";
-    try {
-      while (true) {
-        const { done, value } = await reader.read();
-        if (done) break;
-        bytes += value.byteLength;
-        if (bytes > 1_048_576) throw new Error();
-        text += decoder.decode(value, { stream: true });
+    if (!response.ok) {
+      if (response.status === 429) {
+        await response.body?.cancel().catch(() => undefined);
+        throw new AppError("RATE_LIMITED");
       }
-      text += decoder.decode();
-    } finally {
-      await reader.cancel().catch(() => undefined);
-      reader.releaseLock();
+      if (response.status === 400) {
+        const errText = await readBoundedText(response).catch(() => "");
+        if (isThrottleError(response.status, errText)) {
+          throw new AppError("RATE_LIMITED");
+        }
+      }
+      throw new Error();
     }
+    const text = await readBoundedText(response);
     return schema.parse(JSON.parse(text));
-  } catch {
+  } catch (error) {
+    if (error instanceof AppError && error.code === "RATE_LIMITED") {
+      throw error;
+    }
     // Never retain a cause: fetch/JSON errors can contain the key-bearing URL or body.
     throw new AppError("UPSTREAM_UNAVAILABLE");
   }
