@@ -994,15 +994,15 @@ async function warmFleetCachesOnce(
   }
   if (lastId) await setCached(cursorKey, lastId, 7 * 24 * 3600);
   if (ran > 0)
-    await withFleetLock(organizationId, async () => {
-      const snap = (await getCached(
-        snapshotKey(organizationId),
-      )) as FleetDashboard | null;
-      const parts = isReusableSnapshot(snap, organizationId)
-        ? await readParts(organizationId)
-        : null;
-      if (!snap || !parts) return;
+    await withFleetLock(organizationId, async (lease) => {
       try {
+        const snap = (await getCached(
+          snapshotKey(organizationId),
+        )) as FleetDashboard | null;
+        const parts = isReusableSnapshot(snap, organizationId)
+          ? await readParts(organizationId)
+          : null;
+        if (!snap || !parts) return;
         // Leave generatedAt alone. Moving it would keep this snapshot fresh
         // and the 30-minute refresh would never see sites this warm did not
         // touch.
@@ -1014,9 +1014,11 @@ async function warmFleetCachesOnce(
             includeNew: false,
             keepGeneratedAt: snap.generatedAt,
           }),
+          lease,
         );
       } catch (error) {
-        // Unusable parts: the next fold builds them again.
+        // Unreadable state or unusable parts: the scheduler fold or build
+        // repairs it; the warm itself already succeeded.
         console.error("[fleet] warm patch skipped", error);
       }
     });
@@ -1233,7 +1235,8 @@ const FOLD_CHUNK_SITES = 4;
 const FOLD_REREAD_MS = 2_000;
 
 function partsKey(organizationId: string) {
-  return `fleet-dashboard-parts:v1:${organizationId}`;
+  // v2: parts carry the Bing binding id.
+  return `fleet-dashboard-parts:v2:${organizationId}`;
 }
 
 /** null: nothing stored; "invalid": stored but not usable evidence. */
@@ -1262,6 +1265,8 @@ type SitePart = {
   };
   bing: {
     site: string | null;
+    /** Binding id: a replaced binding keeps the same site URL. */
+    binding: string | null;
     ev: EvidenceStub;
     metrics: NonNullable<FleetInventoryRow["bing"]["metrics"]> | null;
     /** Identifies the exact provider dates; totals need all sites to match. */
@@ -1287,9 +1292,16 @@ async function readParts(organizationId: string): Promise<FleetParts | null> {
 }
 
 /** Parts first: a snapshot is only ever reused together with its parts. */
-async function persistFleet(organizationId: string, built: FleetBuild) {
+async function persistFleet(
+  organizationId: string,
+  built: FleetBuild,
+  lease: FleetLease,
+) {
+  // A run that outlived the lock must not write over its successors.
+  if (lease.expired) return;
   if (built.partsChanged)
     await setCached(partsKey(organizationId), built.parts, PARTS_TTL_SECONDS);
+  if (lease.expired) return;
   await setCached(
     snapshotKey(organizationId),
     built.dashboard,
@@ -1301,13 +1313,30 @@ async function persistFleet(organizationId: string, built: FleetBuild) {
  * One writer per organization at a time (single isolate). A fold, a warm patch
  * and a full build each read the stored state, assemble and persist inside it;
  * otherwise a fold that started earlier persists over a warm patch's rows.
+ * A run that hangs (an R2 read that never returns) is abandoned after the
+ * timeout: its caller gets a rejection, the lock is released, and its lease
+ * expires so a late finish cannot persist.
  */
+const FLEET_LOCK_TIMEOUT_MS = 200_000;
+type FleetLease = { expired: boolean };
 const fleetLocks = new Map<string, Promise<unknown>>();
 function withFleetLock<T>(
   organizationId: string,
-  work: () => Promise<T>,
+  work: (lease: FleetLease) => Promise<T>,
 ): Promise<T> {
-  const run = (fleetLocks.get(organizationId) ?? Promise.resolve()).then(work);
+  const run = (fleetLocks.get(organizationId) ?? Promise.resolve()).then(() => {
+    const lease: FleetLease = { expired: false };
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const timeout = new Promise<never>((_, reject) => {
+      timer = setTimeout(() => {
+        lease.expired = true;
+        reject(new Error("Fleet snapshot work timed out"));
+      }, FLEET_LOCK_TIMEOUT_MS);
+    });
+    return Promise.race([work(lease), timeout]).finally(() =>
+      clearTimeout(timer),
+    );
+  });
   const tail = run.then(
     () => undefined,
     () => undefined,
@@ -1414,6 +1443,7 @@ function buildPart(r: FleetRow, e: FleetEvidence): SitePart {
     },
     bing: {
       site: r.bingSiteUrl,
+      binding: r.bingBindingId,
       ev: stubOf(bingError ? e.bingAttempt : e.bing),
       metrics: bingSnapshot ? bingMetrics(bingSnapshot) : null,
       sig: bingSnapshot ? bingDateSignature(bingSnapshot) : null,
@@ -1505,7 +1535,8 @@ function partMatches(r: FleetRow, part: SitePart) {
   return (
     part.gsc.site === r.siteUrl &&
     part.ga4.property === r.ga4PropertyId &&
-    part.bing.site === r.bingSiteUrl
+    part.bing.site === r.bingSiteUrl &&
+    part.bing.binding === r.bingBindingId
   );
 }
 
@@ -1973,39 +2004,57 @@ async function refreshFleet(
 }
 
 /**
- * Page read: the cached snapshot, or a fresh cache-only build on a miss. The
- * domain health panel is one cheap DB read, so it is always live; otherwise it
- * could disagree with the Domain health page for up to 30 minutes.
- * A reusable snapshot past max age is folded again without rereading every site.
- * refresh=true keeps the full read for callers that ask for it.
+ * Page read: the cached snapshot, or a fresh cache-only build when there is
+ * none. The domain health panel is one cheap DB read, so it is always live;
+ * otherwise it could disagree with the Domain health page for up to 30
+ * minutes. A reusable snapshot past max age is folded again without rereading
+ * every site. A page view never runs a full build for a snapshot it already
+ * has: when parts are missing or a fold fails it serves the stale snapshot
+ * and leaves the build to the scheduler. refresh=true keeps the full read for
+ * callers that ask for it.
  */
 export async function getFleetDashboard(
   organizationId: string,
   refresh = false,
 ) {
-  if (!refresh) {
-    const cached = (await getCached(
-      snapshotKey(organizationId),
-    )) as FleetDashboard | null;
-    if (cached && isFreshDashboard(cached, organizationId))
-      return { ...cached, health: await healthRollup(organizationId) };
+  if (refresh) return refreshSnapshot(organizationId, "build");
+  const cached = (await getCached(
+    snapshotKey(organizationId),
+  )) as FleetDashboard | null;
+  if (cached && isFreshDashboard(cached, organizationId))
+    return { ...cached, health: await healthRollup(organizationId) };
+  const stale = isReusableSnapshot(cached, organizationId) ? cached : null;
+  // Do not queue a request behind a full build.
+  if (stale && fleetBuilds.has(organizationId))
+    return { ...stale, health: await healthRollup(organizationId) };
+  try {
+    return await refreshSnapshot(organizationId, "page");
+  } catch (error) {
+    if (!stale) throw error;
+    console.error("[fleet] refresh failed, serving stale snapshot", error);
+    return { ...stale, health: await healthRollup(organizationId) };
   }
-  return refreshSnapshot(organizationId, refresh);
 }
 
 /**
- * Fold (or, without usable parts, build) and persist the snapshot. Concurrent
- * callers for an organization share one in-flight run, and the run re-reads the
- * stored state inside the writer lock, so a stale page view, the scheduler and
- * a warm patch never write over each other.
+ * Fold (or, where allowed, build) and persist the snapshot. Concurrent callers
+ * of one mode share one in-flight run, and the run re-reads the stored state
+ * inside the writer lock, so a stale page view, the scheduler and a warm patch
+ * never write over each other.
+ * - page: fold; serve the stale snapshot if it cannot be folded; build only
+ *   when there is no usable snapshot.
+ * - scheduler: fold; build when it cannot be folded.
+ * - build: always build.
  */
+type RefreshMode = "page" | "scheduler" | "build";
 const inflightRefreshes = new Map<string, Promise<FleetDashboard>>();
-function refreshSnapshot(organizationId: string, force: boolean) {
-  const key = `${force ? "build" : "fold"}:${organizationId}`;
+const fleetBuilds = new Set<string>();
+function refreshSnapshot(organizationId: string, mode: RefreshMode) {
+  const key = `${mode}:${organizationId}`;
   const existing = inflightRefreshes.get(key);
   if (existing) return existing;
-  const run = withFleetLock(organizationId, () =>
-    refreshSnapshotLocked(organizationId, force),
+  const run = withFleetLock(organizationId, (lease) =>
+    refreshSnapshotLocked(organizationId, mode, lease),
   ).finally(() => inflightRefreshes.delete(key));
   inflightRefreshes.set(key, run);
   return run;
@@ -2013,35 +2062,48 @@ function refreshSnapshot(organizationId: string, force: boolean) {
 
 async function refreshSnapshotLocked(
   organizationId: string,
-  force: boolean,
+  mode: RefreshMode,
+  lease: FleetLease,
 ): Promise<FleetDashboard> {
-  const snap = force
-    ? null
-    : ((await getCached(snapshotKey(organizationId))) as FleetDashboard | null);
+  const snap =
+    mode === "build"
+      ? null
+      : ((await getCached(
+          snapshotKey(organizationId),
+        )) as FleetDashboard | null);
   // Another writer may have refreshed it while this run waited for the lock.
   if (snap && isFreshDashboard(snap, organizationId))
     return { ...snap, health: await healthRollup(organizationId) };
-  // Without parts (first run after deploy, expiry, damage) the snapshot cannot
-  // be folded, and it is already past max age here, so build rather than serve
-  // frozen numbers.
-  const parts = isReusableSnapshot(snap, organizationId)
-    ? await readParts(organizationId)
-    : null;
+  const usable = isReusableSnapshot(snap, organizationId) ? snap : null;
+  const serveStale = async () => {
+    console.warn("[fleet] serving stale snapshot until the scheduler builds");
+    return { ...usable!, health: await healthRollup(organizationId) };
+  };
+  const parts = usable ? await readParts(organizationId) : null;
+  if (usable && !parts && mode === "page") return serveStale();
   let built: FleetBuild | null = null;
-  if (parts && snap) {
+  if (usable && parts) {
     try {
       built = await refreshFleet(
         organizationId,
         parts,
-        snap.foldCursor ?? null,
+        usable.foldCursor ?? null,
         { reread: new Set(), includeNew: true },
       );
     } catch (error) {
-      console.error("[fleet] fold failed, building instead", error);
+      console.error("[fleet] fold failed", error);
+      if (mode === "page") return serveStale();
     }
   }
-  built ??= await buildFleet(organizationId);
-  await persistFleet(organizationId, built);
+  if (!built) {
+    fleetBuilds.add(organizationId);
+    try {
+      built = await buildFleet(organizationId);
+    } finally {
+      fleetBuilds.delete(organizationId);
+    }
+  }
+  await persistFleet(organizationId, built, lease);
   return built.dashboard;
 }
 
@@ -2184,7 +2246,7 @@ async function runScheduledFleetDashboardOnce() {
   )) as FleetDashboard | null;
   if (!isFreshDashboard(snap, organizationId)) {
     const startedAt = Date.now();
-    await refreshSnapshot(organizationId, false);
+    await refreshSnapshot(organizationId, "scheduler");
     console.log("[fleet] rebuilt snapshot", {
       organizationId,
       ms: Date.now() - startedAt,
