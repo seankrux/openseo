@@ -40,6 +40,8 @@ export const bingSnapshotSchema = z
     bindingId: z.string().uuid(),
     siteUrl: z.string().url().max(2048),
     fetchedAt: z.iso.datetime(),
+    /** When the crawl rows were fetched; absent on snapshots written before crawl reuse. */
+    crawlFetchedAt: z.iso.datetime().optional(),
     performance: z.array(performanceRow).max(1000),
     crawl: z.array(crawlRow).max(1000),
     scope: z

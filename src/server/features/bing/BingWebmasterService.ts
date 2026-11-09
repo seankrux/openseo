@@ -172,16 +172,40 @@ async function getConnection(scope: Scope) {
   });
 }
 
+const CRAWL_REUSE_MS = 7 * 24 * 60 * 60 * 1000;
+
 async function refreshSnapshot(scope: Scope): Promise<BingSnapshot> {
   requireBingWorkspaceAccess(scope.organizationId);
   return withPgClient(async () => {
     const context = await getContext(scope);
     if (!context) throw new AppError("NOT_FOUND");
     const { binding } = context;
+    const storedScope = {
+      projectId: binding.projectId,
+      organizationId: binding.organizationId,
+      bindingId: binding.id,
+      siteUrl: binding.siteUrl,
+    };
+    const stored = await BingSnapshotStore.read(storedScope);
     const performance = await BingWebmasterClient.getRankAndTrafficStats(
       binding.siteUrl,
     );
-    const crawl = await BingWebmasterClient.getCrawlStats(binding.siteUrl);
+    // Crawl stats move slowly and Bing meters every call against one daily
+    // quota per key. Reuse recent crawl rows so a fleet sweep costs one call
+    // per site instead of two.
+    const storedCrawlAt = stored
+      ? (stored.crawlFetchedAt ?? stored.fetchedAt)
+      : null;
+    const reuseCrawl =
+      stored !== null &&
+      storedCrawlAt !== null &&
+      Date.now() - Date.parse(storedCrawlAt) < CRAWL_REUSE_MS;
+    const crawl = reuseCrawl
+      ? stored.crawl
+      : await BingWebmasterClient.getCrawlStats(binding.siteUrl);
+    const crawlFetchedAt = reuseCrawl
+      ? storedCrawlAt!
+      : new Date().toISOString();
     const snapshot: BingSnapshot = {
       schemaVersion: 1,
       provider: "bing-webmaster",
@@ -190,6 +214,7 @@ async function refreshSnapshot(scope: Scope): Promise<BingSnapshot> {
       bindingId: binding.id,
       siteUrl: binding.siteUrl,
       fetchedAt: new Date().toISOString(),
+      crawlFetchedAt,
       performance,
       crawl,
       scope: {

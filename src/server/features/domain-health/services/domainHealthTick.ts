@@ -17,12 +17,16 @@ const CONCURRENCY = 3;
 const TIMEOUT_MS = 10_000;
 /** A transient failure is confirmed once, with more patience, before it is recorded. */
 const CONFIRM_TIMEOUT_MS = 20_000;
+// WordPress homepages on the fleet run 280-370 KB and place the gtag snippet
+// near the end of the body; 150 KB missed the tag on 13 live sites.
+const MAX_BODY_BYTES = 1_000_000;
 
 /** A slow or aborted answer; one of these alone is not evidence of an outage. */
 function isTransientFailure(result: DomainHealthResult): boolean {
   return (
     result.class === "timeout" ||
-    (result.class === "dns_fail" && /timeout|timed out|aborted/i.test(result.error ?? ""))
+    (result.class === "dns_fail" &&
+      /timeout|timed out|aborted/i.test(result.error ?? ""))
   );
 }
 
@@ -36,19 +40,28 @@ const BUILTIN_REDIRECT_ALLOWLIST = [
 ];
 
 function bare(host: string) {
-  return host.toLowerCase().replace(/^www\./, "").replace(/\.$/, "");
+  return host
+    .toLowerCase()
+    .replace(/^www\./, "")
+    .replace(/\.$/, "");
 }
 
-export function normalizeFleetDomain(input: string | null | undefined): string | null {
+export function normalizeFleetDomain(
+  input: string | null | undefined,
+): string | null {
   if (!input) return null;
-  let d = input.trim().toLowerCase().replace(/^https?:\/\//, "");
+  let d = input
+    .trim()
+    .toLowerCase()
+    .replace(/^https?:\/\//, "");
   d = d.split("/")[0]!.split("?")[0]!.replace(/\.$/, "");
   d = d.replace(/^www\./, "");
   return /^[a-z0-9.-]+\.[a-z]{2,}$/.test(d) ? d : null;
 }
 
 export async function redirectAllowlist(): Promise<Array<[string, string]>> {
-  const extra = (await getOptionalEnvValue("DOMAIN_HEALTH_REDIRECT_ALLOWLIST")) ?? "";
+  const extra =
+    (await getOptionalEnvValue("DOMAIN_HEALTH_REDIRECT_ALLOWLIST")) ?? "";
   return [...BUILTIN_REDIRECT_ALLOWLIST, ...extra.split(",")]
     .map((e) => e.trim())
     .filter((e) => e.includes(">"))
@@ -63,7 +76,8 @@ export function applyRedirectAllowlist(
   result: DomainHealthResult,
   allow: Array<[string, string]>,
 ): DomainHealthResult {
-  if (result.class !== "redirect_other_domain" || !result.finalUrl) return result;
+  if (result.class !== "redirect_other_domain" || !result.finalUrl)
+    return result;
   let host = "";
   try {
     host = bare(new URL(result.finalUrl).hostname);
@@ -72,7 +86,8 @@ export function applyRedirectAllowlist(
   }
   const from = bare(result.domain);
   const ok = allow.some(
-    ([f, t]) => f === from && (t === "*" || t === host || host.endsWith(`.${t}`)),
+    ([f, t]) =>
+      f === from && (t === "*" || t === host || host.endsWith(`.${t}`)),
   );
   return ok ? { ...result, class: "redirect_intended" } : result;
 }
@@ -107,14 +122,61 @@ export async function resolveFleetProject(
 ): Promise<{ projectId: string | null; inFleet: boolean } | { error: string }> {
   const fleet = await fleetDomains(organizationId);
   const fleetProject = fleet.get(domain) ?? null;
-  if (!projectId) return { projectId: fleetProject, inFleet: fleetProject !== null };
+  if (!projectId)
+    return { projectId: fleetProject, inFleet: fleetProject !== null };
   const [row] = await db
     .select({ id: projects.id })
     .from(projects)
-    .where(and(eq(projects.id, projectId), eq(projects.organizationId, organizationId), isNull(projects.archivedAt)))
+    .where(
+      and(
+        eq(projects.id, projectId),
+        eq(projects.organizationId, organizationId),
+        isNull(projects.archivedAt),
+      ),
+    )
     .limit(1);
-  if (!row) return { error: `Project ${projectId} was not found in this organization.` };
+  if (!row)
+    return {
+      error: `Project ${projectId} was not found in this organization.`,
+    };
   return { projectId: row.id, inFleet: fleetProject !== null };
+}
+
+/**
+ * Split the fleet against the stored current rows. Pure, so the tick's
+ * bookkeeping is testable without a database.
+ */
+export function partitionFleetHealth(
+  fleet: Iterable<string>,
+  current: Array<{ domain: string; nextCheckAt: string | null }>,
+  nowIso: string,
+) {
+  const fleetSet = new Set(fleet);
+  const known = new Map(current.map((c) => [c.domain, c.nextCheckAt]));
+  const never: string[] = [];
+  const due: Array<[string, string]> = [];
+  let checked = 0;
+  for (const d of fleetSet) {
+    const next = known.get(d);
+    if (next === undefined) {
+      never.push(d);
+      continue;
+    }
+    checked++;
+    if (!next || next <= nowIso) due.push([d, next ?? ""]);
+  }
+  due.sort((a, b) => (a[1] < b[1] ? -1 : 1));
+  // Rows whose domain left the fleet (archived project, changed domain) would
+  // otherwise count as checked forever and sit in every list and CSV.
+  const retired = current.map((c) => c.domain).filter((d) => !fleetSet.has(d));
+  return {
+    never,
+    due: due.map((d) => d[0]),
+    retired,
+    checked,
+    total: fleetSet.size,
+    pending: never.length + due.length,
+  };
 }
 
 /** Domains due now: never checked first, then by oldest next_check_at. */
@@ -127,22 +189,35 @@ async function dueDomains(organizationId: string, limit: number) {
     })
     .from(domainHealthCurrent)
     .where(eq(domainHealthCurrent.organizationId, organizationId));
-  const known = new Map(current.map((c) => [c.domain, c.nextCheckAt]));
-  const now = new Date().toISOString();
-  const never: string[] = [];
-  const due: Array<[string, string]> = [];
-  for (const d of fleet.keys()) {
-    const next = known.get(d);
-    if (next === undefined) never.push(d);
-    else if (!next || next <= now) due.push([d, next ?? ""]);
-  }
-  due.sort((a, b) => (a[1] < b[1] ? -1 : 1));
-  const picked = [...never, ...due.map((d) => d[0])].slice(0, limit);
+  const p = partitionFleetHealth(
+    fleet.keys(),
+    current,
+    new Date().toISOString(),
+  );
+  const picked = [...p.never, ...p.due].slice(0, limit);
   return {
     picked: picked.map((d) => ({ domain: d, projectId: fleet.get(d) ?? null })),
-    total: fleet.size,
-    pending: never.length + due.length,
+    total: p.total,
+    pending: p.pending,
+    checked: p.checked,
+    retired: p.retired,
   };
+}
+
+/** Drop current rows for domains that are no longer active fleet projects. */
+async function retireDomains(organizationId: string, domains: string[]) {
+  for (const domain of domains) {
+    await db
+      .delete(domainHealthCurrent)
+      .where(
+        and(
+          eq(domainHealthCurrent.organizationId, organizationId),
+          eq(domainHealthCurrent.domain, domain),
+        ),
+      );
+  }
+  if (domains.length)
+    console.log("[domain-health] retired", { organizationId, domains });
 }
 
 export async function checkAndRecord(
@@ -159,14 +234,20 @@ export async function checkAndRecord(
         const item = items[cursor++]!;
         try {
           let result = applyRedirectAllowlist(
-            await checkDomainHealth(item.domain, { timeoutMs: TIMEOUT_MS, maxBodyBytes: 150_000 }),
+            await checkDomainHealth(item.domain, {
+              timeoutMs: TIMEOUT_MS,
+              maxBodyBytes: MAX_BODY_BYTES,
+            }),
             allow,
           );
           // Checker timeouts used to flip healthy sites to "down" and back on
           // the next pass, burying real outages in noise. Confirm first.
           if (isTransientFailure(result)) {
             const again = applyRedirectAllowlist(
-              await checkDomainHealth(item.domain, { timeoutMs: CONFIRM_TIMEOUT_MS, maxBodyBytes: 150_000 }),
+              await checkDomainHealth(item.domain, {
+                timeoutMs: CONFIRM_TIMEOUT_MS,
+                maxBodyBytes: MAX_BODY_BYTES,
+              }),
               allow,
             );
             if (!isTransientFailure(again)) result = again;
@@ -213,21 +294,38 @@ export async function runDomainHealthTick(): Promise<void> {
 async function pruneHistory() {
   if (Date.now() - lastPruneAt < PRUNE_EVERY_MS) return;
   lastPruneAt = Date.now();
-  const cutoff = new Date(Date.now() - HISTORY_RETENTION_DAYS * 86400_000).toISOString();
-  await db.delete(domainHealthChecks).where(lt(domainHealthChecks.checkedAt, cutoff));
+  const cutoff = new Date(
+    Date.now() - HISTORY_RETENTION_DAYS * 86400_000,
+  ).toISOString();
+  await db
+    .delete(domainHealthChecks)
+    .where(lt(domainHealthChecks.checkedAt, cutoff));
 }
 
 async function runDomainHealthTickOnce() {
-  await pruneHistory().catch((e) => console.error("[domain-health] prune failed", e));
+  await pruneHistory().catch((e) =>
+    console.error("[domain-health] prune failed", e),
+  );
   const orgs = await db
     .selectDistinct({ organizationId: projects.organizationId })
     .from(projects)
     .where(isNull(projects.archivedAt));
   for (const { organizationId } of orgs) {
-    const { picked, total, pending } = await dueDomains(organizationId, CHUNK_PER_TICK);
+    const { picked, total, pending, retired } = await dueDomains(
+      organizationId,
+      CHUNK_PER_TICK,
+    );
+    await retireDomains(organizationId, retired).catch((e) =>
+      console.error("[domain-health] retire failed", e),
+    );
     if (picked.length === 0) continue;
     const res = await checkAndRecord(organizationId, picked, "scheduled_full");
-    console.log("[domain-health] tick", { organizationId, total, pending, ...res });
+    console.log("[domain-health] tick", {
+      organizationId,
+      total,
+      pending,
+      ...res,
+    });
   }
 }
 
@@ -245,10 +343,10 @@ export async function queueDomainHealthRunNow(organizationId: string) {
 }
 
 export async function domainHealthProgress(organizationId: string) {
-  const { total, pending } = await dueDomains(organizationId, 0);
+  const { total, pending, checked } = await dueDomains(organizationId, 0);
   const [row] = await db
-    .select({ n: sql<number>`count(*)`, last: sql<string | null>`max(${domainHealthCurrent.checkedAt})` })
+    .select({ last: sql<string | null>`max(${domainHealthCurrent.checkedAt})` })
     .from(domainHealthCurrent)
     .where(eq(domainHealthCurrent.organizationId, organizationId));
-  return { total, pending, checked: Number(row?.n ?? 0), lastCheckedAt: row?.last ?? null };
+  return { total, pending, checked, lastCheckedAt: row?.last ?? null };
 }

@@ -141,6 +141,107 @@ function isThrottleError(status: number, bodyText: string): boolean {
   }
 }
 
+// Bing throttles per user key, and a throttled key stays throttled while the
+// caller keeps hitting it: on tokyo the fleet warm retried 1,600 sites every
+// 30 minutes and the key never recovered (ThrottleUser even at one call per
+// 2.5 s). Two guards keep the key usable:
+// 1. a breaker: after a throttle, no Bing call leaves this isolate for a
+//    cool-off, doubling per consecutive throttle up to a ceiling;
+// 2. a daily budget per UTC day so one refresh sweep cannot spend the quota.
+// Both are per isolate and reset on restart; they bound the damage, not the
+// exact provider quota, which Bing does not publish.
+const THROTTLE_COOL_OFF_MIN_MS = 15 * 60 * 1000;
+const THROTTLE_COOL_OFF_MAX_MS = 4 * 60 * 60 * 1000;
+// Observed on tokyo: about 900 two-call refreshes (~1,800 calls) succeed after
+// 00:00 UTC before ThrottleUser sets in for the rest of the day.
+const DAILY_CALL_BUDGET_DEFAULT = 1_600;
+
+type Guard = {
+  blockedUntil: number;
+  consecutiveThrottles: number;
+  day: string;
+  callsToday: number;
+};
+const guardState: Guard = {
+  blockedUntil: 0,
+  consecutiveThrottles: 0,
+  day: "",
+  callsToday: 0,
+};
+
+function dailyCallBudget(): number {
+  const raw = Number(getEnvValueSync(env, "BING_WEBMASTER_DAILY_CALL_BUDGET"));
+  return Number.isFinite(raw) && raw > 0
+    ? Math.floor(raw)
+    : DAILY_CALL_BUDGET_DEFAULT;
+}
+
+function utcDay(now: number): string {
+  return new Date(now).toISOString().slice(0, 10);
+}
+
+/** Throws RATE_LIMITED without a network call while the key must rest. */
+function admitCall(now = Date.now()): void {
+  if (now < guardState.blockedUntil) {
+    const minutes = Math.ceil((guardState.blockedUntil - now) / 60_000);
+    throw new AppError(
+      "RATE_LIMITED",
+      `Bing throttled this key; resting ${minutes} min before the next call`,
+    );
+  }
+  const day = utcDay(now);
+  if (guardState.day !== day) {
+    guardState.day = day;
+    guardState.callsToday = 0;
+  }
+  if (guardState.callsToday >= dailyCallBudget()) {
+    throw new AppError(
+      "RATE_LIMITED",
+      `Bing daily call budget (${dailyCallBudget()}) used; resumes after 00:00 UTC`,
+    );
+  }
+  guardState.callsToday += 1;
+}
+
+function noteThrottled(now = Date.now()): void {
+  guardState.consecutiveThrottles += 1;
+  const coolOff = Math.min(
+    THROTTLE_COOL_OFF_MAX_MS,
+    THROTTLE_COOL_OFF_MIN_MS * 2 ** (guardState.consecutiveThrottles - 1),
+  );
+  guardState.blockedUntil = now + coolOff;
+  console.warn("[bing] throttled; pausing Bing calls", {
+    coolOffMinutes: Math.round(coolOff / 60_000),
+    consecutiveThrottles: guardState.consecutiveThrottles,
+    callsToday: guardState.callsToday,
+  });
+}
+
+function noteSucceeded(): void {
+  guardState.consecutiveThrottles = 0;
+}
+
+/** Test seam: forget breaker and budget state. */
+function resetGuardForTests(): void {
+  guardState.blockedUntil = 0;
+  guardState.consecutiveThrottles = 0;
+  guardState.day = "";
+  guardState.callsToday = 0;
+}
+
+/** Current guard state, for status pages and logs. */
+function guardStatus(now = Date.now()) {
+  return {
+    pausedUntil:
+      now < guardState.blockedUntil
+        ? new Date(guardState.blockedUntil).toISOString()
+        : null,
+    consecutiveThrottles: guardState.consecutiveThrottles,
+    callsToday: guardState.day === utcDay(now) ? guardState.callsToday : 0,
+    dailyCallBudget: dailyCallBudget(),
+  };
+}
+
 async function read<T>(
   method: "GetUserSites" | "GetRankAndTrafficStats" | "GetCrawlStats",
   schema: z.ZodType<T>,
@@ -148,6 +249,7 @@ async function read<T>(
 ): Promise<T> {
   const apiKey = getConfiguredKey();
   if (!apiKey) throw new AppError("FORBIDDEN");
+  admitCall();
   try {
     // Official JSON/HTTP protocol: learn.microsoft.com/en-us/bingwebmaster/api-protocols
     const url = new URL(
@@ -175,9 +277,12 @@ async function read<T>(
       throw new Error();
     }
     const text = await readBoundedText(response);
-    return schema.parse(JSON.parse(text));
+    const parsed = schema.parse(JSON.parse(text));
+    noteSucceeded();
+    return parsed;
   } catch (error) {
     if (error instanceof AppError && error.code === "RATE_LIMITED") {
+      noteThrottled();
       throw error;
     }
     // Never retain a cause: fetch/JSON errors can contain the key-bearing URL or body.
@@ -229,4 +334,6 @@ export const BingWebmasterClient = {
   getUserSites,
   getRankAndTrafficStats,
   getCrawlStats,
+  guardStatus,
+  resetGuardForTests,
 } as const;

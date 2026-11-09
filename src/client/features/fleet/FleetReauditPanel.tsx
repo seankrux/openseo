@@ -109,7 +109,7 @@ export function FleetReauditControls({
       <p className="text-xs text-muted-foreground">
         {`This view takes ${drainTime(viewCount, pace(status))} at the ${status.mode === "off" ? "normal" : status.mode} pace. Each audit repeats the site's last audit settings.`}
         {tick &&
-          ` Last run started ${n(tick.started)}${
+          ` Last run started ${n(tick.started)} ${tick.started === 1 ? "audit" : "audits"}${
             tick.failed
               ? `; ${n(tick.failed)} could not start (${[...new Set(tick.errors.map((e) => e.code))].join(", ")})`
               : ""
@@ -140,7 +140,8 @@ export function FleetReauditPanel({
     onSuccess: onDone,
   });
   const queue = useMutation({
-    mutationFn: () => queueFleetReaudit({ data: { projectIds: viewProjectIds } }),
+    mutationFn: () =>
+      queueFleetReaudit({ data: { projectIds: viewProjectIds } }),
     onSuccess: onDone,
   });
   const cancel = useMutation({
