@@ -32,7 +32,7 @@ import {
   runScheduledFleetDashboard,
   warmFleetCaches,
 } from "./FleetDashboardService";
-import { cacheKey, ga4CacheKey } from "./PortfolioService";
+import { cacheKey, ga4CacheKey, windows } from "./PortfolioService";
 
 const mocks = vi.hoisted(() => ({
   token: vi.fn(),
@@ -670,5 +670,246 @@ it("ignores old snapshot versions and rebuilds a v4 snapshot past the 30-minute 
   expect(mocks.performance).not.toHaveBeenCalled();
   expect(await getCached(`fleet-dashboard:v4:${org}`)).toMatchObject({
     generatedAt: second.generatedAt,
+  });
+});
+
+describe("snapshot aggregates come from per-site parts", () => {
+  const queriesKey = (i: number) => `portfolio-gscq:v1:${id(i)}:${site(i)}`;
+  const minutes = (n: number) =>
+    vi.setSystemTime(new Date(Date.now() + n * 60 * 1000));
+  const dayOf = (offset: number, from = windows().curStart) =>
+    new Date(Date.parse(`${from}T00:00:00Z`) + offset * 86400_000)
+      .toISOString()
+      .slice(0, 10);
+  const query = (rows: Array<[string, number, number, number]>) => ({
+    fetchedAt: now(),
+    rows,
+  });
+  async function cacheSite(
+    i: number,
+    daily: Array<[string, number, number]>,
+    rows: Array<[string, number, number, number]>,
+    clicks = 0,
+  ) {
+    await setCached(cacheKey(id(i), site(i)), gsc({ daily, clicks }), 43200);
+    await setCached(queriesKey(i), query(rows), 129600);
+  }
+  const statusOf = (
+    dashboard: Awaited<ReturnType<typeof getFleetDashboard>>,
+    i: number,
+  ) => dashboard.inventory.find((r) => r.projectId === id(i))!;
+
+  it("re-aggregates the chart, top queries and coverage from sites a fold rereads", async () => {
+    await seed(3);
+    for (let i = 0; i < 3; i++)
+      await cacheSite(i, [[dayOf(0), 10, 100]], [["alpha", 5, 50, 3]], 10);
+    const first = await getFleetDashboard(org);
+    expect(first.daily[0]).toMatchObject({ clicks: 30, impressions: 300 });
+    expect(first.topQueries[0]).toMatchObject({ query: "alpha", clicks: 15 });
+    // A cache write outside the warm (for example the site table refresh).
+    await cacheSite(0, [[dayOf(0), 40, 400]], [["beta", 20, 90, 2]], 40);
+    minutes(31);
+    const folded = await getFleetDashboard(org);
+    expect(folded.daily[0]).toMatchObject({ clicks: 60, impressions: 600 });
+    expect(folded.topQueries.map((q) => q.query)).toContain("beta");
+    expect(folded.topQueries.find((q) => q.query === "alpha")).toMatchObject({
+      clicks: 10,
+      sites: 2,
+    });
+    expect(folded.coverage.queriesCached).toBe(3);
+    expect(folded.dailySites).toBe(3);
+  });
+
+  it("re-slices the chart to the new windows across UTC midnight", async () => {
+    await seed(3);
+    vi.setSystemTime(new Date("2026-10-27T23:50:00Z"));
+    const before = windows();
+    for (let i = 0; i < 3; i++)
+      await cacheSite(i, [[dayOf(0, before.curStart), 10, 100]], [["a", 1, 1, 1]]);
+    const first = await getFleetDashboard(org);
+    expect(first.daily[0]).toMatchObject({
+      date: before.curStart,
+      clicks: 30,
+    });
+    vi.setSystemTime(new Date("2026-10-28T00:40:00Z"));
+    const after = windows();
+    expect(after.curStart).not.toBe(before.curStart);
+    // Nothing refreshed yet: yesterday's totals must not sit under new labels.
+    const stale = await getFleetDashboard(org);
+    expect(stale.windows.curStart).toBe(after.curStart);
+    expect(stale.daily[0]!.date).toBe(after.curStart);
+    expect(stale.dailySites).toBe(0);
+    expect(stale.daily.every((d) => d.clicks === 0)).toBe(true);
+    // The warm refreshes the sites against the new windows.
+    for (let i = 0; i < 3; i++)
+      await cacheSite(i, [[dayOf(1, after.curStart), 7, 70]], [["a", 1, 1, 1]]);
+    minutes(31);
+    const fresh = await getFleetDashboard(org);
+    expect(fresh.daily.map((d) => d.date)).toEqual(
+      Array.from({ length: 28 }, (_, n) => dayOf(n, after.curStart)),
+    );
+    expect(fresh.daily[1]).toMatchObject({ clicks: 21, impressions: 210 });
+    expect(fresh.dailySites).toBe(3);
+  });
+
+  it("rereads every site within a bounded number of folds", async () => {
+    await seed(100);
+    for (let i = 0; i < 100; i++) await cacheSite(i, [], [], 1);
+    await getFleetDashboard(org);
+    await cacheSite(95, [], [], 777);
+    let folds = 0;
+    let seen = 0;
+    while (folds < 3 && seen !== 777) {
+      minutes(31);
+      folds++;
+      seen =
+        statusOf(await getFleetDashboard(org), 95).gsc.metrics?.clicks ?? 0;
+    }
+    expect(seen).toBe(777);
+  });
+
+  it("rereads sites with a missing or error status ahead of the rotation", async () => {
+    await seed(100);
+    for (let i = 0; i < 100; i++) await cacheSite(i, [], [], 1);
+    await setCached(
+      cacheKey(id(70), site(70)),
+      gsc({ error: "boom" }),
+      3600,
+    );
+    const first = await getFleetDashboard(org);
+    expect(statusOf(first, 70).gsc.status).toBe("error");
+    await cacheSite(70, [], [], 5);
+    minutes(31);
+    const folded = await getFleetDashboard(org);
+    expect(statusOf(folded, 70).gsc).toMatchObject({
+      status: "available",
+      error: null,
+    });
+  });
+
+  it("drops a missing-grant error once the grant is reconnected, without rereading the site", async () => {
+    await seed(100);
+    for (let i = 0; i < 100; i++) await cacheSite(i, [], [], 1);
+    await client.execute("DELETE FROM account WHERE id = 'grant-gsc'");
+    const broken = await getFleetDashboard(org);
+    expect(statusOf(broken, 99).gsc).toMatchObject({
+      status: "error",
+      error: "Google account grant is missing; reconnect this account.",
+    });
+    await client.execute({
+      sql: "INSERT INTO account (id, user_id, provider_id, account_id, updated_at) VALUES (?, ?, ?, ?, ?)",
+      args: [
+        "grant-gsc",
+        "user-1",
+        GSC_OAUTH_PROVIDER_ID,
+        "account-gsc",
+        Date.parse(sqlUpdatedAt + "Z"),
+      ],
+    });
+    minutes(31);
+    const reconnected = await getFleetDashboard(org);
+    expect(statusOf(reconnected, 99).gsc.status).toBe("available");
+    expect(reconnected.gsc.errors).toBe(0);
+    expect(reconnected.providerIssues).toEqual([]);
+  });
+
+  it("matches a full build for rows the fold did not reread", async () => {
+    await seed(100, { ga4: true, bing: true });
+    const hoursAgo = (h: number) =>
+      new Date(Date.now() - h * 3600_000).toISOString();
+    for (let i = 0; i < 100; i++) {
+      const kind = i % 5;
+      const value =
+        kind === 0
+          ? gsc({ clicks: i, daily: [[dayOf(0), i, 10]] })
+          : kind === 1
+            ? gsc({ clicks: i, fetchedAt: hoursAgo(13) })
+            : kind === 2
+              ? gsc({ error: "boom" })
+              : kind === 3
+                ? gsc({ clicks: "bad" })
+                : null;
+      if (value) await setCached(cacheKey(id(i), site(i)), value, 43200);
+      if (i % 2 === 0)
+        await setCached(
+          ga4CacheKey(id(i), "1234"),
+          i % 4 === 0 ? ga4({ sessions: i }) : ga4({ error: "ga4 down" }),
+          43200,
+        );
+      if (i % 3 === 0) mocks.bing.set(id(i), bing(i));
+      if (i % 7 === 0) await setCached(queriesKey(i), query([["q", 1, 2, 3]]), 129600);
+    }
+    await getFleetDashboard(org);
+    minutes(31);
+    const folded = await getFleetDashboard(org);
+    const built = await buildFleetDashboard(org);
+    expect(folded.inventory).toEqual(built.inventory);
+    expect({ ...folded, generatedAt: "", health: null }).toEqual({
+      ...built,
+      generatedAt: "",
+      health: null,
+    });
+  });
+
+  it("refreshes Bing limitations from reread snapshots", async () => {
+    await seed(2, { bing: true, gsc: false });
+    mocks.bing.set(id(0), bing(0));
+    const first = await getFleetDashboard(org);
+    expect(first.bing.limitations).toHaveLength(3);
+    mocks.bing.set(id(0), bing(0, { limitations: ["Bing note one"] }));
+    minutes(31);
+    const folded = await getFleetDashboard(org);
+    expect(folded.bing.limitations).toContain("Bing note one");
+  });
+
+  it("keeps per-site parts out of the snapshot and small enough for a 300-site fleet", async () => {
+    await seed(300, { ga4: true, bing: true });
+    const w = windows();
+    for (let i = 0; i < 300; i++) {
+      const daily = Array.from(
+        { length: 56 },
+        (_, n): [string, number, number] => [
+          dayOf(n, w.prevStart),
+          (i * 7 + n) % 90,
+          1000 + ((i * 13 + n * 17) % 4000),
+        ],
+      );
+      const rows = Array.from(
+        { length: 25 },
+        (_, n): [string, number, number, number] => [
+          `emergency plumber near site ${i} query ${n}`,
+          n,
+          100 + n,
+          3.4,
+        ],
+      );
+      await cacheSite(i, daily, rows, 100);
+      await setCached(ga4CacheKey(id(i), "1234"), ga4({ sessions: i }), 43200);
+      mocks.bing.set(
+        id(i),
+        bing(i, {
+          performance: Array.from({ length: 30 }, (_, n) => ({
+            date: dayOf(n, w.curStart),
+            timestamp: `${dayOf(n, w.curStart)}T00:00:00Z`,
+            utcOffsetMinutes: 0,
+            clicks: n,
+            impressions: n * 5,
+          })),
+          limitations: ["Bing combines search surfaces for this site."],
+        }),
+      );
+    }
+    const dashboard = await getFleetDashboard(org);
+    const stored = (key: string) =>
+      [...mocks.objects.entries()].find(([k]) => k.endsWith(key))?.[1].value;
+    const snapshotBytes = stored(`fleet-dashboard:v4:${org}`)!.length;
+    const partsBytes = stored(`fleet-dashboard-parts:v1:${org}`)!.length;
+    console.info(
+      `[fleet-size] sites=300 snapshotKB=${Math.round(snapshotBytes / 1024)} partsKB=${Math.round(partsBytes / 1024)}`,
+    );
+    expect(partsBytes).toBeLessThan(1_500_000);
+    expect(JSON.stringify(dashboard)).not.toContain("fleet-dashboard-parts");
+    expect(dashboard.dailySites).toBe(300);
+    expect(snapshotBytes).toBeLessThan(partsBytes);
   });
 });
