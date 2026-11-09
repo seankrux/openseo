@@ -262,6 +262,8 @@ export type FleetDashboard = {
     down: FleetDownDomain[];
     missingTag: number;
   };
+  /** Last site of the previous rotating reread slice (see refreshFleet). */
+  foldCursor?: string | null;
 };
 
 async function listFleet(organizationId: string) {
@@ -451,14 +453,21 @@ function connectionTime(value: string) {
   );
 }
 
+// Constructing an Intl.DateTimeFormat costs far more than formatting with one,
+// and every provider entry asks; build one per time zone.
+const reportingDayFormats = new Map<string, Intl.DateTimeFormat>();
 function sameReportingDay(fetchedAt: string, timeZone = "UTC") {
   try {
-    const day = new Intl.DateTimeFormat("en-CA", {
-      timeZone,
-      year: "numeric",
-      month: "2-digit",
-      day: "2-digit",
-    });
+    let day = reportingDayFormats.get(timeZone);
+    if (!day) {
+      day = new Intl.DateTimeFormat("en-CA", {
+        timeZone,
+        year: "numeric",
+        month: "2-digit",
+        day: "2-digit",
+      });
+      reportingDayFormats.set(timeZone, day);
+    }
     return day.format(new Date(fetchedAt)) === day.format(new Date());
   } catch {
     return false;
@@ -984,27 +993,33 @@ async function warmFleetCachesOnce(
     lastId = `${rows.at(-1)!.projectId}:~`;
   }
   if (lastId) await setCached(cursorKey, lastId, 7 * 24 * 3600);
-  if (ran > 0) {
-    const snap = (await getCached(
-      snapshotKey(organizationId),
-    )) as FleetDashboard | null;
-    const parts = isReusableSnapshot(snap, organizationId)
-      ? await readParts(organizationId)
-      : null;
-    if (snap && parts) {
-      // Leave generatedAt alone. Moving it would keep this snapshot fresh and
-      // the 30-minute refresh would never see sites this warm did not touch.
-      await persistFleet(
-        organizationId,
-        await refreshFleet(organizationId, parts, {
-          rows: allRows,
-          reread: touched,
-          includeNew: false,
-          keepGeneratedAt: snap.generatedAt,
-        }),
-      );
-    }
-  }
+  if (ran > 0)
+    await withFleetLock(organizationId, async () => {
+      const snap = (await getCached(
+        snapshotKey(organizationId),
+      )) as FleetDashboard | null;
+      const parts = isReusableSnapshot(snap, organizationId)
+        ? await readParts(organizationId)
+        : null;
+      if (!snap || !parts) return;
+      try {
+        // Leave generatedAt alone. Moving it would keep this snapshot fresh
+        // and the 30-minute refresh would never see sites this warm did not
+        // touch.
+        await persistFleet(
+          organizationId,
+          await refreshFleet(organizationId, parts, snap.foldCursor ?? null, {
+            rows: allRows,
+            reread: touched,
+            includeNew: false,
+            keepGeneratedAt: snap.generatedAt,
+          }),
+        );
+      } catch (error) {
+        // Unusable parts: the next fold builds them again.
+        console.error("[fleet] warm patch skipped", error);
+      }
+    });
   return {
     ran,
     pending: Math.max(0, totalTasks - ran),
@@ -1202,8 +1217,13 @@ type FleetEvidence = Awaited<ReturnType<typeof readFleetEvidence>>[number];
  * whenever its site is reread. Payloads that can no longer be counted (stale,
  * failed or replaced evidence) are dropped; only small metrics stay for the
  * "refreshing" display.
+ *
+ * Parts are our own output, so they are version-checked rather than
+ * schema-parsed on read (a parse of every site costs seconds at 1,600 sites);
+ * a part that does not fit makes the fold throw, and the caller then builds.
+ * Parts hold no clock, so they are rewritten only when a part changed.
  */
-const PARTS_TTL_SECONDS = SNAPSHOT_TTL_SECONDS + 3600;
+const PARTS_TTL_SECONDS = 7 * 24 * 3600;
 /** Sites a fold rereads from R2 beyond those it was told to (rotating slice). */
 const FOLD_ROTATE_SITES = 40;
 /** Extra missing/error sites a fold rereads ahead of the rotation. */
@@ -1216,95 +1236,88 @@ function partsKey(organizationId: string) {
   return `fleet-dashboard-parts:v1:${organizationId}`;
 }
 
-const evidenceStubSchema = z.union([
-  z.null(),
-  z.literal("invalid"),
-  z.object({ fetchedAt: z.string(), error: z.string().optional() }),
-]);
-type EvidenceStub = z.infer<typeof evidenceStubSchema>;
-const packedDailySchema = z.object({
+/** null: nothing stored; "invalid": stored but not usable evidence. */
+type EvidenceStub = null | "invalid" | { fetchedAt: string; error?: string };
+type PackedDaily = {
   /** First day, YYYY-MM-DD. */
-  b: z.string(),
+  b: string;
   /** Flat [dayOffset, clicks, impressions, ...]. */
-  v: z.array(countSchema),
-});
-type PackedDaily = z.infer<typeof packedDailySchema>;
-const sitePartSchema = z.object({
-  gsc: z.object({
-    site: z.string().nullable(),
-    ev: evidenceStubSchema,
-    metrics: gscSchema
-      .pick({
-        clicks: true,
-        prevClicks: true,
-        impressions: true,
-        prevImpressions: true,
-        position: true,
-        prevPosition: true,
-      })
-      .nullable(),
-    daily: packedDailySchema.optional(),
-  }),
-  queries: z.object({
-    ev: evidenceStubSchema,
-    rows: queriesSchema.shape.rows.optional(),
-  }),
-  ga4: z.object({
-    property: z.string().nullable(),
-    ev: evidenceStubSchema,
-    metrics: z
-      .object({
-        sessions: countSchema,
-        prevSessions: countSchema,
-        users: countSchema,
-        prevUsers: countSchema,
-      })
-      .nullable(),
-  }),
-  bing: z.object({
-    site: z.string().nullable(),
-    ev: evidenceStubSchema,
-    metrics: z
-      .object({
-        clicks: countSchema.nullable(),
-        impressions: countSchema.nullable(),
-        ctr: z.number().finite().nullable(),
-        startDate: z.string().nullable(),
-        endDate: z.string().nullable(),
-      })
-      .nullable(),
+  v: number[];
+};
+type SitePart = {
+  gsc: {
+    site: string | null;
+    ev: EvidenceStub;
+    metrics: NonNullable<FleetInventoryRow["gsc"]["metrics"]> | null;
+    daily?: PackedDaily;
+  };
+  queries: {
+    ev: EvidenceStub;
+    rows?: Array<[string, number, number, number]>;
+  };
+  ga4: {
+    property: string | null;
+    ev: EvidenceStub;
+    metrics: NonNullable<FleetInventoryRow["ga4"]["metrics"]> | null;
+  };
+  bing: {
+    site: string | null;
+    ev: EvidenceStub;
+    metrics: NonNullable<FleetInventoryRow["bing"]["metrics"]> | null;
     /** Identifies the exact provider dates; totals need all sites to match. */
-    sig: z.string().nullable(),
-    limits: z.array(z.string()).optional(),
-  }),
-});
-type SitePart = z.infer<typeof sitePartSchema>;
-const fleetPartsSchema = z.object({
-  v: z.literal(1),
-  /** Last site of the previous rotating slice. */
-  cursor: z.string().nullable(),
-  sites: z.record(z.string(), sitePartSchema),
-});
-type FleetParts = z.infer<typeof fleetPartsSchema>;
+    sig: string | null;
+    limits?: string[];
+  };
+};
+type FleetParts = { v: 1; sites: Record<string, SitePart> };
+type FleetBuild = {
+  dashboard: FleetDashboard;
+  parts: FleetParts;
+  partsChanged: boolean;
+};
 
 async function readParts(organizationId: string): Promise<FleetParts | null> {
-  const parsed = fleetPartsSchema.safeParse(
-    await getCached(partsKey(organizationId)),
-  );
-  return parsed.success ? parsed.data : null;
+  const raw = (await getCached(partsKey(organizationId))) as {
+    v?: unknown;
+    sites?: unknown;
+  } | null;
+  return raw && raw.v === 1 && raw.sites && typeof raw.sites === "object"
+    ? (raw as FleetParts)
+    : null;
 }
 
 /** Parts first: a snapshot is only ever reused together with its parts. */
-async function persistFleet(
-  organizationId: string,
-  built: { dashboard: FleetDashboard; parts: FleetParts },
-) {
-  await setCached(partsKey(organizationId), built.parts, PARTS_TTL_SECONDS);
+async function persistFleet(organizationId: string, built: FleetBuild) {
+  if (built.partsChanged)
+    await setCached(partsKey(organizationId), built.parts, PARTS_TTL_SECONDS);
   await setCached(
     snapshotKey(organizationId),
     built.dashboard,
     SNAPSHOT_TTL_SECONDS,
   );
+}
+
+/**
+ * One writer per organization at a time (single isolate). A fold, a warm patch
+ * and a full build each read the stored state, assemble and persist inside it;
+ * otherwise a fold that started earlier persists over a warm patch's rows.
+ */
+const fleetLocks = new Map<string, Promise<unknown>>();
+function withFleetLock<T>(
+  organizationId: string,
+  work: () => Promise<T>,
+): Promise<T> {
+  const run = (fleetLocks.get(organizationId) ?? Promise.resolve()).then(work);
+  const tail = run.then(
+    () => undefined,
+    () => undefined,
+  );
+  fleetLocks.set(organizationId, tail);
+  void tail.then(() => {
+    if (fleetLocks.get(organizationId) === tail)
+      fleetLocks.delete(organizationId);
+  });
+  return run;
 }
 
 function stubOf(raw: unknown): EvidenceStub {
@@ -1502,14 +1515,21 @@ function partMatches(r: FleetRow, part: SitePart) {
  */
 function prunePart(r: FleetRow, part: SitePart, organizationId: string) {
   const e = entries(r, part, organizationId);
+  const dropGsc = e.gsc.status !== "available" && part.gsc.daily !== undefined;
+  const dropQueries =
+    e.queries.status !== "available" && part.queries.rows !== undefined;
+  const dropBing =
+    e.bing.status !== "available" && part.bing.limits !== undefined;
+  // Same object when nothing is dropped, so an unchanged part is detectable.
+  if (!dropGsc && !dropQueries && !dropBing) return part;
   const { daily: _daily, ...gscPart } = part.gsc;
   const { rows: _rows, ...queriesPart } = part.queries;
   const { limits: _limits, ...bingPart } = part.bing;
   return {
     ...part,
-    gsc: e.gsc.status === "available" ? part.gsc : gscPart,
-    queries: e.queries.status === "available" ? part.queries : queriesPart,
-    bing: e.bing.status === "available" ? part.bing : bingPart,
+    gsc: dropGsc ? gscPart : part.gsc,
+    queries: dropQueries ? queriesPart : part.queries,
+    bing: dropBing ? bingPart : part.bing,
   };
 }
 
@@ -1746,15 +1766,32 @@ function assembleDashboard(input: {
 /** Parts to snapshot: statuses, aggregates, audit and health, all from now. */
 async function assembleFleet(
   organizationId: string,
-  rows: FleetRow[],
-  sites: Record<string, SitePart>,
-  cursor: string | null,
-  checks: Map<string, AuthCheck>,
-  generatedAt: string,
-) {
+  input: {
+    rows: FleetRow[];
+    sites: Record<string, SitePart>;
+    /** Stored parts this fold started from; absent for a full build. */
+    previousSites?: Record<string, SitePart>;
+    cursor: string | null;
+    checks: Map<string, AuthCheck>;
+    generatedAt: string;
+  },
+): Promise<FleetBuild> {
+  const { rows, sites, previousSites, cursor, checks, generatedAt } = input;
   const pruned: Record<string, SitePart> = {};
-  for (const r of rows)
-    pruned[r.projectId] = prunePart(r, sites[r.projectId]!, organizationId);
+  let partsChanged =
+    !previousSites || Object.keys(previousSites).length !== rows.length;
+  for (const r of rows) {
+    const part = prunePart(r, sites[r.projectId]!, organizationId);
+    pruned[r.projectId] = part;
+    const before = previousSites?.[r.projectId];
+    // Identity differs for every reread or pruned part; compare by content.
+    if (
+      !partsChanged &&
+      part !== before &&
+      JSON.stringify(part) !== JSON.stringify(before)
+    )
+      partsChanged = true;
+  }
   const inventory = rows.map((r) =>
     inventoryRow(r, pruned[r.projectId]!, organizationId, checks),
   );
@@ -1764,17 +1801,21 @@ async function assembleFleet(
     healthRollup(organizationId),
   ]);
   return {
-    dashboard: assembleDashboard({
-      rows,
-      sites: pruned,
-      inventory,
-      checks,
-      organizationId,
-      audit,
-      health,
-      generatedAt,
-    }),
-    parts: { v: 1 as const, cursor, sites: pruned },
+    dashboard: {
+      ...assembleDashboard({
+        rows,
+        sites: pruned,
+        inventory,
+        checks,
+        organizationId,
+        audit,
+        health,
+        generatedAt,
+      }),
+      foldCursor: cursor,
+    },
+    parts: { v: 1, sites: pruned },
+    partsChanged,
   };
 }
 
@@ -1789,14 +1830,13 @@ async function buildFleet(organizationId: string) {
   rows.forEach((r, i) => {
     sites[r.projectId] = buildPart(r, evidence[i]!);
   });
-  return assembleFleet(
-    organizationId,
+  return assembleFleet(organizationId, {
     rows,
     sites,
-    null,
+    cursor: null,
     checks,
-    new Date().toISOString(),
-  );
+    generatedAt: new Date().toISOString(),
+  });
 }
 
 export async function buildFleetDashboard(
@@ -1852,7 +1892,7 @@ function isFreshDashboard(
  * Fold the next snapshot from the stored parts. listFleet is the site set.
  * R2 is read for: the reread ids; projects without a part (when includeNew) or
  * whose provider binding changed; a bounded rotating slice of the fleet (the
- * cursor is stored with the parts, so every site is reread within
+ * cursor is stored with the snapshot, so every site is reread within
  * ceil(sites / FOLD_ROTATE_SITES) folds, which catches cache writes outside
  * the warm); and a bounded number of sites with missing or failed evidence.
  * Everything else is re-derived from the stored parts, so statuses and
@@ -1861,6 +1901,7 @@ function isFreshDashboard(
 async function refreshFleet(
   organizationId: string,
   previous: FleetParts,
+  cursor: string | null,
   options: {
     rows?: FleetRow[];
     reread: Set<string>;
@@ -1880,7 +1921,6 @@ async function refreshFleet(
   const mandatoryIds = new Set(mandatory.map((r) => r.projectId));
 
   // Rotating slice from the cursor, then more sites that lack usable evidence.
-  const cursor = previous.cursor;
   const byId = [...rows].sort((a, b) => (a.projectId < b.projectId ? -1 : 1));
   const startAt = Math.max(
     0,
@@ -1922,14 +1962,14 @@ async function refreshFleet(
     const e = evidence.get(r.projectId);
     sites[r.projectId] = e ? buildPart(r, e) : previous.sites[r.projectId]!;
   }
-  return assembleFleet(
-    organizationId,
+  return assembleFleet(organizationId, {
     rows,
     sites,
-    slicesDone > 0 ? slice[slicesDone - 1]!.projectId : cursor,
+    previousSites: previous.sites,
+    cursor: slicesDone > 0 ? slice[slicesDone - 1]!.projectId : cursor,
     checks,
-    options.keepGeneratedAt ?? new Date().toISOString(),
-  );
+    generatedAt: options.keepGeneratedAt ?? new Date().toISOString(),
+  });
 }
 
 /**
@@ -1949,20 +1989,58 @@ export async function getFleetDashboard(
     )) as FleetDashboard | null;
     if (cached && isFreshDashboard(cached, organizationId))
       return { ...cached, health: await healthRollup(organizationId) };
-    if (isReusableSnapshot(cached, organizationId)) {
-      const parts = await readParts(organizationId);
-      // A snapshot from before parts existed is served while the scheduler
-      // builds its parts; a page view never pays for a full read.
-      if (!parts) return { ...cached, health: await healthRollup(organizationId) };
-      const folded = await refreshFleet(organizationId, parts, {
-        reread: new Set(),
-        includeNew: true,
-      });
-      await persistFleet(organizationId, folded);
-      return folded.dashboard;
+  }
+  return refreshSnapshot(organizationId, refresh);
+}
+
+/**
+ * Fold (or, without usable parts, build) and persist the snapshot. Concurrent
+ * callers for an organization share one in-flight run, and the run re-reads the
+ * stored state inside the writer lock, so a stale page view, the scheduler and
+ * a warm patch never write over each other.
+ */
+const inflightRefreshes = new Map<string, Promise<FleetDashboard>>();
+function refreshSnapshot(organizationId: string, force: boolean) {
+  const key = `${force ? "build" : "fold"}:${organizationId}`;
+  const existing = inflightRefreshes.get(key);
+  if (existing) return existing;
+  const run = withFleetLock(organizationId, () =>
+    refreshSnapshotLocked(organizationId, force),
+  ).finally(() => inflightRefreshes.delete(key));
+  inflightRefreshes.set(key, run);
+  return run;
+}
+
+async function refreshSnapshotLocked(
+  organizationId: string,
+  force: boolean,
+): Promise<FleetDashboard> {
+  const snap = force
+    ? null
+    : ((await getCached(snapshotKey(organizationId))) as FleetDashboard | null);
+  // Another writer may have refreshed it while this run waited for the lock.
+  if (snap && isFreshDashboard(snap, organizationId))
+    return { ...snap, health: await healthRollup(organizationId) };
+  // Without parts (first run after deploy, expiry, damage) the snapshot cannot
+  // be folded, and it is already past max age here, so build rather than serve
+  // frozen numbers.
+  const parts = isReusableSnapshot(snap, organizationId)
+    ? await readParts(organizationId)
+    : null;
+  let built: FleetBuild | null = null;
+  if (parts && snap) {
+    try {
+      built = await refreshFleet(
+        organizationId,
+        parts,
+        snap.foldCursor ?? null,
+        { reread: new Set(), includeNew: true },
+      );
+    } catch (error) {
+      console.error("[fleet] fold failed, building instead", error);
     }
   }
-  const built = await buildFleet(organizationId);
+  built ??= await buildFleet(organizationId);
   await persistFleet(organizationId, built);
   return built.dashboard;
 }
@@ -2106,18 +2184,7 @@ async function runScheduledFleetDashboardOnce() {
   )) as FleetDashboard | null;
   if (!isFreshDashboard(snap, organizationId)) {
     const startedAt = Date.now();
-    const parts = isReusableSnapshot(snap, organizationId)
-      ? await readParts(organizationId)
-      : null;
-    await persistFleet(
-      organizationId,
-      parts
-        ? await refreshFleet(organizationId, parts, {
-            reread: new Set(),
-            includeNew: true,
-          })
-        : await buildFleet(organizationId),
-    );
+    await refreshSnapshot(organizationId, false);
     console.log("[fleet] rebuilt snapshot", {
       organizationId,
       ms: Date.now() - startedAt,

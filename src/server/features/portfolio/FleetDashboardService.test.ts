@@ -48,6 +48,10 @@ const mocks = vi.hoisted(() => ({
   bing: new Map<string, BingSnapshot>(),
   /** Simulated R2 read latency: each read advances the fake clock this much. */
   readDelayMs: 0,
+  /** Every R2 write, for counting snapshot and parts persists. */
+  puts: [] as Array<{ key: string; bytes: number }>,
+  /** Holds the first read of a matching key until `wait` resolves. */
+  gate: null as null | { match: string; hit: boolean; wait: Promise<void> },
 }));
 vi.mock("@/db", () => ({
   get db() {
@@ -64,6 +68,10 @@ vi.mock("cloudflare:workers", () => ({
         if (mocks.readDelayMs)
           vi.setSystemTime(new Date(Date.now() + mocks.readDelayMs));
         const object = mocks.objects.get(key);
+        if (mocks.gate && !mocks.gate.hit && key.includes(mocks.gate.match)) {
+          mocks.gate.hit = true;
+          await mocks.gate.wait;
+        }
         return object
           ? {
               text: async () => object.value,
@@ -76,6 +84,7 @@ vi.mock("cloudflare:workers", () => ({
         value: string,
         options: { customMetadata: Record<string, string> },
       ) => {
+        mocks.puts.push({ key, bytes: value.length });
         mocks.objects.set(key, {
           value,
           customMetadata: options.customMetadata,
@@ -139,6 +148,8 @@ beforeEach(async () => {
   mocks.objects.clear();
   mocks.bing.clear();
   mocks.readDelayMs = 0;
+  mocks.puts.length = 0;
+  mocks.gate = null;
   mocks.token.mockResolvedValue("test-token");
   mocks.performance.mockResolvedValue({ rows: [] });
   mocks.runReport.mockResolvedValue({ rows: [] });
@@ -844,10 +855,17 @@ describe("snapshot aggregates come from per-site parts", () => {
     const folded = await getFleetDashboard(org);
     const built = await buildFleetDashboard(org);
     expect(folded.inventory).toEqual(built.inventory);
-    expect({ ...folded, generatedAt: "", health: null }).toEqual({
+    // foldCursor is rotation bookkeeping, not dashboard data.
+    expect({
+      ...folded,
+      generatedAt: "",
+      health: null,
+      foldCursor: null,
+    }).toEqual({
       ...built,
       generatedAt: "",
       health: null,
+      foldCursor: null,
     });
   });
 
@@ -862,10 +880,10 @@ describe("snapshot aggregates come from per-site parts", () => {
     expect(folded.bing.limitations).toContain("Bing note one");
   });
 
-  it("keeps per-site parts out of the snapshot and small enough for a 300-site fleet", async () => {
-    await seed(300, { ga4: true, bing: true });
+  it("keeps per-site parts out of the snapshot and small enough for the 1,628-site live fleet", { timeout: 60_000 }, async () => {
+    await seed(1628, { ga4: true, bing: true });
     const w = windows();
-    for (let i = 0; i < 300; i++) {
+    for (let i = 0; i < 1628; i++) {
       const daily = Array.from(
         { length: 56 },
         (_, n): [string, number, number] => [
@@ -905,11 +923,131 @@ describe("snapshot aggregates come from per-site parts", () => {
     const snapshotBytes = stored(`fleet-dashboard:v4:${org}`)!.length;
     const partsBytes = stored(`fleet-dashboard-parts:v1:${org}`)!.length;
     console.info(
-      `[fleet-size] sites=300 snapshotKB=${Math.round(snapshotBytes / 1024)} partsKB=${Math.round(partsBytes / 1024)}`,
+      `[fleet-size] sites=1628 snapshotKB=${Math.round(snapshotBytes / 1024)} partsKB=${Math.round(partsBytes / 1024)}`,
     );
-    expect(partsBytes).toBeLessThan(1_500_000);
+    expect(partsBytes).toBeLessThan(5_000_000);
     expect(JSON.stringify(dashboard)).not.toContain("fleet-dashboard-parts");
-    expect(dashboard.dailySites).toBe(300);
+    expect(dashboard.dailySites).toBe(1628);
     expect(snapshotBytes).toBeLessThan(partsBytes);
+  });
+});
+
+describe("fold, warm patch and page views write the snapshot one at a time", () => {
+  const snapshotEnd = `fleet-dashboard:v4:${org}`;
+  const partsEnd = `fleet-dashboard-parts:v1:${org}`;
+  const putsOf = (end: string) =>
+    mocks.puts.filter((p) => p.key.endsWith(end));
+  const minutes = (n: number) =>
+    vi.setSystemTime(new Date(Date.now() + n * 60 * 1000));
+  async function cacheAll(count: number, clicks = 1) {
+    for (let i = 0; i < count; i++)
+      await setCached(cacheKey(id(i), site(i)), gsc({ clicks }), 43200);
+  }
+
+  it("keeps every warm-patched row when a fold that started earlier persists later", async () => {
+    await seed(120);
+    await getFleetDashboard(org);
+    minutes(31);
+    let release!: () => void;
+    mocks.gate = {
+      match: "portfolio-gsc:v1:p0000:",
+      hit: false,
+      wait: new Promise<void>((resolve) => (release = resolve)),
+    };
+    const folding = getFleetDashboard(org);
+    await vi.waitFor(() => expect(mocks.gate?.hit).toBe(true));
+    const warming = warmFleetCaches(org, 90);
+    await vi.waitFor(() =>
+      expect(mocks.performance.mock.calls.length).toBeGreaterThan(30),
+    );
+    await vi.advanceTimersByTimeAsync(10);
+    release();
+    const [, warm] = await Promise.all([folding, warming]);
+    expect(warm.ran).toBeGreaterThan(30);
+    const touched = new Set<string>(
+      mocks.performance.mock.calls.map(([input]) => input.projectId),
+    );
+    const stored = (await getCached(
+      `fleet-dashboard:v4:${org}`,
+    )) as Awaited<ReturnType<typeof getFleetDashboard>>;
+    const lost = stored.inventory.filter(
+      (row) => touched.has(row.projectId) && row.gsc.status !== "available",
+    );
+    expect(touched.size).toBeGreaterThan(30);
+    expect(lost.map((row) => row.projectId)).toEqual([]);
+  });
+
+  it("shares one fold and one write across concurrent stale page views", async () => {
+    await seed(20);
+    await cacheAll(20);
+    await getFleetDashboard(org);
+    minutes(31);
+    mocks.puts.length = 0;
+    const results = await Promise.all(
+      Array.from({ length: 5 }, () => getFleetDashboard(org)),
+    );
+    expect(putsOf(snapshotEnd)).toHaveLength(1);
+    expect(new Set(results.map((r) => r.generatedAt)).size).toBe(1);
+  });
+
+  it("does not rewrite the parts when a fold changed nothing, and does when a site changed", async () => {
+    await seed(20);
+    await cacheAll(20);
+    await getFleetDashboard(org);
+    minutes(31);
+    mocks.puts.length = 0;
+    await getFleetDashboard(org);
+    expect(putsOf(snapshotEnd)).toHaveLength(1);
+    expect(putsOf(partsEnd)).toHaveLength(0);
+    await setCached(cacheKey(id(3), site(3)), gsc({ clicks: 50 }), 43200);
+    minutes(31);
+    const folded = await getFleetDashboard(org);
+    expect(putsOf(partsEnd)).toHaveLength(1);
+    expect(
+      folded.inventory.find((r) => r.projectId === id(3))!.gsc.metrics?.clicks,
+    ).toBe(50);
+  });
+
+  it("builds instead of serving a stale snapshot whose parts are missing", async () => {
+    await seed(5);
+    await cacheAll(5);
+    await getFleetDashboard(org);
+    for (const key of [...mocks.objects.keys()])
+      if (key.endsWith(partsEnd)) mocks.objects.delete(key);
+    await setCached(cacheKey(id(2), site(2)), gsc({ clicks: 99 }), 43200);
+    // Younger than 30 minutes: served as is.
+    minutes(10);
+    mocks.puts.length = 0;
+    const young = await getFleetDashboard(org);
+    expect(putsOf(snapshotEnd)).toHaveLength(0);
+    expect(young.inventory[2]!.gsc.metrics?.clicks).toBe(1);
+    // Older than 30 minutes: rebuilt once, however many views arrive.
+    minutes(25);
+    const views = await Promise.all(
+      Array.from({ length: 4 }, () => getFleetDashboard(org)),
+    );
+    expect(views[0]!.inventory[2]!.gsc.metrics?.clicks).toBe(99);
+    expect(putsOf(snapshotEnd)).toHaveLength(1);
+    expect(putsOf(partsEnd)).toHaveLength(1);
+  });
+
+  it.each([
+    ["an unknown version", '{"v":2,"sites":{}}'],
+    ["a malformed part", '{"v":1,"sites":{"p0000":{"gsc":null}}}'],
+  ])("falls back to a full build for parts with %s", async (_name, raw) => {
+    await seed(3);
+    await cacheAll(3);
+    await getFleetDashboard(org);
+    const key = [...mocks.objects.keys()].find((k) => k.endsWith(partsEnd))!;
+    mocks.objects.get(key)!.value = raw;
+    await setCached(cacheKey(id(1), site(1)), gsc({ clicks: 7 }), 43200);
+    minutes(31);
+    const rebuilt = await getFleetDashboard(org);
+    expect(rebuilt.inventory.map((r) => r.gsc.status)).toEqual([
+      "available",
+      "available",
+      "available",
+    ]);
+    expect(rebuilt.inventory[1]!.gsc.metrics?.clicks).toBe(7);
   });
 });
