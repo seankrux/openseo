@@ -1057,6 +1057,92 @@ describe("fold, warm patch and page views write the snapshot one at a time", () 
     expect(putsOf(partsEnd)).toHaveLength(1);
   });
 
+  /** Holds the first read of p0000's cache; release() lets the build go on. */
+  function holdBuild() {
+    let release!: () => void;
+    mocks.gate = {
+      match: "portfolio-gsc:v1:p0000:",
+      hit: false,
+      wait: new Promise<void>((resolve) => (release = resolve)),
+    };
+    return release;
+  }
+  async function seedWithStaleSnapshot() {
+    await seed(3);
+    await cacheAll(3);
+    await getFleetDashboard(org);
+    minutes(31);
+    mocks.puts.length = 0;
+  }
+
+  it.each([
+    ["the scheduler's first build", async () => runScheduledFleetDashboard()],
+    ["a refresh", async () => void (await getFleetDashboard(org, true))],
+  ])("persists %s that takes 250 s", async (_name, start) => {
+    await seed(3);
+    await cacheAll(3);
+    const release = holdBuild();
+    const building = start();
+    await vi.waitFor(() => expect(mocks.gate?.hit).toBe(true));
+    await vi.advanceTimersByTimeAsync(250_000);
+    release();
+    await building;
+    expect(putsOf(snapshotEnd)).toHaveLength(1);
+    expect(putsOf(partsEnd)).toHaveLength(1);
+  });
+
+  it("abandons a build that outlives the build timeout and writes nothing when it finishes late", async () => {
+    await seedWithStaleSnapshot();
+    const release = holdBuild();
+    const building = getFleetDashboard(org, true);
+    const settled = building.then(
+      () => "resolved",
+      (error: Error) => error.message,
+    );
+    await vi.waitFor(() => expect(mocks.gate?.hit).toBe(true));
+    await vi.advanceTimersByTimeAsync(341_000);
+    expect(await settled).toMatch(/timed out/);
+    release();
+    await vi.advanceTimersByTimeAsync(50);
+    expect(putsOf(snapshotEnd)).toHaveLength(0);
+    expect(putsOf(partsEnd)).toHaveLength(0);
+  });
+
+  it("does not let an abandoned hung build block page-view folds", async () => {
+    await seedWithStaleSnapshot();
+    holdBuild();
+    const building = getFleetDashboard(org, true).catch(() => undefined);
+    await vi.waitFor(() => expect(mocks.gate?.hit).toBe(true));
+    await vi.advanceTimersByTimeAsync(341_000);
+    await building;
+    mocks.puts.length = 0;
+    // The hung build never settles; a page view must still fold.
+    await getFleetDashboard(org);
+    expect(putsOf(snapshotEnd)).toHaveLength(1);
+  });
+
+  it("keeps the build flag of a running build when an abandoned one settles late", async () => {
+    await seedWithStaleSnapshot();
+    const releaseFirst = holdBuild();
+    const first = getFleetDashboard(org, true).catch(() => undefined);
+    await vi.waitFor(() => expect(mocks.gate?.hit).toBe(true));
+    await vi.advanceTimersByTimeAsync(341_000);
+    await first;
+    const releaseSecond = holdBuild();
+    const second = getFleetDashboard(org, true);
+    await vi.waitFor(() => expect(mocks.gate?.hit).toBe(true));
+    // The abandoned build finishes while its successor still runs.
+    releaseFirst();
+    await vi.advanceTimersByTimeAsync(50);
+    // A page view is served stale at once instead of queuing behind it.
+    const view = await getFleetDashboard(org);
+    expect(view.coverage.projects).toBe(3);
+    expect(putsOf(snapshotEnd)).toHaveLength(0);
+    releaseSecond();
+    await second;
+    expect(putsOf(snapshotEnd)).toHaveLength(1);
+  });
+
   it("builds on a page view only when no snapshot exists or refresh is asked for", async () => {
     await seed(3);
     await cacheAll(3);

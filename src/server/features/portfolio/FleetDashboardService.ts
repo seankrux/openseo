@@ -1313,26 +1313,51 @@ async function persistFleet(
  * One writer per organization at a time (single isolate). A fold, a warm patch
  * and a full build each read the stored state, assemble and persist inside it;
  * otherwise a fold that started earlier persists over a warm patch's rows.
- * A run that hangs (an R2 read that never returns) is abandoned after the
- * timeout: its caller gets a rejection, the lock is released, and its lease
- * expires so a late finish cannot persist.
+ * A run that hangs (an R2 read that never returns) is abandoned at its
+ * deadline: its caller gets a rejection, the lock is released, and its lease
+ * expires so a late finish cannot persist. Folds and warm patches get 200 s.
+ * A run that turns into a full build extends its deadline to 340 s from the
+ * start of the run: live full builds took 113 to 314 s and the scheduler tick
+ * is cut off at 360 s. A build is all or nothing: if it is abandoned, nothing
+ * persists and the next scheduler tick starts over, so the 340 s deadline has
+ * to stay above the slowest build.
  */
 const FLEET_LOCK_TIMEOUT_MS = 200_000;
-type FleetLease = { expired: boolean };
+const FLEET_BUILD_TIMEOUT_MS = 340_000;
+type FleetLease = {
+  expired: boolean;
+  /** Move the deadline to this long after the run started (never revives). */
+  extendTo: (totalMs: number) => void;
+};
 const fleetLocks = new Map<string, Promise<unknown>>();
 function withFleetLock<T>(
   organizationId: string,
   work: (lease: FleetLease) => Promise<T>,
 ): Promise<T> {
   const run = (fleetLocks.get(organizationId) ?? Promise.resolve()).then(() => {
-    const lease: FleetLease = { expired: false };
+    const startedAt = Date.now();
     let timer: ReturnType<typeof setTimeout> | undefined;
+    let abandon!: (error: Error) => void;
     const timeout = new Promise<never>((_, reject) => {
-      timer = setTimeout(() => {
-        lease.expired = true;
-        reject(new Error("Fleet snapshot work timed out"));
-      }, FLEET_LOCK_TIMEOUT_MS);
+      abandon = reject;
     });
+    const arm = (totalMs: number) => {
+      clearTimeout(timer);
+      timer = setTimeout(
+        () => {
+          lease.expired = true;
+          abandon(new Error("Fleet snapshot work timed out"));
+        },
+        Math.max(0, startedAt + totalMs - Date.now()),
+      );
+    };
+    const lease: FleetLease = {
+      expired: false,
+      extendTo: (totalMs) => {
+        if (!lease.expired) arm(totalMs);
+      },
+    };
+    arm(FLEET_LOCK_TIMEOUT_MS);
     return Promise.race([work(lease), timeout]).finally(() =>
       clearTimeout(timer),
     );
@@ -2025,7 +2050,8 @@ export async function getFleetDashboard(
     return { ...cached, health: await healthRollup(organizationId) };
   const stale = isReusableSnapshot(cached, organizationId) ? cached : null;
   // Do not queue a request behind a full build.
-  if (stale && fleetBuilds.has(organizationId))
+  const building = fleetBuilds.get(organizationId);
+  if (stale && building && !building.expired)
     return { ...stale, health: await healthRollup(organizationId) };
   try {
     return await refreshSnapshot(organizationId, "page");
@@ -2048,7 +2074,8 @@ export async function getFleetDashboard(
  */
 type RefreshMode = "page" | "scheduler" | "build";
 const inflightRefreshes = new Map<string, Promise<FleetDashboard>>();
-const fleetBuilds = new Set<string>();
+/** The lease of the build in progress; an abandoned build no longer counts. */
+const fleetBuilds = new Map<string, FleetLease>();
 function refreshSnapshot(organizationId: string, mode: RefreshMode) {
   const key = `${mode}:${organizationId}`;
   const existing = inflightRefreshes.get(key);
@@ -2096,11 +2123,14 @@ async function refreshSnapshotLocked(
     }
   }
   if (!built) {
-    fleetBuilds.add(organizationId);
+    lease.extendTo(FLEET_BUILD_TIMEOUT_MS);
+    fleetBuilds.set(organizationId, lease);
     try {
       built = await buildFleet(organizationId);
     } finally {
-      fleetBuilds.delete(organizationId);
+      // Only the owner clears it: a late settle must not clear a successor's.
+      if (fleetBuilds.get(organizationId) === lease)
+        fleetBuilds.delete(organizationId);
     }
   }
   await persistFleet(organizationId, built, lease);
