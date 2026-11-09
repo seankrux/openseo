@@ -8,6 +8,7 @@ export const DOMAIN_HEALTH_CLASSES = [
   "ssl_error",
   "timeout",
   "cf_error",
+  "blank_page",
 ] as const;
 
 export type DomainHealthClass = (typeof DOMAIN_HEALTH_CLASSES)[number];
@@ -33,6 +34,7 @@ export const DOMAIN_HEALTH_DOWN_CLASSES: ReadonlySet<DomainHealthClass> =
     "timeout",
     "cf_error",
     "parked",
+    "blank_page",
   ]);
 
 export const SSL_EXPIRING_SOON_DAYS = 14;

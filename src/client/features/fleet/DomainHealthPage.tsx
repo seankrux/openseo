@@ -24,6 +24,7 @@ export const HEALTH_LABELS: Record<string, string> = {
   timeout: "Timed out",
   cf_error: "Cloudflare error",
   parked: "Parked page",
+  blank_page: "Blank page (no site)",
 };
 
 const OK = new Set(["live_ok", "redirect_intended"]);
@@ -273,25 +274,27 @@ export function DomainHealthPage() {
               <div>
                 <h2 className="mb-2 text-sm font-semibold">Recent changes</h2>
                 <ul className="divide-y divide-border rounded-md border border-border text-sm">
-                  {dedupeChanges(d.changes).slice(0, 30).map((c, i) => (
-                    <li
-                      key={i}
-                      className="flex flex-col gap-1 px-3 py-1.5 sm:flex-row sm:justify-between sm:gap-3"
-                    >
-                      <span className="min-w-0 break-words">
-                        <span className="font-medium">{c.domain}</span>{" "}
-                        <span className="text-muted-foreground">
-                          {CHANGE_LABELS[c.kind] ?? c.kind.replace(/_/g, " ")}
-                          {c.fromClass || c.toClass
-                            ? `: ${HEALTH_LABELS[c.fromClass ?? ""] ?? c.fromClass ?? "new"} to ${HEALTH_LABELS[c.toClass ?? ""] ?? c.toClass}`
-                            : ""}
+                  {dedupeChanges(d.changes)
+                    .slice(0, 30)
+                    .map((c, i) => (
+                      <li
+                        key={i}
+                        className="flex flex-col gap-1 px-3 py-1.5 sm:flex-row sm:justify-between sm:gap-3"
+                      >
+                        <span className="min-w-0 break-words">
+                          <span className="font-medium">{c.domain}</span>{" "}
+                          <span className="text-muted-foreground">
+                            {CHANGE_LABELS[c.kind] ?? c.kind.replace(/_/g, " ")}
+                            {c.fromClass || c.toClass
+                              ? `: ${HEALTH_LABELS[c.fromClass ?? ""] ?? c.fromClass ?? "new"} to ${HEALTH_LABELS[c.toClass ?? ""] ?? c.toClass}`
+                              : ""}
+                          </span>
                         </span>
-                      </span>
-                      <span className="shrink-0 whitespace-nowrap text-xs text-muted-foreground sm:text-sm">
-                        {when(c.detectedAt)}
-                      </span>
-                    </li>
-                  ))}
+                        <span className="shrink-0 whitespace-nowrap text-xs text-muted-foreground sm:text-sm">
+                          {when(c.detectedAt)}
+                        </span>
+                      </li>
+                    ))}
                 </ul>
               </div>
             ) : null}

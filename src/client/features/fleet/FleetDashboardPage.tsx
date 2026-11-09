@@ -150,6 +150,7 @@ const HEALTH_LABELS: Record<string, string> = {
   timeout: "Timed out",
   cf_error: "Cloudflare error",
   parked: "Parked page",
+  blank_page: "Blank page (no site)",
   redirect_other_domain: "Redirects to another domain",
 };
 

@@ -9,6 +9,7 @@ export const DOMAIN_HEALTH_CLASSES = [
   "ssl_error",
   "timeout",
   "cf_error",
+  "blank_page",
 ] as const;
 
 export type DomainHealthClass = (typeof DOMAIN_HEALTH_CLASSES)[number];
@@ -103,5 +104,9 @@ export interface CheckDomainHealthOptions {
 export interface CheckBatchOptions extends CheckDomainHealthOptions {
   /** Concurrent checks (default 20). Keep low on small boxes. */
   concurrency?: number;
-  onProgress?: (done: number, total: number, latest: DomainHealthResult) => void;
+  onProgress?: (
+    done: number,
+    total: number,
+    latest: DomainHealthResult,
+  ) => void;
 }
