@@ -27,8 +27,7 @@ services:
       - GOOGLE_CLIENT_ID=${GOOGLE_CLIENT_ID:-}
       - GOOGLE_CLIENT_SECRET=${GOOGLE_CLIENT_SECRET:-}
       - BETTER_AUTH_SECRET=${BETTER_AUTH_SECRET:-}
-      # Optional: AI features (SAM, the in-app SEO agent)
-      - OPENROUTER_API_KEY=${OPENROUTER_API_KEY:-}
+      # Optional: model override for SAM
       - OPENROUTER_MODEL=${OPENROUTER_MODEL:-}
       - VITE_SHOW_DEVTOOLS=false
     ports:
