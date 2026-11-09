@@ -158,12 +158,15 @@ const DAILY_CALL_BUDGET_DEFAULT = 1_600;
 
 type Guard = {
   blockedUntil: number;
+  /** When the breaker last opened; calls admitted before it do not escalate it again. */
+  lastThrottleAt: number;
   consecutiveThrottles: number;
   day: string;
   callsToday: number;
 };
 const guardState: Guard = {
   blockedUntil: 0,
+  lastThrottleAt: 0,
   consecutiveThrottles: 0,
   day: "",
   callsToday: 0,
@@ -180,8 +183,12 @@ function utcDay(now: number): string {
   return new Date(now).toISOString().slice(0, 10);
 }
 
-/** Throws RATE_LIMITED without a network call while the key must rest. */
-function admitCall(now = Date.now()): void {
+/**
+ * Throws RATE_LIMITED without a network call while the key must rest.
+ * Returns the admission time so a late throttle from a call that was already
+ * in flight when the breaker opened does not open it a second time.
+ */
+function admitCall(now = Date.now()): number {
   if (now < guardState.blockedUntil) {
     const minutes = Math.ceil((guardState.blockedUntil - now) / 60_000);
     throw new AppError(
@@ -201,9 +208,14 @@ function admitCall(now = Date.now()): void {
     );
   }
   guardState.callsToday += 1;
+  return now;
 }
 
-function noteThrottled(now = Date.now()): void {
+function noteThrottled(admittedAt: number, now = Date.now()): void {
+  // The warm runs a few Bing calls at once; when all of them come back
+  // throttled they are one event, not three.
+  if (admittedAt < guardState.lastThrottleAt) return;
+  guardState.lastThrottleAt = now;
   guardState.consecutiveThrottles += 1;
   const coolOff = Math.min(
     THROTTLE_COOL_OFF_MAX_MS,
@@ -224,6 +236,7 @@ function noteSucceeded(): void {
 /** Test seam: forget breaker and budget state. */
 function resetGuardForTests(): void {
   guardState.blockedUntil = 0;
+  guardState.lastThrottleAt = 0;
   guardState.consecutiveThrottles = 0;
   guardState.day = "";
   guardState.callsToday = 0;
@@ -249,7 +262,7 @@ async function read<T>(
 ): Promise<T> {
   const apiKey = getConfiguredKey();
   if (!apiKey) throw new AppError("FORBIDDEN");
-  admitCall();
+  const admittedAt = admitCall();
   try {
     // Official JSON/HTTP protocol: learn.microsoft.com/en-us/bingwebmaster/api-protocols
     const url = new URL(
@@ -282,7 +295,7 @@ async function read<T>(
     return parsed;
   } catch (error) {
     if (error instanceof AppError && error.code === "RATE_LIMITED") {
-      noteThrottled();
+      noteThrottled(admittedAt);
       throw error;
     }
     // Never retain a cause: fetch/JSON errors can contain the key-bearing URL or body.

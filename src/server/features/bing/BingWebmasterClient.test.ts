@@ -427,4 +427,34 @@ describe("Bing Webmaster throttle guard", () => {
     expect(fetchMock).toHaveBeenCalledTimes(3);
     delete settings.BING_WEBMASTER_DAILY_CALL_BUDGET;
   });
+
+  it("treats concurrent throttled calls as one event", async () => {
+    vi.useFakeTimers({ now: new Date("2026-11-09T10:00:00Z") });
+    let release: (() => void) | undefined;
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    fetchMock.mockImplementation(async () => {
+      await gate;
+      return throttled();
+    });
+    const inFlight = [
+      BingWebmasterClient.getCrawlStats("https://a.com/"),
+      BingWebmasterClient.getCrawlStats("https://b.com/"),
+      BingWebmasterClient.getCrawlStats("https://c.com/"),
+    ].map((p) => p.catch((e: unknown) => e));
+    vi.setSystemTime(new Date("2026-11-09T10:00:01Z"));
+    release!();
+    const results = await Promise.all(inFlight);
+    expect(results.map((r) => (r as { code: string }).code)).toEqual([
+      "RATE_LIMITED",
+      "RATE_LIMITED",
+      "RATE_LIMITED",
+    ]);
+    expect(fetchMock).toHaveBeenCalledTimes(3);
+    expect(BingWebmasterClient.guardStatus()).toMatchObject({
+      consecutiveThrottles: 1,
+      pausedUntil: "2026-11-09T10:15:01.000Z",
+    });
+  });
 });
