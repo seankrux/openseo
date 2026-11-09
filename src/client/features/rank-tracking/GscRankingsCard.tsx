@@ -83,8 +83,8 @@ export function GscRankingsCard({ projectId }: { projectId: string }) {
       <CardContent className="space-y-3 text-sm">
         <p className="text-muted-foreground">
           Average Google position per query from Search Console, last 28 days vs
-          the 28 days before. Live SERP checks for keywords you choose (exact
-          position, device, location) need a DataForSEO key.
+          the 28 days before. SERP checks for keywords you choose (exact
+          position, device, location) need a DataForSEO or Semrush key.
         </p>
         {q.isLoading && <p>Loading Search Console data...</p>}
         {data && !data.connected && (

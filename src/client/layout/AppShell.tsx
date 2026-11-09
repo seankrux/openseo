@@ -89,6 +89,10 @@ export function AuthenticatedAppLayout({
   const isSeoApiKeyConfigured = shouldCheckSeoApiKeyStatus
     ? (seoApiKeyStatusQuery.data?.configured ?? null)
     : null;
+  const isSerpProviderAvailable =
+    shouldCheckSeoApiKeyStatus && seoApiKeyStatusQuery.data
+      ? seoApiKeyStatusQuery.data.serpProvider !== null
+      : null;
   const seoApiKeyStatusError =
     shouldCheckSeoApiKeyStatus && seoApiKeyStatusQuery.isError;
 
@@ -105,15 +109,16 @@ export function AuthenticatedAppLayout({
   const projectTool = location.pathname.split("/")[3];
   const requiresMeasuredSeoData =
     Boolean(projectId) &&
-    (["keywords", "domain", "backlinks", "rank-tracking"].includes(
-      projectTool ?? "",
-    ) ||
+    (["keywords", "domain", "backlinks"].includes(projectTool ?? "") ||
       location.pathname.endsWith("/ai-visibility/research"));
+  // Rank checks only need SERPs, which Semrush can supply without DataForSEO.
+  const requiresSerpProvider =
+    Boolean(projectId) && projectTool === "rank-tracking";
   const shouldShowSeoApiWarning =
-    requiresMeasuredSeoData &&
     !seoApiKeyStatusError &&
-    isSeoApiKeyConfigured === false &&
-    !showMissingSeoApiKeyModal;
+    !showMissingSeoApiKeyModal &&
+    ((requiresMeasuredSeoData && isSeoApiKeyConfigured === false) ||
+      (requiresSerpProvider && isSerpProviderAvailable === false));
 
   return (
     <SidebarProvider className="h-[100dvh] min-h-0 overflow-hidden">
