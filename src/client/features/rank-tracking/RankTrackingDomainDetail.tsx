@@ -390,6 +390,7 @@ export function RankTrackingDomainDetail({
           keywordCount={pendingCheck.count}
           devices={config.devices}
           costUsd={costEstimate?.costUsd}
+          costNotice={costEstimate?.costNotice}
           isPending={isPending}
           onRunNow={() =>
             startCheck({

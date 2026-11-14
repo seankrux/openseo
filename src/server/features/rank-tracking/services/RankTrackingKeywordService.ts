@@ -1,6 +1,7 @@
 import { RankTrackingRepository } from "@/server/features/rank-tracking/repositories/RankTrackingRepository";
 import type { rankTrackingKeywords } from "@/db/schema";
 import { AppError } from "@/server/lib/errors";
+import { resolveSerpProvider } from "@/server/lib/serp-provider";
 import {
   devicesCount,
   estimateRankCheckCredits,
@@ -166,7 +167,14 @@ async function estimateCost(
   )
     ? config.scheduleInterval
     : null;
+  const provider = await resolveSerpProvider();
   return {
+    provider: provider?.kind ?? null,
+    costBasis: "dataforseo" as const,
+    costNotice:
+      provider?.kind === "semrush"
+        ? "Semrush bills API units according to your plan. Dollar, credit and scheduled estimates here are DataForSEO references, not Semrush cost estimates."
+        : undefined,
     costUsd,
     costCredits,
     keywordCount,

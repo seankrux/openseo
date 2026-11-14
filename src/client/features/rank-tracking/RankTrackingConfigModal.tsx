@@ -35,6 +35,7 @@ import {
 import { ScheduleField } from "./ScheduleField";
 import { isHostedClientAuthMode } from "@/lib/auth-mode";
 import { SCHEDULED_RANK_CHECKS_PAUSED } from "@/shared/rank-tracking-pause";
+import { getSeoApiKeyStatus } from "@/serverFunctions/config";
 import {
   localScheduleTimeFrom,
   randomScheduleDate,
@@ -387,6 +388,37 @@ function CostEstimate({
   serpDepth,
   schedule,
 }: Pick<ConfigFormValues, "devices" | "serpDepth" | "schedule">) {
+  const hosted = isHostedClientAuthMode();
+  const provider = useQuery({
+    queryKey: ["seoApiKeyStatus"],
+    queryFn: () => getSeoApiKeyStatus(),
+    enabled: !hosted,
+    staleTime: 5 * 60_000,
+  });
+  if (!hosted && !provider.data) {
+    return (
+      <p className="text-xs text-muted-foreground" role="status">
+        {provider.isError
+          ? "Provider cost information is unavailable. Check your configured provider before starting a check."
+          : "Loading provider cost information…"}
+      </p>
+    );
+  }
+  if (provider.data?.serpProvider === "semrush") {
+    return (
+      <p className="rounded-lg bg-muted px-3 py-2.5 text-xs text-muted-foreground">
+        Semrush bills API units according to your plan. DataForSEO dollar
+        estimates do not apply. Semrush supports country-level tracking only.
+      </p>
+    );
+  }
+  if (!hosted && provider.data?.serpProvider == null) {
+    return (
+      <p className="text-xs text-muted-foreground">
+        Configure a DataForSEO or Semrush key before starting rank checks.
+      </p>
+    );
+  }
   // Scheduled checks run through the cheaper task queue; manual configs only
   // ever pay the live price.
   const { costUsd: costPerKeyword } = estimateRankCheckCredits(

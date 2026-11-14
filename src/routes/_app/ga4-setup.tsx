@@ -285,7 +285,7 @@ function Ga4SetupPage() {
             type="search"
             placeholder="Search domains"
             value={filter}
-            aria-controls="ga4-missing-sites"
+            aria-controls="ga4-setup-results"
             onChange={(event) => {
               setFilter(event.target.value);
               setPage(1);
@@ -293,6 +293,7 @@ function Ga4SetupPage() {
           />
         </div>
         <section
+          id="ga4-setup-results"
           aria-labelledby="ga4-missing-heading"
           className="min-w-0 space-y-3"
         >

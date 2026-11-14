@@ -10,6 +10,7 @@ export function CheckConfirmModal({
   keywordCount,
   devices,
   costUsd,
+  costNotice,
   isPending,
   onRunNow,
   onCancel,
@@ -18,6 +19,7 @@ export function CheckConfirmModal({
   devices: RankTrackingConfig["devices"];
   /** Server estimate; it prices each keyword's text (operators cost 5x). */
   costUsd: number | undefined;
+  costNotice?: string;
   isPending: boolean;
   onRunNow: () => void;
   onCancel: () => void;
@@ -40,7 +42,8 @@ export function CheckConfirmModal({
     >
       {keywordCount} keywords &times; {dc} device{dc !== 1 ? "s" : ""} ={" "}
       {totalChecks} SERP checks. Results in ~{eta}.
-      {costUsd != null ? (
+      {costNotice ? <p className="mt-2">{costNotice}</p> : null}
+      {!costNotice && costUsd != null ? (
         <>
           {" "}
           Costs about{" "}

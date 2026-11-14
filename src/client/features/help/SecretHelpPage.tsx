@@ -16,7 +16,12 @@ export const helpLinkClassName =
 export function CommandBlock({ command }: { command: string }) {
   return (
     <div className="mt-2 flex items-center gap-2 rounded-lg border border-border bg-muted p-3">
-      <pre className="min-w-0 flex-1 overflow-x-auto text-xs">
+      <pre
+        role="region"
+        aria-label="Terminal command"
+        tabIndex={0}
+        className="min-w-0 flex-1 overflow-x-auto text-xs focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring"
+      >
         <code>{command}</code>
       </pre>
       <CopyButton

@@ -21,6 +21,7 @@ import {
   stopAnalyticsCapture,
 } from "@/client/lib/posthog";
 import { NotFound } from "@/client/components/NotFound";
+import { SkeletonPage } from "@/client/components/SkeletonPresets";
 import { TooltipProvider } from "@/client/components/ui/tooltip";
 import appCss from "@/client/styles/app.css?url";
 import { useSession } from "@/lib/auth-client";
@@ -143,7 +144,16 @@ function RootDocument({ children }: { children: React.ReactNode }) {
         <HeadContent />
       </head>
       <body>
-        <ClientOnly>
+        <ClientOnly
+          fallback={
+            <main className="min-h-svh p-4 md:p-6" aria-busy="true">
+              <p role="status" className="font-medium">
+                Loading OpenSEO…
+              </p>
+              <SkeletonPage />
+            </main>
+          }
+        >
           <QueryClientProvider client={queryClient}>
             <TooltipProvider>
               <PostHogBootstrap />
@@ -166,6 +176,9 @@ function RootDocument({ children }: { children: React.ReactNode }) {
             </TooltipProvider>
           </QueryClientProvider>
         </ClientOnly>
+        <noscript>
+          <p>Enable JavaScript in your browser to use OpenSEO.</p>
+        </noscript>
         <Scripts />
       </body>
     </html>
