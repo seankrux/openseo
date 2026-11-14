@@ -1,4 +1,7 @@
-import { projectsQueryOptions } from "@/client/features/projects/projectQueries";
+import {
+  projectsQueryOptions,
+  useMissingProjectCheck,
+} from "@/client/features/projects/projectQueries";
 import { useNavigate } from "@tanstack/react-router";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
@@ -6,6 +9,7 @@ import { z } from "zod";
 import { revalidateLogic } from "@tanstack/react-form";
 import { useAppForm } from "@/client/components/form/useAppForm";
 import { InlineConfirm } from "@/client/components/InlineConfirm";
+import { SkeletonPageContent } from "@/client/components/SkeletonPresets";
 import { SectionHeader } from "@/client/components/PageHeader";
 import { QueryError, QueryState } from "@/client/components/QueryState";
 import { ProjectMarketFields } from "@/client/features/projects/ProjectMarketFields";
@@ -19,6 +23,7 @@ import type { ProjectSummary } from "./types";
 
 export function ProjectGeneralSettings({ projectId }: { projectId: string }) {
   const projectsQuery = useQuery(projectsQueryOptions());
+  const checkingMissing = useMissingProjectCheck(projectsQuery, projectId);
 
   return (
     <QueryState
@@ -27,6 +32,7 @@ export function ProjectGeneralSettings({ projectId }: { projectId: string }) {
     >
       {(projects) => {
         const project = projects.find((entry) => entry.id === projectId);
+        if (!project && checkingMissing) return <SkeletonPageContent />;
         if (!project) {
           return <QueryError fallback="This project was not found." />;
         }

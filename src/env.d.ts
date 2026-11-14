@@ -67,6 +67,9 @@ declare namespace Cloudflare {
 
     // DataForSEO API Basic auth value (base64 of login:password)
     DATAFORSEO_API_KEY: string;
+    // Semrush Analytics API key. Rank checks use it when DATAFORSEO_API_KEY is
+    // unset (country-level positions from Semrush's index, no city data).
+    SEMRUSH_API_KEY?: string;
     AI_VISIBILITY_WORKFLOW: Workflow<
       (
         | { runId: string }

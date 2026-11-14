@@ -1,4 +1,5 @@
 import {
+  isBlankPage,
   isCloudflareErrorPage,
   isDefaultHostPage,
   isParkedPage,
@@ -61,6 +62,10 @@ export function classifyDomainHealth(input: {
       return { class: "timeout", parked, defaultHostPage };
     }
     return { class: "http_error", parked, defaultHostPage };
+  }
+
+  if (isBlankPage(body)) {
+    return { class: "blank_page", parked, defaultHostPage };
   }
 
   return { class: "live_ok", parked, defaultHostPage };

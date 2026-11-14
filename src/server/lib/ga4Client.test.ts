@@ -290,3 +290,22 @@ describe("ga4Client data API", () => {
     ).rejects.toMatchObject({ status: 0 });
   });
 });
+
+describe("fleet Analytics cancellation", () => {
+  afterEach(() => vi.unstubAllGlobals());
+  it("passes the caller's deadline into the real report fetch", async () => {
+    mocks.getAccessToken.mockResolvedValue("ga4_tok");
+    mocks.fetch.mockResolvedValue(jsonResponse({ rows: [] }));
+    vi.stubGlobal("fetch", mocks.fetch);
+    const controller = new AbortController();
+    await createGa4DataClient({
+      userId: "u1",
+      ga4AccountId: "a1",
+      propertyId: "properties/123",
+      signal: controller.signal,
+    }).runReport(reportRequest);
+    const networkSignal = mocks.fetch.mock.calls[0]?.[1]?.signal;
+    controller.abort();
+    expect(networkSignal?.aborted).toBe(true);
+  });
+});

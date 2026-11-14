@@ -1,5 +1,9 @@
 import { env } from "cloudflare:workers";
+import { cooperativeR2 } from "@/server/lib/cooperative-yield";
 import { sortBy } from "remeda";
+
+/** R2 calls hand workerd's one thread back to waiting requests. */
+const bucket = () => cooperativeR2(env.R2);
 
 /**
  * Cache TTL constants in seconds.
@@ -42,7 +46,7 @@ export async function getCached(
   key: string,
   options: { allowExpired?: boolean } = {},
 ): Promise<unknown> {
-  const obj = await env.R2.get(`${CACHE_PREFIX}${key}`);
+  const obj = await bucket().get(`${CACHE_PREFIX}${key}`);
   if (!obj) return null;
 
   const expiresAt = obj.customMetadata?.expiresAt;
@@ -58,6 +62,45 @@ export async function getCached(
   }
 }
 
+const shared = new Map<string, { etag: string; value: unknown }>();
+
+/**
+ * getCached for large objects read far more often than written. The parsed
+ * value is kept per isolate and reused while the stored etag is unchanged (a
+ * conditional get transfers no body), so a multi-megabyte JSON.parse runs once
+ * per write instead of once per read. Callers must not mutate the result.
+ */
+export async function getCachedShared(
+  key: string,
+  options: { allowExpired?: boolean } = {},
+): Promise<unknown> {
+  const fullKey = `${CACHE_PREFIX}${key}`;
+  const hit = shared.get(fullKey);
+  // A failed etagDoesNotMatch returns the object's metadata without a body.
+  const obj: R2Object | R2ObjectBody | null = await bucket().get(
+    fullKey,
+    hit ? { onlyIf: { etagDoesNotMatch: hit.etag } } : undefined,
+  );
+  if (!obj) {
+    shared.delete(fullKey);
+    return null;
+  }
+  const expiresAt = obj.customMetadata?.expiresAt;
+  if (!options.allowExpired && expiresAt && Date.parse(expiresAt) < Date.now())
+    return null;
+  if (!("text" in obj))
+    return hit && obj.etag === hit.etag ? hit.value : getCached(key, options);
+  try {
+    const value: unknown = JSON.parse(await obj.text());
+    if (obj.etag) shared.set(fullKey, { etag: obj.etag, value });
+    else shared.delete(fullKey);
+    return value;
+  } catch {
+    shared.delete(fullKey);
+    return null;
+  }
+}
+
 /**
  * Store a JSON value in R2 with a soft TTL via custom metadata.
  */
@@ -67,7 +110,7 @@ export async function setCached<T>(
   ttlSeconds: number,
   metadata: Record<string, string> = {},
 ): Promise<void> {
-  await env.R2.put(`${CACHE_PREFIX}${key}`, JSON.stringify(data), {
+  await bucket().put(`${CACHE_PREFIX}${key}`, JSON.stringify(data), {
     httpMetadata: { contentType: "application/json" },
     customMetadata: {
       ...metadata,

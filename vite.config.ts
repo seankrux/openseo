@@ -7,6 +7,7 @@ import tailwindcss from "@tailwindcss/vite";
 import { cloudflare } from "@cloudflare/vite-plugin";
 import { devtools } from "@tanstack/devtools-vite";
 import { leanWorkerBundle } from "./vite-plugin-lean-worker-bundle";
+import { precompressedAssets } from "./vite-plugin-precompressed-assets";
 
 export default defineConfig(({ mode, command }) => {
   // Vitest sets mode to "test". Return a config without the Cloudflare and
@@ -70,6 +71,9 @@ export default defineConfig(({ mode, command }) => {
       outDir: emitSourcemaps ? "dist-sourcemaps" : "dist",
     },
     plugins: [
+      // First, so its preview middleware answers before the request is
+      // forwarded to workerd.
+      precompressedAssets(),
       leanWorkerBundle(),
       showDevtools
         ? devtools({

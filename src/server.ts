@@ -240,12 +240,32 @@ export default {
       console.error("[cron] Stale-audit reconcile failed:", err);
     }
     // Scope a per-request Postgres client for the cron run (no-op in D1 mode).
+    // The two database- and CPU-heavy fleet jobs run one after the other: on
+    // self-host they share workerd's one thread with page requests, and
+    // running them together with the rest froze every request for up to a
+    // minute per tick (measured 2026-11-11). Provider-bound jobs, which mostly
+    // wait on the network, still run alongside.
+    const runFleetJobsInSequence = async () => {
+      await withPgClient(async () => {
+        const { runScheduledFleetDashboard } =
+          await import("@/server/features/portfolio/FleetDashboardService");
+        await runScheduledFleetDashboard();
+      }).catch((err) => console.error("[cron] fleet dashboard failed:", err));
+      await withPgClient(async () => {
+        const { runScheduledFleetReaudit } =
+          await import("@/server/features/portfolio/FleetReauditService");
+        await runScheduledFleetReaudit();
+      }).catch((err) => console.error("[cron] fleet re-audit failed:", err));
+    };
     const checks = await Promise.allSettled([
       // CityThrive fork: GA4 setup autopilot (no-op unless GA4_AUTOSETUP=1), alongside the other jobs.
       withPgClient(async () => {
-        const { runScheduledGa4Setup } = await import("@/server/features/ga4-setup/Ga4SetupService");
+        const { runScheduledGa4Setup } =
+          await import("@/server/features/ga4-setup/Ga4SetupService");
         await runScheduledGa4Setup();
-      }).catch((err) => console.error("[cron] GA4 setup autopilot failed:", err)),
+      }).catch((err) =>
+        console.error("[cron] GA4 setup autopilot failed:", err),
+      ),
       SCHEDULED_RANK_CHECKS_PAUSED && isHostedAuthMode(env.AUTH_MODE)
         ? Promise.resolve()
         : withPgClient(() => runScheduledRankChecks(env)),
@@ -254,16 +274,7 @@ export default {
           await import("@/server/features/domain-health/services/domainHealthTick");
         await runDomainHealthTick();
       }).catch((err) => console.error("[cron] domain health failed:", err)),
-      withPgClient(async () => {
-        const { runScheduledFleetDashboard } =
-          await import("@/server/features/portfolio/FleetDashboardService");
-        await runScheduledFleetDashboard();
-      }).catch((err) => console.error("[cron] fleet dashboard failed:", err)),
-      withPgClient(async () => {
-        const { runScheduledFleetReaudit } =
-          await import("@/server/features/portfolio/FleetReauditService");
-        await runScheduledFleetReaudit();
-      }).catch((err) => console.error("[cron] fleet re-audit failed:", err)),
+      runFleetJobsInSequence(),
       withPgClient(async () => {
         const { runScheduledAiVisibility } =
           await import("@/server/features/ai-visibility/services/scheduledAiVisibility");

@@ -6,6 +6,7 @@ import {
 } from "@tanstack/react-router";
 import { useQuery } from "@tanstack/react-query";
 import { useEffect } from "react";
+import { toast } from "sonner";
 import {
   clearLastProjectId,
   getLastProjectId,
@@ -57,6 +58,9 @@ function useProjectAccessRedirect(projectId: string) {
     // Forget it if it's the remembered project, or the landing redirect
     // would bring the user straight back here.
     if (getLastProjectId() === projectId) clearLastProjectId();
+    toast.error(
+      "That project is not available. It may be archived or in another workspace.",
+    );
     void navigate({ to: "/", replace: true });
   }, [error, navigate, projectId]);
   return access.isSuccess;

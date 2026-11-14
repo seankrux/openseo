@@ -1,6 +1,20 @@
 import { getGoogleAccessToken } from "@/server/features/google/googleOAuth";
 import { GSC_OAUTH_PROVIDER_ID } from "@/shared/gsc";
-import { GscApiError, GscTokenError } from "./gscErrors";
+import {
+  GscApiError,
+  GscTokenError,
+  classifyGscError,
+  GSC_API_DISABLED_MESSAGE,
+} from "./gscErrors";
+
+const REQUEST_TIMEOUT_MS = 30_000;
+const OPERATION_TIMEOUT_MS = 65_000;
+
+export type GscRequestOptions = {
+  signal?: AbortSignal;
+  /** Reserve one additional provider call from the caller's shared budget. */
+  reserveRetry?: () => boolean;
+};
 
 export { GscApiError, GscTokenError } from "./gscErrors";
 
@@ -64,8 +78,13 @@ export type UrlInspectionResult = {
 };
 
 function messageForStatus(status: number, body: string): string {
-  if (status === 401 || status === 403) {
-    return "Search Console denied access to this property (no verified permission, or the connection was revoked).";
+  if (status === 401)
+    return "Search Console connection expired or was revoked.";
+  if (status === 403) {
+    if (body.includes("SERVICE_DISABLED")) return GSC_API_DISABLED_MESSAGE;
+    if (/quota|rate.?limit|resource_exhausted/i.test(body))
+      return "Search Console quota or rate limit reached. Waiting before retry.";
+    return "Search Console denied access to this property. Check verified property permissions.";
   }
   if (status === 429) {
     return "Search Console rate limit reached. Retry shortly.";
@@ -80,18 +99,23 @@ function messageForStatus(status: number, body: string): string {
  *  meter credits — GSC is first-party data with no per-call cost. Access tokens
  *  come from (and are auto-refreshed against) the connector's stored
  *  google-search-console grant. */
-export function createGscClient(opts: {
-  userId: string;
-  gscAccountId?: string;
-}) {
-  async function getToken(): Promise<string> {
+export function createGscClient(
+  opts: {
+    userId: string;
+    gscAccountId?: string;
+  } & GscRequestOptions,
+) {
+  async function getToken(signal: AbortSignal): Promise<string> {
     try {
       return await getGoogleAccessToken({
         providerId: GSC_OAUTH_PROVIDER_ID,
         userId: opts.userId,
         accountId: opts.gscAccountId,
+        signal,
       });
     } catch (error) {
+      if (signal.aborted) throw signal.reason;
+      if (classifyGscError(error) !== "auth") throw error;
       throw new GscTokenError(
         "Could not mint a Search Console access token (grant revoked or expired).",
         error,
@@ -103,25 +127,64 @@ export function createGscClient(opts: {
     url: string,
     init?: { method?: string; body?: unknown },
   ): Promise<T> {
-    const token = await getToken();
+    const signal = AbortSignal.any([
+      AbortSignal.timeout(OPERATION_TIMEOUT_MS),
+      ...(opts.signal ? [opts.signal] : []),
+    ]);
+    signal.throwIfAborted();
+    const token = await getToken(signal);
     const hasBody = init?.body !== undefined;
-    const response = await fetch(url, {
-      method: init?.method ?? "GET",
-      headers: {
-        Authorization: `Bearer ${token}`,
-        ...(hasBody ? { "Content-Type": "application/json" } : {}),
-      },
-      body: hasBody ? JSON.stringify(init?.body) : undefined,
-    });
-    if (!response.ok) {
-      const body = await response.text().catch(() => "");
-      throw new GscApiError(
-        response.status,
-        messageForStatus(response.status, body),
-        body,
-      );
+    for (let attempt = 0; ; attempt++) {
+      signal.throwIfAborted();
+      try {
+        const response = await fetch(url, {
+          method: init?.method ?? "GET",
+          headers: {
+            Authorization: `Bearer ${token}`,
+            ...(hasBody ? { "Content-Type": "application/json" } : {}),
+          },
+          body: hasBody ? JSON.stringify(init?.body) : undefined,
+          signal: AbortSignal.any([
+            signal,
+            AbortSignal.timeout(REQUEST_TIMEOUT_MS),
+          ]),
+        });
+        if (!response.ok) {
+          const body = await response.text().catch(() => "");
+          throw new GscApiError(
+            response.status,
+            messageForStatus(response.status, body),
+            body,
+          );
+        }
+        const result = (await response.json()) as T;
+        signal.throwIfAborted();
+        return result;
+      } catch (error) {
+        if (signal.aborted) throw signal.reason;
+        // Every method exposed by this client is a read, including Google's
+        // POST searchAnalytics/query and URL inspection endpoints. Never retry
+        // quota, permission, malformed-response or rejected-grant failures.
+        if (
+          attempt > 0 ||
+          classifyGscError(error) !== "transient" ||
+          opts.reserveRetry?.() === false
+        )
+          throw error;
+        await new Promise<void>((resolve, reject) => {
+          const abort = () => {
+            clearTimeout(timer);
+            reject(signal.reason);
+          };
+          const timer = setTimeout(() => {
+            signal.removeEventListener("abort", abort);
+            resolve();
+          }, 250);
+          signal.addEventListener("abort", abort, { once: true });
+          if (signal.aborted) abort();
+        });
+      }
     }
-    return (await response.json()) as T;
   }
 
   return {

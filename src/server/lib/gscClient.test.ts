@@ -35,6 +35,7 @@ describe("gscClient", () => {
     const [url, init] = mocks.fetch.mock.calls[0];
     expect(url).toBe("https://www.googleapis.com/webmasters/v3/sites");
     expect(init?.headers).toMatchObject({ Authorization: "Bearer tok_123" });
+    expect(init?.signal).toBeInstanceOf(AbortSignal);
   });
 
   it("targets the selected Better Auth grant by Google sub", async () => {
@@ -45,11 +46,13 @@ describe("gscClient", () => {
       gscAccountId: "google-sub-a",
     }).listSites();
 
-    expect(mocks.getAccessToken).toHaveBeenCalledWith({
-      providerId: "google-search-console",
-      userId: "u1",
-      accountId: "google-sub-a",
-    });
+    expect(mocks.getAccessToken).toHaveBeenCalledWith(
+      expect.objectContaining({
+        providerId: "google-search-console",
+        userId: "u1",
+        accountId: "google-sub-a",
+      }),
+    );
   });
 
   it("omits accountId for the legacy null-account fallback", async () => {
@@ -57,11 +60,13 @@ describe("gscClient", () => {
 
     await createGscClient({ userId: "u1" }).listSites();
 
-    expect(mocks.getAccessToken).toHaveBeenCalledWith({
-      providerId: "google-search-console",
-      userId: "u1",
-      accountId: undefined,
-    });
+    expect(mocks.getAccessToken).toHaveBeenCalledWith(
+      expect.objectContaining({
+        providerId: "google-search-console",
+        userId: "u1",
+        accountId: undefined,
+      }),
+    );
   });
 
   it("fetches the Google account email from userinfo", async () => {
@@ -149,6 +154,7 @@ describe("gscClient", () => {
     await expect(
       createGscClient({ userId: "u1" }).listSites(),
     ).rejects.toMatchObject({ status: 429 });
+    expect(mocks.fetch).toHaveBeenCalledOnce();
   });
 
   it("throws GscTokenError when no access token can be minted", async () => {
@@ -156,5 +162,77 @@ describe("gscClient", () => {
     await expect(
       createGscClient({ userId: "u1" }).listSites(),
     ).rejects.toBeInstanceOf(GscTokenError);
+  });
+  it.each([
+    [
+      "timeout",
+      () =>
+        Promise.reject(
+          new DOMException(
+            "The operation was aborted due to timeout",
+            "TimeoutError",
+          ),
+        ),
+    ],
+    ["upstream unavailable", () => Promise.resolve(jsonResponse({}, 503))],
+    ["network failure", () => Promise.reject(new TypeError("fetch failed"))],
+  ])(
+    "recovers one transient %s on an idempotent read",
+    async (_label, fail) => {
+      mocks.fetch.mockImplementationOnce(fail).mockResolvedValue(
+        jsonResponse({
+          rows: [{ clicks: 3, impressions: 9, position: 2, ctr: 1 / 3 }],
+        }),
+      );
+      const rows = await createGscClient({ userId: "u1" }).querySearchAnalytics(
+        "sc-domain:x.test",
+        { startDate: "2026-01-01", endDate: "2026-01-28" },
+      );
+      expect(rows[0]?.clicks).toBe(3);
+      expect(mocks.fetch).toHaveBeenCalledTimes(2);
+    },
+  );
+
+  it("stops after two attempts when an upstream outage persists", async () => {
+    mocks.fetch.mockImplementation(async () => jsonResponse({}, 503));
+    await expect(
+      createGscClient({ userId: "u1" }).listSites(),
+    ).rejects.toMatchObject({ status: 503 });
+    expect(mocks.fetch).toHaveBeenCalledTimes(2);
+    expect(mocks.getAccessToken).toHaveBeenCalledOnce();
+  });
+
+  it("does not bypass the caller's retry budget", async () => {
+    mocks.fetch.mockResolvedValue(jsonResponse({}, 503));
+    const reserveRetry = vi.fn(() => false);
+    await expect(
+      createGscClient({ userId: "u1", reserveRetry }).listSites(),
+    ).rejects.toMatchObject({ status: 503 });
+    expect(reserveRetry).toHaveBeenCalledOnce();
+    expect(mocks.fetch).toHaveBeenCalledOnce();
+  });
+
+  it("cancels the in-flight native fetch when the caller's fleet deadline aborts", async () => {
+    const controller = new AbortController();
+    let networkSignal: AbortSignal | undefined;
+    mocks.fetch.mockImplementation(
+      (_url, init) =>
+        new Promise((_resolve, reject) => {
+          networkSignal = init?.signal ?? undefined;
+          networkSignal?.addEventListener(
+            "abort",
+            () => reject(networkSignal?.reason),
+            { once: true },
+          );
+        }),
+    );
+    const result = createGscClient({ userId: "u1", signal: controller.signal })
+      .listSites()
+      .catch((error) => error);
+    await vi.waitFor(() => expect(mocks.fetch).toHaveBeenCalledOnce());
+    controller.abort(new DOMException("Fleet warm deadline", "AbortError"));
+    expect(networkSignal?.aborted).toBe(true);
+    expect(await result).toMatchObject({ name: "AbortError" });
+    expect(mocks.fetch).toHaveBeenCalledOnce();
   });
 });

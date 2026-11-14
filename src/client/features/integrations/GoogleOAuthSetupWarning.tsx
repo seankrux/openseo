@@ -25,7 +25,7 @@ export function GoogleOAuthSetupWarning({
         <SafeExternalLink
           url={docsUrl}
           label="Open setup guide"
-          className="inline-flex items-center gap-1 font-medium underline underline-offset-2"
+          className="inline-flex min-h-6 items-center gap-1 font-medium underline underline-offset-2"
         />
       </AlertDescription>
     </Alert>

@@ -229,7 +229,7 @@ export function PromptExplorerForm({
                     <button
                       type="button"
                       aria-label="About country targeting"
-                      className="text-muted-foreground"
+                      className="inline-flex size-6 items-center justify-center text-muted-foreground"
                     />
                   }
                 >

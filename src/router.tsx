@@ -2,6 +2,7 @@ import { createRouter as createTanStackRouter } from "@tanstack/react-router";
 import { routeTree } from "./routeTree.gen";
 import { DefaultCatchBoundary } from "./client/components/DefaultCatchBoundary";
 import { NotFound } from "./client/components/NotFound";
+import { SkeletonPage } from "./client/components/SkeletonPresets";
 import { stopClientErrorCapture } from "./client/lib/posthog";
 
 const PRELOAD_ERROR_RELOAD_KEY = "vite-preload-error-reloaded-at";
@@ -43,6 +44,10 @@ export function getRouter() {
   const router = createTanStackRouter({
     routeTree,
     defaultPreload: "intent",
+    // The default 1s delay left the main area blank on slow loads.
+    defaultPendingComponent: SkeletonPage,
+    defaultPendingMs: 200,
+    defaultPendingMinMs: 200,
     defaultErrorComponent: DefaultCatchBoundary,
     defaultNotFoundComponent: () => <NotFound />,
     scrollRestoration: true,

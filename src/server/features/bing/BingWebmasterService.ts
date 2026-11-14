@@ -172,16 +172,40 @@ async function getConnection(scope: Scope) {
   });
 }
 
+const CRAWL_REUSE_MS = 7 * 24 * 60 * 60 * 1000;
+
 async function refreshSnapshot(scope: Scope): Promise<BingSnapshot> {
   requireBingWorkspaceAccess(scope.organizationId);
   return withPgClient(async () => {
     const context = await getContext(scope);
     if (!context) throw new AppError("NOT_FOUND");
     const { binding } = context;
+    const storedScope = {
+      projectId: binding.projectId,
+      organizationId: binding.organizationId,
+      bindingId: binding.id,
+      siteUrl: binding.siteUrl,
+    };
+    const stored = await BingSnapshotStore.read(storedScope);
     const performance = await BingWebmasterClient.getRankAndTrafficStats(
       binding.siteUrl,
     );
-    const crawl = await BingWebmasterClient.getCrawlStats(binding.siteUrl);
+    // Crawl stats move slowly and Bing meters every call against one daily
+    // quota per key. Reuse recent crawl rows so a fleet sweep costs one call
+    // per site instead of two.
+    const storedCrawlAt = stored
+      ? (stored.crawlFetchedAt ?? stored.fetchedAt)
+      : null;
+    const reuseCrawl =
+      stored !== null &&
+      storedCrawlAt !== null &&
+      Date.now() - Date.parse(storedCrawlAt) < CRAWL_REUSE_MS;
+    const crawl = reuseCrawl
+      ? stored.crawl
+      : await BingWebmasterClient.getCrawlStats(binding.siteUrl);
+    const crawlFetchedAt = reuseCrawl
+      ? storedCrawlAt!
+      : new Date().toISOString();
     const snapshot: BingSnapshot = {
       schemaVersion: 1,
       provider: "bing-webmaster",
@@ -190,6 +214,7 @@ async function refreshSnapshot(scope: Scope): Promise<BingSnapshot> {
       bindingId: binding.id,
       siteUrl: binding.siteUrl,
       fetchedAt: new Date().toISOString(),
+      crawlFetchedAt,
       performance,
       crawl,
       scope: {
@@ -245,6 +270,29 @@ async function getStoredSnapshot(scope: Scope): Promise<BingSnapshot | null> {
   });
 }
 
+/**
+ * Fleet read for a binding the caller already joined to its project (one row
+ * of a fleet listing), so a fleet build does not repeat the project and
+ * binding lookups for every site. The snapshot key includes the binding id,
+ * and the stored snapshot must match the same scope.
+ */
+async function getStoredSnapshotForBinding(binding: {
+  organizationId: string;
+  projectId: string;
+  domain: string | null;
+  bindingId: string;
+  siteUrl: string;
+}): Promise<BingSnapshot | null> {
+  if (!hasBingWorkspaceAccess(binding.organizationId)) return null;
+  if (!matchesProjectHost(binding.siteUrl, binding.domain)) return null;
+  return BingSnapshotStore.read({
+    organizationId: binding.organizationId,
+    projectId: binding.projectId,
+    bindingId: binding.bindingId,
+    siteUrl: binding.siteUrl,
+  });
+}
+
 export const BingWebmasterService = {
   getConnection,
   listSites,
@@ -252,4 +300,5 @@ export const BingWebmasterService = {
   disconnect,
   refreshSnapshot,
   getStoredSnapshot,
+  getStoredSnapshotForBinding,
 } as const;

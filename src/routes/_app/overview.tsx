@@ -22,7 +22,9 @@ import {
   fleetChartsLabel,
   fleetSiteTableLabel,
 } from "@/client/navigation/fleetNav";
-import { AlertTriangle } from "lucide-react";
+import { classifyGscError } from "@/server/lib/gscErrors";
+import { AlertTriangle, ChevronDown } from "lucide-react";
+import { useDebouncedDraft } from "@/client/hooks/useDebouncedDraft";
 import { RowActionsMenu } from "@/client/components/RowActionsMenu";
 import { DropdownMenuItem } from "@/client/components/ui/dropdown-menu";
 import {
@@ -41,6 +43,8 @@ type Row = Awaited<ReturnType<typeof getPortfolioOverview>>["rows"][number];
 type SortKey = NonNullable<PortfolioOverviewSearch["sort"]>;
 type Coverage = NonNullable<PortfolioOverviewSearch["coverage"]>;
 const PAGE_SIZE = 50;
+const OVERVIEW_DESCRIPTION =
+  "Search Console last 28 days vs the previous 28 days (ending 3 days ago), GA4 sessions/users (all channels, last 28 days ending yesterday vs previous 28), plus the latest site audit. GSC and GA4 data are cached for 12 hours.";
 
 const COVERAGE_CHIPS: Array<{ key: Coverage; label: string }> = [
   { key: "all", label: "All" },
@@ -249,6 +253,42 @@ function Delta({
   );
 }
 
+// Keep one mounted copy of each panel, expanded on desktop and disclosed on
+// phones. CSS handles the breakpoint without a viewport-dependent SSR render.
+function MobileDisclosure({
+  label,
+  children,
+  className = "",
+}: {
+  label: string;
+  children: React.ReactNode;
+  className?: string;
+}) {
+  const [open, setOpen] = React.useState(false);
+  const contentId = React.useId();
+  return (
+    <div className={className}>
+      <Button
+        type="button"
+        variant="ghost"
+        className="min-h-11 w-full justify-between px-3 md:hidden"
+        aria-expanded={open}
+        aria-controls={contentId}
+        onClick={() => setOpen((value) => !value)}
+      >
+        {label}
+        <ChevronDown
+          aria-hidden
+          className={`size-4 ${open ? "rotate-180" : ""}`}
+        />
+      </Button>
+      <div id={contentId} className={`${open ? "" : "hidden"} md:contents`}>
+        {children}
+      </div>
+    </div>
+  );
+}
+
 function OverviewPage() {
   const search = Route.useSearch();
   const navigate = useNavigate({ from: Route.fullPath });
@@ -288,6 +328,10 @@ function OverviewPage() {
       resetScroll: false,
     });
   };
+
+  const [filterDraft, setFilterDraft] = useDebouncedDraft(filter, (next) =>
+    updateSearch({ filter: next || undefined }, true),
+  );
 
   const rows = React.useMemo(() => {
     const all = query.data?.rows ?? [];
@@ -430,12 +474,29 @@ function OverviewPage() {
   );
 
   const data = query.data;
+  const providerIssueSummary = ["Search Console", "GA4"]
+    .flatMap((provider) => {
+      const sites = providerIssues
+        .filter((issue) => issue.provider === provider)
+        .reduce((total, issue) => total + issue.sites, 0);
+      return sites > 0
+        ? [`${provider} unavailable for ${sites.toLocaleString()} sites`]
+        : [];
+    })
+    .join("; ");
   return (
     <div className="h-full overflow-auto px-4 py-4 pb-24 md:px-6 md:py-6 md:pb-8">
       <div className="mx-auto max-w-7xl space-y-4">
         <PageHeader
           title={fleetSiteTableLabel}
-          description="Search Console last 28 days vs the previous 28 days (ending 3 days ago), GA4 sessions/users (all channels, last 28 days ending yesterday vs previous 28), plus the latest site audit. GSC and GA4 data are cached for 12 hours."
+          description={
+            <>
+              <span className="md:hidden">
+                28-day GSC and GA4 metrics, plus latest audits.
+              </span>
+              <span className="hidden md:inline">{OVERVIEW_DESCRIPTION}</span>
+            </>
+          }
           actions={
             <>
               <Button
@@ -479,45 +540,75 @@ function OverviewPage() {
           </div>
         ) : null}
         {!data ? (
-          <p role="status" className="text-sm text-muted-foreground">
-            Loading overview…
-          </p>
+          query.isError ? null : (
+            <p role="status" className="text-sm text-muted-foreground">
+              Loading overview…
+            </p>
+          )
         ) : (
           <>
             {providerIssues.length > 0 ? (
               <div
                 role="alert"
-                className="space-y-2 rounded-lg border border-destructive/30 bg-destructive/5 px-4 py-3 text-sm"
+                className="space-y-2 rounded-lg border border-destructive/30 bg-destructive/5 px-3 py-2 text-sm md:px-4 md:py-3"
               >
-                {providerIssues.map((issue) => (
-                  <div
-                    key={`${issue.provider}:${issue.error}`}
-                    className="flex flex-wrap items-center gap-x-3 gap-y-1"
-                  >
-                    <AlertTriangle
-                      className="size-4 shrink-0 text-destructive"
-                      aria-hidden
-                    />
-                    <span>
-                      <strong>{issue.provider}</strong> data is unavailable for{" "}
-                      {issue.sites.toLocaleString()} sites: {issue.error}
-                    </span>
-                    <Link
-                      to="/p/$projectId/settings/integrations"
-                      params={{ projectId: issue.projectId }}
-                      className="font-medium text-primary underline underline-offset-4"
-                    >
-                      Reconnect {issue.provider}
-                    </Link>
-                  </div>
-                ))}
-                <p className="text-xs text-muted-foreground">
-                  Reconnecting the Google account can restore access for sites
-                  that use it. Numbers refill in the background afterwards.
+                <p className="flex items-start gap-2 md:hidden">
+                  <AlertTriangle
+                    className="mt-0.5 size-4 shrink-0 text-destructive"
+                    aria-hidden
+                  />
+                  <span>{providerIssueSummary}.</span>
                 </p>
+                <MobileDisclosure label="Connection details">
+                  <div className="space-y-2">
+                    {providerIssues.map((issue) => (
+                      <div
+                        key={`${issue.provider}:${issue.error}`}
+                        className="flex flex-wrap items-center gap-x-3 gap-y-1"
+                      >
+                        <AlertTriangle
+                          className="size-4 shrink-0 text-destructive"
+                          aria-hidden
+                        />
+                        <span>
+                          <strong>{issue.provider}</strong> data is unavailable
+                          for {issue.sites.toLocaleString()} sites:{" "}
+                          {issue.error}
+                        </span>
+                        <Link
+                          to="/p/$projectId/settings/integrations"
+                          params={{ projectId: issue.projectId }}
+                          className="font-medium text-primary underline underline-offset-4"
+                        >
+                          {classifyGscError(issue.error) === "auth"
+                            ? "Reconnect"
+                            : "Review"}{" "}
+                          {issue.provider} settings
+                        </Link>
+                      </div>
+                    ))}
+                    <p className="text-xs text-muted-foreground">
+                      Temporary failures are retried automatically. Reconnect
+                      only when Google reports an expired or revoked grant;
+                      quotas and timeouts do not require reconnecting.
+                    </p>
+                  </div>
+                </MobileDisclosure>
               </div>
             ) : null}
-            <FleetReauditPanel viewProjectIds={rows.map((r) => r.projectId)} />
+            <MobileDisclosure
+              label="Audit controls & data details"
+              className="rounded-lg border md:rounded-none md:border-0"
+            >
+              <div className="space-y-3 px-3 pb-3 md:contents">
+                <p className="text-sm text-muted-foreground md:hidden">
+                  {OVERVIEW_DESCRIPTION}
+                </p>
+                <FleetReauditPanel
+                  viewProjectIds={rows.map((r) => r.projectId)}
+                />
+              </div>
+            </MobileDisclosure>
             {(counts.critical ?? 0) > 0 && coverage !== "critical" ? (
               <div
                 role="status"
@@ -540,38 +631,14 @@ function OverviewPage() {
                 </Button>
               </div>
             ) : null}
-            <div className="flex flex-wrap items-center gap-4 text-sm">
+            <div className="flex flex-wrap items-center gap-2 text-sm md:gap-4">
               <Input
                 className="w-full sm:w-64"
                 aria-label="Filter by name or domain"
                 placeholder="Filter by name or domain"
-                value={filter}
-                onChange={(e) => updateSearch({ filter: e.target.value }, true)}
+                value={filterDraft}
+                onChange={(e) => setFilterDraft(e.target.value)}
               />
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={() =>
-                  exportCsv(
-                    rows,
-                    `openseo-sites-${coverage}-${new Date().toISOString().slice(0, 10)}.csv`,
-                  )
-                }
-              >
-                Export CSV ({rows.length.toLocaleString()})
-              </Button>
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={() =>
-                  exportCsv(
-                    data.rows,
-                    `openseo-sites-all-${new Date().toISOString().slice(0, 10)}.csv`,
-                  )
-                }
-              >
-                Export all ({data.rows.length.toLocaleString()})
-              </Button>
               <span role="status">{rows.length.toLocaleString()} sites</span>
               <span
                 className="text-muted-foreground"
@@ -585,61 +652,131 @@ function OverviewPage() {
                   minute: "2-digit",
                 })}
               </span>
-              <span>
-                Clicks {totals.clicks.toLocaleString()} (
-                <Delta v={pct(totals.clicks, totals.prevClicks)} suffix="%" />)
-              </span>
-              <span>
-                Impressions {totals.impressions.toLocaleString()} (
-                <Delta
-                  v={pct(totals.impressions, totals.prevImpressions)}
-                  suffix="%"
-                />
-                )
-              </span>
-              {totals.ga4Sites > 0 ? (
-                <span>
-                  GA4 sessions {totals.sessions.toLocaleString()} (
-                  <Delta
-                    v={pct(totals.sessions, totals.prevSessions)}
-                    suffix="%"
-                  />
-                  )
-                </span>
-              ) : (
-                <span className="text-muted-foreground">
-                  GA4 sessions unavailable
-                </span>
-              )}
+              <MobileDisclosure
+                label="Metrics & exports"
+                className="w-full md:contents"
+              >
+                <div className="flex flex-wrap items-center gap-4 px-3 py-2 md:contents">
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() =>
+                      exportCsv(
+                        rows,
+                        `openseo-sites-${coverage}-${new Date().toISOString().slice(0, 10)}.csv`,
+                      )
+                    }
+                  >
+                    Export CSV ({rows.length.toLocaleString()})
+                  </Button>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() =>
+                      exportCsv(
+                        data.rows,
+                        `openseo-sites-all-${new Date().toISOString().slice(0, 10)}.csv`,
+                      )
+                    }
+                  >
+                    Export all ({data.rows.length.toLocaleString()})
+                  </Button>
+                  <span>
+                    Clicks {totals.clicks.toLocaleString()} (
+                    <Delta
+                      v={pct(totals.clicks, totals.prevClicks)}
+                      suffix="%"
+                    />
+                    )
+                  </span>
+                  <span>
+                    Impressions {totals.impressions.toLocaleString()} (
+                    <Delta
+                      v={pct(totals.impressions, totals.prevImpressions)}
+                      suffix="%"
+                    />
+                    )
+                  </span>
+                  {totals.ga4Sites > 0 ? (
+                    <span>
+                      GA4 sessions {totals.sessions.toLocaleString()} (
+                      <Delta
+                        v={pct(totals.sessions, totals.prevSessions)}
+                        suffix="%"
+                      />
+                      )
+                    </span>
+                  ) : (
+                    <span className="text-muted-foreground">
+                      GA4 sessions unavailable
+                    </span>
+                  )}
+                  {data.pending + data.refreshingGsc + data.refreshingGa4 >
+                  0 ? (
+                    <span
+                      role="status"
+                      className="text-amber-800 dark:text-amber-300"
+                    >
+                      {[
+                        data.pendingGsc > 0
+                          ? providerIssues.some(
+                              (i) =>
+                                i.provider === "Search Console" &&
+                                classifyGscError(i.error) === "auth",
+                            )
+                            ? `Search Console for ${data.pendingGsc.toLocaleString()} sites is blocked until it is reconnected`
+                            : `Search Console for ${data.pendingGsc.toLocaleString()} sites is still being collected`
+                          : null,
+                        data.pendingGa4 > 0
+                          ? providerIssues.some(
+                              (i) =>
+                                i.provider === "GA4" &&
+                                classifyGscError(i.error) === "auth",
+                            )
+                            ? `GA4 for ${data.pendingGa4.toLocaleString()} sites is blocked until it is reconnected`
+                            : `GA4 for ${data.pendingGa4.toLocaleString()} sites is still being collected`
+                          : null,
+                        data.refreshingGsc + data.refreshingGa4 > 0
+                          ? `${Math.max(data.refreshingGsc, data.refreshingGa4).toLocaleString()} sites show earlier numbers in grey while they refresh, and are left out of the totals`
+                          : null,
+                      ]
+                        .filter(Boolean)
+                        .join("; ")}
+                      . This table refreshes with each snapshot.
+                    </span>
+                  ) : null}
+                </div>
+              </MobileDisclosure>
               {data.pending + data.refreshingGsc + data.refreshingGa4 > 0 ? (
-                <span
+                <p
                   role="status"
-                  className="text-amber-800 dark:text-amber-300"
+                  className="text-amber-800 md:hidden dark:text-amber-300"
                 >
-                  {[
-                    data.pendingGsc > 0
-                      ? providerIssues.some(
-                          (i) => i.provider === "Search Console",
-                        )
-                        ? `Search Console for ${data.pendingGsc.toLocaleString()} sites is blocked until it is reconnected`
-                        : `Search Console for ${data.pendingGsc.toLocaleString()} sites is still being collected`
-                      : null,
-                    data.pendingGa4 > 0
-                      ? providerIssues.some((i) => i.provider === "GA4")
-                        ? `GA4 for ${data.pendingGa4.toLocaleString()} sites is blocked until it is reconnected`
-                        : `GA4 for ${data.pendingGa4.toLocaleString()} sites is still being collected`
-                      : null,
-                    data.refreshingGsc + data.refreshingGa4 > 0
-                      ? `${Math.max(data.refreshingGsc, data.refreshingGa4).toLocaleString()} sites show earlier numbers in grey while they refresh, and are left out of the totals`
-                      : null,
-                  ]
-                    .filter(Boolean)
-                    .join("; ")}
-                  . This table refreshes with each snapshot.
-                </span>
+                  Some metrics are pending or refreshing. Earlier numbers are
+                  excluded from totals; see Metrics &amp; exports for details.
+                </p>
               ) : null}
             </div>
-            <div className="flex flex-wrap gap-2 text-xs">
+            <label className="flex items-center gap-2 text-sm md:hidden">
+              <span className="text-muted-foreground">Coverage</span>
+              <select
+                className="min-h-11 min-w-0 flex-1 rounded-md border bg-background px-3"
+                value={coverage}
+                onChange={(event) => {
+                  const selected = COVERAGE_CHIPS.find(
+                    (chip) => chip.key === event.target.value,
+                  );
+                  if (selected) updateSearch({ coverage: selected.key });
+                }}
+              >
+                {COVERAGE_CHIPS.map((chip) => (
+                  <option key={chip.key} value={chip.key}>
+                    {chip.label} ({(counts[chip.key] ?? 0).toLocaleString()})
+                  </option>
+                ))}
+              </select>
+            </label>
+            <div className="hidden flex-wrap gap-2 text-xs md:flex">
               {COVERAGE_CHIPS.map((c) => (
                 <button
                   key={c.key}
@@ -686,7 +823,7 @@ function OverviewPage() {
                       {header("lastAudit", "Last audit")}
                       {header("lighthouseSeo", "Lighthouse SEO / Perf")}
                       <th className="whitespace-nowrap px-2 py-2 text-left font-medium">
-                        Local
+                        Actions
                       </th>
                     </tr>
                   </thead>
@@ -793,7 +930,7 @@ function OverviewPage() {
                           ) : g.error ? (
                             <td
                               colSpan={6}
-                              className="px-2 text-red-600"
+                              className="px-2 text-red-700 dark:text-red-400"
                               title={g.error}
                             >
                               GSC error
@@ -843,7 +980,7 @@ function OverviewPage() {
                           ) : r.ga4.error ? (
                             <td
                               colSpan={3}
-                              className="px-2 text-red-600"
+                              className="px-2 text-red-700 dark:text-red-400"
                               title={r.ga4.error}
                             >
                               GA4 error

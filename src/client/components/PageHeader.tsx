@@ -67,7 +67,7 @@ export function SectionHeader({
 }
 
 const BACK_LINK_CLASS =
-  "inline-flex items-center gap-1 text-sm text-muted-foreground transition-colors hover:text-foreground";
+  "inline-flex min-h-6 items-center gap-1 text-sm text-muted-foreground transition-colors hover:text-foreground";
 
 function BackLinkAnchor({
   className,

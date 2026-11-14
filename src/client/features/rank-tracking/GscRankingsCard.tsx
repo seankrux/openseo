@@ -2,6 +2,7 @@
 import { useMemo, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { RefreshCw } from "lucide-react";
+import { toast } from "sonner";
 import { getProjectGscRankings } from "@/serverFunctions/gscRankings";
 import { Button } from "@/client/components/ui/button";
 import {
@@ -13,6 +14,8 @@ import {
 } from "@/client/components/ui/card";
 import { Input } from "@/client/components/ui/input";
 import { EmptyState } from "@/client/components/EmptyState";
+import { QueryError } from "@/client/components/QueryState";
+import { getStandardErrorMessage } from "@/client/lib/error-messages";
 import { formatRelativeTime } from "@/client/lib/relative-time";
 
 type SortKey = "impressions" | "clicks" | "position" | "change";
@@ -57,6 +60,13 @@ export function GscRankingsCard({ projectId }: { projectId: string }) {
         data: { projectId, refresh: true },
       });
       qc.setQueryData(["gscRankings", projectId], fresh);
+    } catch (error) {
+      toast.error(
+        getStandardErrorMessage(
+          error,
+          "Could not refresh Search Console rankings",
+        ),
+      );
     } finally {
       setRefreshing(false);
     }
@@ -83,10 +93,18 @@ export function GscRankingsCard({ projectId }: { projectId: string }) {
       <CardContent className="space-y-3 text-sm">
         <p className="text-muted-foreground">
           Average Google position per query from Search Console, last 28 days vs
-          the 28 days before. Live SERP checks for keywords you choose (exact
-          position, device, location) need a DataForSEO key.
+          the 28 days before. SERP checks for keywords you choose (exact
+          position, device, location) need a DataForSEO or Semrush key.
         </p>
         {q.isLoading && <p>Loading Search Console data...</p>}
+        {q.isError && !data ? (
+          <QueryError
+            error={q.error}
+            fallback="Failed to load Search Console rankings"
+            onRetry={() => void q.refetch()}
+            isRetrying={q.isFetching}
+          />
+        ) : null}
         {data && !data.connected && (
           <p>Search Console is not connected for this project.</p>
         )}

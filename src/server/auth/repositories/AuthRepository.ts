@@ -29,6 +29,14 @@ type DelegatedOrganizationInput = {
 };
 
 async function upsertDelegatedOrganization(input: DelegatedOrganizationInput) {
+  // Runs on every delegated-auth server-function call; skip the write (and
+  // the SQLite writer lock) when the row already matches.
+  const [existing] = await db
+    .select({ name: organization.name, slug: organization.slug })
+    .from(organization)
+    .where(eq(organization.id, input.id))
+    .limit(1);
+  if (existing?.name === input.name && existing.slug === input.slug) return;
   await db
     .insert(organization)
     .values({

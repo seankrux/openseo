@@ -109,59 +109,72 @@ describe("BingWebmasterService snapshots", () => {
     });
   });
 
-  it.each(["http", "malformed", "crawl", "disabled", "missing-key", "storage"])(
-    "preserves the last valid snapshot after %s failure",
-    async (failure) => {
-      await BingWebmasterService.bindSite(bindingInput);
-      useMetrics();
-      const prior = await BingWebmasterService.refreshSnapshot(scope);
-      const oldObjects = new Map(objects);
-      if (failure === "http")
-        fetchMock.mockResolvedValue(
-          new Response("mock-bing-key", { status: 429 }),
-        );
-      if (failure === "malformed")
-        fetchMock.mockImplementation(async () =>
-          Response.json({
-            d: [{ Date: "invalid", Clicks: 1, Impressions: 2 }],
-          }),
-        );
-      if (failure === "crawl")
-        fetchMock.mockImplementation(async (input) =>
-          providerUrl(input).includes("GetCrawlStats")
-            ? new Response("mock-bing-key", { status: 500 })
-            : Response.json({ d: [] }),
-        );
-      if (failure === "disabled") {
-        settings.BING_WEBMASTER_ENABLED = "false";
-        vi.stubEnv("BING_WEBMASTER_ENABLED", "false");
-      }
-      if (failure === "missing-key") {
-        settings.BING_WEBMASTER_API_KEY = "";
-        vi.stubEnv("BING_WEBMASTER_API_KEY", " ");
-      }
-      if (failure === "storage")
-        putObject.mockRejectedValue(new Error("mock-bing-key"));
-      const error = await BingWebmasterService.refreshSnapshot(scope).catch(
-        (value: unknown) => value,
+  it.each([
+    "http",
+    "throttled",
+    "malformed",
+    "crawl",
+    "disabled",
+    "missing-key",
+    "storage",
+  ])("preserves the last valid snapshot after %s failure", async (failure) => {
+    await BingWebmasterService.bindSite(bindingInput);
+    useMetrics();
+    const prior = await BingWebmasterService.refreshSnapshot(scope);
+    const oldObjects = new Map(objects);
+    // Crawl rows younger than a week are reused, so a crawl failure can only
+    // happen once they have aged out.
+    if (failure === "crawl")
+      vi.setSystemTime(Date.now() + 8 * 24 * 60 * 60 * 1000);
+    if (failure === "http")
+      fetchMock.mockResolvedValue(
+        new Response("mock-bing-key", { status: 500 }),
       );
-      expect(error).toMatchObject({
-        code:
-          failure === "storage"
-            ? "INTERNAL_ERROR"
+    if (failure === "throttled")
+      fetchMock.mockResolvedValue(
+        new Response("mock-bing-key", { status: 429 }),
+      );
+    if (failure === "malformed")
+      fetchMock.mockImplementation(async () =>
+        Response.json({
+          d: [{ Date: "invalid", Clicks: 1, Impressions: 2 }],
+        }),
+      );
+    if (failure === "crawl")
+      fetchMock.mockImplementation(async (input) =>
+        providerUrl(input).includes("GetCrawlStats")
+          ? new Response("mock-bing-key", { status: 500 })
+          : Response.json({ d: [] }),
+      );
+    if (failure === "disabled") {
+      settings.BING_WEBMASTER_ENABLED = "false";
+      vi.stubEnv("BING_WEBMASTER_ENABLED", "false");
+    }
+    if (failure === "missing-key") {
+      settings.BING_WEBMASTER_API_KEY = "";
+      vi.stubEnv("BING_WEBMASTER_API_KEY", " ");
+    }
+    if (failure === "storage")
+      putObject.mockRejectedValue(new Error("mock-bing-key"));
+    const error = await BingWebmasterService.refreshSnapshot(scope).catch(
+      (value: unknown) => value,
+    );
+    expect(error).toMatchObject({
+      code:
+        failure === "storage"
+          ? "INTERNAL_ERROR"
+          : failure === "throttled"
+            ? "RATE_LIMITED"
             : failure === "disabled" || failure === "missing-key"
               ? "FORBIDDEN"
               : "UPSTREAM_UNAVAILABLE",
-      });
-      expect(error).not.toHaveProperty("cause");
-      expect(objects).toEqual(oldObjects);
-      const providerCalls = fetchMock.mock.calls.length;
-      expect(await BingWebmasterService.getStoredSnapshot(scope)).toEqual(
-        prior,
-      );
-      expect(fetchMock).toHaveBeenCalledTimes(providerCalls);
-    },
-  );
+    });
+    expect(error).not.toHaveProperty("cause");
+    expect(objects).toEqual(oldObjects);
+    const providerCalls = fetchMock.mock.calls.length;
+    expect(await BingWebmasterService.getStoredSnapshot(scope)).toEqual(prior);
+    expect(fetchMock).toHaveBeenCalledTimes(providerCalls);
+  });
 
   it.each([
     "invalid-json",
@@ -215,6 +228,9 @@ describe("BingWebmasterService snapshots", () => {
     await BingWebmasterService.bindSite(bindingInput);
     useMetrics();
     await BingWebmasterService.refreshSnapshot(scope);
+    // A refresh reads the prior snapshot to reuse crawl rows; the lookups
+    // under test are the ones after it.
+    getObject.mockClear();
     const providerCalls = fetchMock.mock.calls.length;
     expect(
       await BingWebmasterService.getStoredSnapshot({
@@ -226,6 +242,41 @@ describe("BingWebmasterService snapshots", () => {
     expect(await BingWebmasterService.getStoredSnapshot(scope)).toBeNull();
     expect(getObject).not.toHaveBeenCalled();
     expect(fetchMock).toHaveBeenCalledTimes(providerCalls);
+  });
+
+  it("reads a fleet row's snapshot without project or binding lookups", async () => {
+    const binding = await BingWebmasterService.bindSite(bindingInput);
+    useMetrics();
+    const snapshot = await BingWebmasterService.refreshSnapshot(scope);
+    getProject.mockClear();
+    const row = {
+      ...scope,
+      domain: project.domain,
+      bindingId: binding.id,
+      siteUrl: bindingInput.siteUrl,
+    };
+    expect(await BingWebmasterService.getStoredSnapshotForBinding(row)).toEqual(
+      snapshot,
+    );
+    expect(getProject).not.toHaveBeenCalled();
+    expect(
+      await BingWebmasterService.getStoredSnapshotForBinding({
+        ...row,
+        bindingId: crypto.randomUUID(),
+      }),
+    ).toBeNull();
+    expect(
+      await BingWebmasterService.getStoredSnapshotForBinding({
+        ...row,
+        domain: "other.example.com",
+      }),
+    ).toBeNull();
+    expect(
+      await BingWebmasterService.getStoredSnapshotForBinding({
+        ...row,
+        organizationId: "org-b",
+      }),
+    ).toBeNull();
   });
 
   it.each(["archive", "domain", "binding"])(
@@ -257,4 +308,35 @@ describe("BingWebmasterService snapshots", () => {
       expect(fetchMock).toHaveBeenCalledTimes(providerCalls);
     },
   );
+
+  it("reuses crawl stats younger than seven days and fetches them again after", async () => {
+    vi.useFakeTimers({ now: new Date("2026-11-09T01:00:00Z") });
+    try {
+      await BingWebmasterService.bindSite(bindingInput);
+      const calls: string[] = [];
+      fetchMock.mockImplementation(async (input) => {
+        const url = providerUrl(input);
+        calls.push(url.includes("GetCrawlStats") ? "crawl" : "performance");
+        return Response.json({ d: [] });
+      });
+      await BingWebmasterService.refreshSnapshot(scope);
+      expect(calls).toEqual(["performance", "crawl"]);
+
+      vi.setSystemTime(new Date("2026-11-12T01:00:00Z"));
+      await BingWebmasterService.refreshSnapshot(scope);
+      expect(calls).toEqual(["performance", "crawl", "performance"]);
+
+      vi.setSystemTime(new Date("2026-11-17T01:00:00Z"));
+      await BingWebmasterService.refreshSnapshot(scope);
+      expect(calls).toEqual([
+        "performance",
+        "crawl",
+        "performance",
+        "performance",
+        "crawl",
+      ]);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
 });

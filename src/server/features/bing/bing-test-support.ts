@@ -3,6 +3,7 @@ import { createClient } from "@libsql/client";
 import { drizzle } from "drizzle-orm/libsql";
 import { afterAll, beforeAll, beforeEach, vi } from "vitest";
 import type { runBatch } from "@/db/runBatch";
+import { BingWebmasterClient } from "./BingWebmasterClient";
 
 const {
   getProject,
@@ -124,6 +125,8 @@ beforeAll(async () => {
 });
 afterAll(() => client.close());
 beforeEach(async () => {
+  vi.useRealTimers();
+  BingWebmasterClient.resetGuardForTests();
   writeHooks.beforeWrite = null;
   settings.AUTH_MODE = "local_noauth";
   settings.BING_WEBMASTER_ENABLED = "true";

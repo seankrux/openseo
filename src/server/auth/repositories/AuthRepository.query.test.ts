@@ -179,3 +179,25 @@ describe("transferOwnership", () => {
     expect(await roleOf("outsider", "other_org")).toBe("owner");
   });
 });
+
+describe("upsertDelegatedOrganization", () => {
+  const input = { id: "org-delegated", name: "Workspace", slug: "workspace" };
+  const changes = async () =>
+    Number((await client.execute("SELECT total_changes() AS n")).rows[0]!.n);
+
+  it("creates the organization, then writes nothing while it matches", async () => {
+    await client.execute("DELETE FROM organization");
+    await AuthRepository.upsertDelegatedOrganization(input);
+    const before = await changes();
+    await AuthRepository.upsertDelegatedOrganization(input);
+    expect(await changes()).toBe(before);
+    await AuthRepository.upsertDelegatedOrganization({
+      ...input,
+      name: "Renamed",
+    });
+    const rows = await client.execute(
+      "SELECT name, slug FROM organization WHERE id = 'org-delegated'",
+    );
+    expect(rows.rows[0]).toMatchObject({ name: "Renamed", slug: "workspace" });
+  });
+});

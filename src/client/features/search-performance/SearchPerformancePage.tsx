@@ -238,7 +238,7 @@ export function SearchPerformancePage({
       <div className="mx-auto max-w-7xl space-y-4">
         <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
           <div>
-            <h1 className="text-2xl font-semibold">Search Performance</h1>
+            <h1 className="text-2xl font-semibold">GSC Insights</h1>
             <p className="text-sm text-muted-foreground">
               See your site&apos;s clicks, impressions, CTR, and position from
               Google Search Console.
@@ -248,7 +248,7 @@ export function SearchPerformancePage({
             <Link
               to="/p/$projectId/settings/integrations"
               params={{ projectId }}
-              className="shrink-0 self-start text-sm font-medium text-muted-foreground underline-offset-4 hover:text-foreground hover:underline sm:mt-1"
+              className="inline-flex min-h-6 shrink-0 items-center self-start text-sm font-medium text-muted-foreground underline-offset-4 hover:text-foreground hover:underline sm:mt-1"
             >
               Change property
             </Link>

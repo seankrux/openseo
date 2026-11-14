@@ -1,7 +1,9 @@
+import { useState } from "react";
 import { Link } from "@tanstack/react-router";
 import type { UseQueryResult } from "@tanstack/react-query";
 import { ScanSearch, Trash2 } from "lucide-react";
 import type { getAuditHistory } from "@/serverFunctions/audit";
+import { ConfirmDialog } from "@/client/components/ConfirmDialog";
 import { EmptyState } from "@/client/components/EmptyState";
 import { QueryState } from "@/client/components/QueryState";
 import { RowActionsMenu } from "@/client/components/RowActionsMenu";
@@ -31,19 +33,36 @@ export function AuditHistorySection({
   historyQuery: UseQueryResult<AuditHistory>;
   onDelete: (auditId: string) => void;
 }) {
+  const [pendingDeleteId, setPendingDeleteId] = useState<string | null>(null);
   return (
-    <QueryState
-      query={historyQuery}
-      errorFallback="Failed to load audit history"
-    >
-      {(history) => (
-        <AuditHistoryTable
-          projectId={projectId}
-          history={history}
-          onDelete={onDelete}
-        />
-      )}
-    </QueryState>
+    <>
+      <QueryState
+        query={historyQuery}
+        errorFallback="Failed to load audit history"
+      >
+        {(history) => (
+          <AuditHistoryTable
+            projectId={projectId}
+            history={history}
+            onDelete={setPendingDeleteId}
+          />
+        )}
+      </QueryState>
+      {pendingDeleteId ? (
+        <ConfirmDialog
+          title="Delete this audit?"
+          confirmLabel="Delete"
+          destructive
+          onClose={() => setPendingDeleteId(null)}
+          onConfirm={() => {
+            onDelete(pendingDeleteId);
+            setPendingDeleteId(null);
+          }}
+        >
+          The audit and all of its results will be permanently deleted.
+        </ConfirmDialog>
+      ) : null}
+    </>
   );
 }
 

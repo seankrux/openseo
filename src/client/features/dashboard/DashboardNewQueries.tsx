@@ -101,7 +101,7 @@ export function DashboardNewQueries({
                 <Link
                   to="/p/$projectId/search-performance"
                   params={{ projectId }}
-                  className="text-sm text-primary hover:underline"
+                  className="inline-flex min-h-6 items-center text-sm text-primary hover:underline"
                 >
                   View full GSC insights →
                 </Link>

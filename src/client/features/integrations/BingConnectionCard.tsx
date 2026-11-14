@@ -4,6 +4,7 @@ import { CardShell } from "@/client/components/CardShell";
 import { ErrorState } from "@/client/components/ErrorState";
 import { PermissionHint } from "@/client/components/PermissionHint";
 import { Badge } from "@/client/components/ui/badge";
+import { InlineConfirm } from "@/client/components/InlineConfirm";
 import { Button } from "@/client/components/ui/button";
 import { RadioGroup, RadioGroupItem } from "@/client/components/ui/radio-group";
 import { Skeleton } from "@/client/components/ui/skeleton";
@@ -268,18 +269,17 @@ function ProjectBingConnectionCard({ projectId }: { projectId: string }) {
                 </Button>
               ) : null}
               {connected ? (
-                <Button
-                  type="button"
-                  variant="outline"
+                <InlineConfirm
+                  label="Disconnect Bing"
+                  triggerLabel="Disconnect"
+                  confirmLabel="Disconnect"
                   pending={disconnectMutation.isPending}
                   disabled={changing}
-                  onClick={() => {
+                  onConfirm={() => {
                     saveMutation.reset();
                     disconnectMutation.mutate();
                   }}
-                >
-                  Disconnect
-                </Button>
+                />
               ) : null}
             </div>
           ) : (

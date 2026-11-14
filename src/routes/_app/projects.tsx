@@ -2,7 +2,7 @@ import * as React from "react";
 import { projectsQueryOptions } from "@/client/features/projects/projectQueries";
 import { Link, createFileRoute } from "@tanstack/react-router";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { ChevronRight, Plus } from "lucide-react";
+import { ChevronRight, Plus, Settings } from "lucide-react";
 import { toast } from "sonner";
 import {
   getArchivedProjects,
@@ -143,11 +143,11 @@ function ProjectsList({
       <div className="overflow-hidden rounded-lg border border-border bg-card">
         <ul id="project-list" ref={listRef} className="divide-y divide-border">
           {visibleProjects.map((project) => (
-            <li key={project.id}>
+            <li key={project.id} className="flex items-stretch">
               <Link
-                to="/p/$projectId/settings"
+                to="/p/$projectId"
                 params={{ projectId: project.id }}
-                className="flex items-center justify-between gap-3 p-3 transition-colors hover:bg-muted focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-ring"
+                className="flex min-w-0 flex-1 items-center justify-between gap-3 p-3 transition-colors hover:bg-muted focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-ring"
                 title={project.name}
               >
                 <span className="flex min-w-0 flex-col">
@@ -167,6 +167,15 @@ function ProjectsList({
                   className="size-4 shrink-0 text-muted-foreground"
                   aria-hidden
                 />
+              </Link>
+              <Link
+                to="/p/$projectId/settings"
+                params={{ projectId: project.id }}
+                aria-label={`Settings for ${project.name}`}
+                title="Project settings"
+                className="flex items-center border-l border-border px-3 text-muted-foreground transition-colors hover:bg-muted hover:text-foreground focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-ring"
+              >
+                <Settings className="size-4" aria-hidden />
               </Link>
             </li>
           ))}

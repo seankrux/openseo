@@ -3,6 +3,7 @@ import type {
   Ga4RunReportRequest,
   Ga4RunReportResponse,
 } from "@/server/lib/ga4Client";
+import { Ga4TokenError } from "@/server/lib/ga4Errors";
 import { fetchGa4 } from "./PortfolioService";
 
 const mocks = vi.hoisted(() => ({
@@ -30,6 +31,23 @@ describe("portfolio GA4 reporting periods", () => {
 
   afterEach(() => {
     vi.useRealTimers();
+  });
+
+  it("preserves a temporary token outage instead of caching it as a dead grant", async () => {
+    mocks.runReport.mockRejectedValue(
+      new Ga4TokenError(
+        "Could not mint a Google Analytics access token.",
+        new TypeError("fetch failed"),
+      ),
+    );
+    const result = await fetchGa4({
+      projectId: "p1",
+      propertyId: "properties/1",
+      userId: "u1",
+      ga4AccountId: "a1",
+    });
+    expect(result.error).toContain("temporarily unavailable");
+    expect(result.error).not.toContain("Could not mint");
   });
 
   it.each([

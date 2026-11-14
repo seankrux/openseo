@@ -5,6 +5,7 @@ import { GSC_OAUTH_PROVIDER_ID } from "@/shared/gsc";
 import { AppError } from "@/server/lib/errors";
 import {
   createGscClient,
+  type GscRequestOptions,
   type GscSite,
   type UrlInspectionResult,
 } from "@/server/lib/gscClient";
@@ -202,6 +203,7 @@ async function disconnect(input: { projectId: string }): Promise<void> {
 /** Pass-through of GSC `searchAnalytics.query` for a project's connected property. */
 async function getPerformance(
   input: GscPerformanceInput,
+  options?: GscRequestOptions,
 ): Promise<GscPerformanceResult> {
   const connection = await GscConnectionRepository.getByProjectId(
     input.projectId,
@@ -216,6 +218,7 @@ async function getPerformance(
     request.rowLimit = Math.max(1, Math.min(25000, input.rowLimit));
 
   const client = createGscClient({
+    ...options,
     userId: connection.connectedByUserId,
     gscAccountId: connection.gscAccountId ?? undefined,
   });

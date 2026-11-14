@@ -7,6 +7,7 @@ import { RefreshCw } from "lucide-react";
 import { PageHeader } from "@/client/components/PageHeader";
 import { Button } from "@/client/components/ui/button";
 import { Input } from "@/client/components/ui/input";
+import { TablePagination } from "@/client/components/table/TablePagination";
 import { Skeleton } from "@/client/components/ui/skeleton";
 import { QueryError } from "@/client/components/QueryState";
 import {
@@ -24,11 +25,13 @@ export const HEALTH_LABELS: Record<string, string> = {
   timeout: "Timed out",
   cf_error: "Cloudflare error",
   parked: "Parked page",
+  blank_page: "Blank page (no site)",
 };
 
+const PAGE_SIZE = 100;
 const OK = new Set(["live_ok", "redirect_intended"]);
 
-const CHANGE_LABELS: Record<string, string> = {
+export const CHANGE_LABELS: Record<string, string> = {
   went_down: "went down",
   came_back: "came back",
   class_changed: "status changed",
@@ -80,10 +83,12 @@ export function DomainHealthPage() {
   });
   const run = useMutation({
     mutationFn: () => triggerDomainHealthRun({ data: {} }),
+    meta: { errorToast: false },
     onSuccess: () => void qc.invalidateQueries({ queryKey: ["domainHealth"] }),
   });
   const [filter, setFilter] = React.useState<Filter>("problems");
   const [text, setText] = React.useState("");
+  const [page, setPage] = React.useState(1);
   const d = q.data;
   const counts = React.useMemo(() => {
     const c: Record<string, number> = {};
@@ -101,15 +106,26 @@ export function DomainHealthPage() {
       return r.class === "live_ok" && !r.ga4Ids.length && !r.gtmIds.length;
     return r.class === filter;
   });
+  const currentPage = Math.min(
+    page,
+    Math.max(1, Math.ceil(rows.length / PAGE_SIZE)),
+  );
+  const visibleRows = rows.slice(
+    (currentPage - 1) * PAGE_SIZE,
+    currentPage * PAGE_SIZE,
+  );
   const problems = (d?.rows ?? []).filter((r) => !OK.has(r.class)).length;
   const chip = (key: Filter, label: string, n: number) => (
     <button
       key={key}
       type="button"
-      onClick={() => setFilter(key)}
+      onClick={() => {
+        setFilter(key);
+        setPage(1);
+      }}
       aria-pressed={filter === key}
       className={
-        "rounded-full border px-2.5 py-0.5 text-xs outline-none transition-colors hover:text-foreground focus-visible:ring-3 focus-visible:ring-ring/50 " +
+        "rounded-full border px-2.5 py-1 text-xs outline-none transition-colors hover:text-foreground focus-visible:ring-3 focus-visible:ring-ring/50 " +
         (filter === key
           ? "border-primary bg-primary/10 text-foreground"
           : "border-border text-muted-foreground")
@@ -175,7 +191,10 @@ export function DomainHealthPage() {
                 placeholder="Filter by domain"
                 aria-label="Filter by domain"
                 value={text}
-                onChange={(e) => setText(e.target.value)}
+                onChange={(e) => {
+                  setText(e.target.value);
+                  setPage(1);
+                }}
               />
             </div>
             <p role="status" className="sr-only">
@@ -202,7 +221,7 @@ export function DomainHealthPage() {
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-border">
-                  {rows.slice(0, 500).map((r) => (
+                  {visibleRows.map((r) => (
                     <tr key={r.domain}>
                       <td className="max-w-60 truncate px-3 py-1.5">
                         {r.projectId ? (
@@ -210,6 +229,7 @@ export function DomainHealthPage() {
                             to="/p/$projectId"
                             params={{ projectId: r.projectId }}
                             search={{}}
+                            title={r.domain}
                             className="font-medium hover:underline"
                           >
                             {r.domain}
@@ -262,36 +282,40 @@ export function DomainHealthPage() {
                         : "No domains checked yet. The first results appear within 5 minutes."
                       : "No domains in this group."}
                 </p>
-              ) : rows.length > 500 ? (
-                <p className="border-t border-border p-3 text-xs text-muted-foreground">
-                  Showing the first 500 of {rows.length}. Filter by domain or
-                  status to narrow, or download the full list from Reports.
-                </p>
+              ) : rows.length > PAGE_SIZE ? (
+                <TablePagination
+                  page={currentPage}
+                  pageSize={PAGE_SIZE}
+                  totalCount={rows.length}
+                  onPageChange={setPage}
+                />
               ) : null}
             </div>
             {d.changes.length ? (
               <div>
                 <h2 className="mb-2 text-sm font-semibold">Recent changes</h2>
                 <ul className="divide-y divide-border rounded-md border border-border text-sm">
-                  {dedupeChanges(d.changes).slice(0, 30).map((c, i) => (
-                    <li
-                      key={i}
-                      className="flex flex-col gap-1 px-3 py-1.5 sm:flex-row sm:justify-between sm:gap-3"
-                    >
-                      <span className="min-w-0 break-words">
-                        <span className="font-medium">{c.domain}</span>{" "}
-                        <span className="text-muted-foreground">
-                          {CHANGE_LABELS[c.kind] ?? c.kind.replace(/_/g, " ")}
-                          {c.fromClass || c.toClass
-                            ? `: ${HEALTH_LABELS[c.fromClass ?? ""] ?? c.fromClass ?? "new"} to ${HEALTH_LABELS[c.toClass ?? ""] ?? c.toClass}`
-                            : ""}
+                  {dedupeChanges(d.changes)
+                    .slice(0, 30)
+                    .map((c, i) => (
+                      <li
+                        key={i}
+                        className="flex flex-col gap-1 px-3 py-1.5 sm:flex-row sm:justify-between sm:gap-3"
+                      >
+                        <span className="min-w-0 break-words">
+                          <span className="font-medium">{c.domain}</span>{" "}
+                          <span className="text-muted-foreground">
+                            {CHANGE_LABELS[c.kind] ?? c.kind.replace(/_/g, " ")}
+                            {c.fromClass || c.toClass
+                              ? `: ${HEALTH_LABELS[c.fromClass ?? ""] ?? c.fromClass ?? "new"} to ${HEALTH_LABELS[c.toClass ?? ""] ?? c.toClass}`
+                              : ""}
+                          </span>
                         </span>
-                      </span>
-                      <span className="shrink-0 whitespace-nowrap text-xs text-muted-foreground sm:text-sm">
-                        {when(c.detectedAt)}
-                      </span>
-                    </li>
-                  ))}
+                        <span className="shrink-0 whitespace-nowrap text-xs text-muted-foreground sm:text-sm">
+                          {when(c.detectedAt)}
+                        </span>
+                      </li>
+                    ))}
                 </ul>
               </div>
             ) : null}

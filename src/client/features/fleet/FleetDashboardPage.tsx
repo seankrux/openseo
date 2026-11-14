@@ -150,6 +150,7 @@ const HEALTH_LABELS: Record<string, string> = {
   timeout: "Timed out",
   cf_error: "Cloudflare error",
   parked: "Parked page",
+  blank_page: "Blank page (no site)",
   redirect_other_domain: "Redirects to another domain",
 };
 
@@ -182,12 +183,18 @@ function SiteLink({
   projectId: string | null;
   domain: string;
 }) {
-  if (!projectId) return <span className="truncate">{domain}</span>;
+  if (!projectId)
+    return (
+      <span className="truncate" title={domain}>
+        {domain}
+      </span>
+    );
   return (
     <Link
       to="/p/$projectId"
       params={{ projectId }}
       search={{}}
+      title={domain}
       className="truncate font-medium text-foreground hover:underline"
     >
       {domain}
@@ -281,6 +288,7 @@ function DomainsNotAlive({ health }: { health: Fleet["health"] }) {
   const qc = useQueryClient();
   const run = useMutation({
     mutationFn: () => triggerDomainHealthRun({ data: {} }),
+    meta: { errorToast: false },
     onSuccess: () =>
       void qc.invalidateQueries({ queryKey: ["fleetDashboard"] }),
   });
@@ -348,7 +356,7 @@ function DomainsNotAlive({ health }: { health: Fleet["health"] }) {
               }}
               aria-pressed={filter === "all"}
               className={
-                "rounded-full border px-2.5 py-0.5 text-xs " +
+                "rounded-full border px-2.5 py-1 text-xs " +
                 (filter === "all"
                   ? "border-primary bg-primary/10 text-foreground"
                   : "border-border text-muted-foreground")
@@ -366,7 +374,7 @@ function DomainsNotAlive({ health }: { health: Fleet["health"] }) {
                 }}
                 aria-pressed={filter === c}
                 className={
-                  "rounded-full border px-2.5 py-0.5 text-xs " +
+                  "rounded-full border px-2.5 py-1 text-xs " +
                   (filter === c
                     ? "border-primary bg-primary/10 text-foreground"
                     : "border-border text-muted-foreground")
@@ -473,6 +481,7 @@ export function FleetDashboardPage() {
   });
   const refresh = useMutation({
     mutationFn: () => getFleetDashboard({ data: { refresh: true } }),
+    meta: { errorToast: false },
     onSuccess: (data) => qc.setQueryData(["fleetDashboard"], data),
   });
   // Share the shell's validated selection, including async fallback/healing.
@@ -620,7 +629,7 @@ function FleetBody({ d }: { d: Fleet }) {
                       ? "google-analytics"
                       : "search-console"
                 }
-                className="font-medium text-primary underline underline-offset-4"
+                className="inline-flex min-h-6 items-center font-medium text-primary underline underline-offset-4"
               >
                 {issue.provider === "bing"
                   ? "Review Bing connection"

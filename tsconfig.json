@@ -1,6 +1,10 @@
 {
   "include": ["**/*.ts", "**/*.tsx"],
-  "exclude": ["web/**/*", "tests/badseo/**/*"],
+  "exclude": [
+    "web/**/*",
+    "tests/badseo/**/*",
+    "fork-build-tools-review-20261021/**/*"
+  ],
   "compilerOptions": {
     "strict": true,
     "esModuleInterop": true,

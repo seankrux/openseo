@@ -1,5 +1,4 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Trash2 } from "lucide-react";
 import { useState } from "react";
 import { toast } from "sonner";
 import {
@@ -12,6 +11,7 @@ import {
 } from "@/serverFunctions/crawlerAccess";
 import { isCrawlerAccessExpired } from "@/shared/crawler-access";
 import { Button } from "@/client/components/ui/button";
+import { InlineConfirm } from "@/client/components/InlineConfirm";
 import {
   Table,
   TableBody,
@@ -120,15 +120,11 @@ export function CrawlerAccessSettings({ projectId }: { projectId: string }) {
                     )}
                   </TableCell>
                   <TableCell>
-                    <Button
-                      variant="ghost"
-                      size="icon-xs"
-                      aria-label={`Remove crawler access for ${credential.host}`}
-                      disabled={deleteMutation.isPending}
-                      onClick={() => deleteMutation.mutate(credential.id)}
-                    >
-                      <Trash2 className="size-4" />
-                    </Button>
+                    <InlineConfirm
+                      label={`Remove crawler access for ${credential.host}`}
+                      pending={deleteMutation.isPending}
+                      onConfirm={() => deleteMutation.mutate(credential.id)}
+                    />
                   </TableCell>
                 </TableRow>
               ))}

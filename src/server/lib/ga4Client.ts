@@ -127,12 +127,14 @@ type Ga4Property = z.infer<typeof propertySchema>;
 async function getGa4AccessToken(opts: {
   userId: string;
   ga4AccountId: string;
+  signal?: AbortSignal;
 }): Promise<string> {
   try {
     return await getGoogleAccessToken({
       providerId: GA4_OAUTH_PROVIDER_ID,
       userId: opts.userId,
       accountId: opts.ga4AccountId,
+      ...(opts.signal && { signal: opts.signal }),
     });
   } catch (error) {
     throw new Ga4TokenError(
@@ -158,6 +160,7 @@ function isAbortError(error: unknown): boolean {
 function memoizedGa4AccessToken(opts: {
   userId: string;
   ga4AccountId: string;
+  signal?: AbortSignal;
 }) {
   let accessTokenPromise: Promise<string> | undefined;
   return () => (accessTokenPromise ??= getGa4AccessToken(opts));
@@ -409,6 +412,7 @@ export function createGa4DataClient(opts: {
   userId: string;
   ga4AccountId: string;
   propertyId: string;
+  signal?: AbortSignal;
 }) {
   const propertyId = propertyIdSchema.parse(opts.propertyId);
   const accessToken = memoizedGa4AccessToken(opts);
@@ -427,6 +431,10 @@ export function createGa4DataClient(opts: {
             "Content-Type": "application/json",
           },
           body: JSON.stringify(request),
+          signal: AbortSignal.any([
+            AbortSignal.timeout(30_000),
+            ...(opts.signal ? [opts.signal] : []),
+          ]),
         });
       } catch (error) {
         if (isAbortError(error)) throw error;

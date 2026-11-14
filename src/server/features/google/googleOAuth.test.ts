@@ -168,6 +168,37 @@ describe("Google OAuth grants", () => {
   });
 
   it.each([
+    [503, "server_error", "GoogleTokenEndpointError"],
+    [400, "invalid_grant", "GoogleGrantError"],
+  ])(
+    "distinguishes token endpoint %s from a revoked grant without replaying the exchange",
+    async (status, code, name) => {
+      await client.execute({
+        sql: "INSERT INTO account (id, user_id, provider_id, account_id, access_token, refresh_token, access_token_expires_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+        args: [
+          "grant",
+          userId,
+          "google-search-console",
+          "google-account-1",
+          "expired",
+          "refresh-token",
+          Date.now() - 60_000,
+          Date.now(),
+        ],
+      });
+      mocks.fetch.mockResolvedValue(Response.json({ error: code }, { status }));
+      await expect(
+        oauth.getGoogleAccessToken({
+          userId,
+          providerId: "google-search-console",
+          accountId: "google-account-1",
+        }),
+      ).rejects.toMatchObject({ name });
+      expect(mocks.fetch).toHaveBeenCalledOnce();
+      expect((await grants())[0]?.access_token).toBe("expired");
+    },
+  );
+  it.each([
     ["https://evil.example/p", "/"],
     [`${publicOrigin}//evil.example/p`, "/"],
     [`${publicOrigin}/p/1?x=1#h`, "/p/1?x=1#h"],

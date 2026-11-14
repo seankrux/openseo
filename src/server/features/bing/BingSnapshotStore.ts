@@ -1,6 +1,10 @@
 import { env } from "cloudflare:workers";
+import { cooperativeR2 } from "@/server/lib/cooperative-yield";
 import { AppError } from "@/server/lib/errors";
 import { bingSnapshotSchema, type BingSnapshot } from "./BingSnapshot";
+
+/** R2 calls hand workerd's one thread back to waiting requests. */
+const bucket = () => cooperativeR2(env.R2);
 
 type SnapshotScope = Pick<
   BingSnapshot,
@@ -21,7 +25,7 @@ async function key(scope: SnapshotScope) {
 
 async function read(scope: SnapshotScope): Promise<BingSnapshot | null> {
   try {
-    const object = await env.R2.get(await key(scope));
+    const object = await bucket().get(await key(scope));
     if (!object || object.size > MAX_BYTES) return null;
     const text = await object.text();
     if (new TextEncoder().encode(text).byteLength > MAX_BYTES) return null;
@@ -45,7 +49,7 @@ async function save(snapshot: BingSnapshot): Promise<void> {
     const text = JSON.stringify(bingSnapshotSchema.parse(snapshot));
     if (new TextEncoder().encode(text).byteLength > MAX_BYTES)
       throw new Error();
-    await env.R2.put(await key(snapshot), text, {
+    await bucket().put(await key(snapshot), text, {
       httpMetadata: {
         contentType: "application/json",
         cacheControl: "private, no-store",

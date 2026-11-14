@@ -288,17 +288,19 @@ export function DashboardPage({
                     : "Add your website to track new and lost backlinks and the sites sending them."
                 }
                 action={
-                  <Button
-                    nativeButton={false}
-                    render={
-                      <Link
-                        to="/p/$projectId/settings"
-                        params={{ projectId }}
-                      />
-                    }
-                  >
-                    Add your website
-                  </Button>
+                  activation.domain ? undefined : (
+                    <Button
+                      nativeButton={false}
+                      render={
+                        <Link
+                          to="/p/$projectId/settings"
+                          params={{ projectId }}
+                        />
+                      }
+                    >
+                      Add your website
+                    </Button>
+                  )
                 }
               />
             )}

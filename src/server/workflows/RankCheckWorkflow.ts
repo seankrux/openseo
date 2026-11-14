@@ -13,8 +13,10 @@ import {
   runQueuedCheck,
   type QueuedCheckStats,
 } from "@/server/workflows/rankCheckPaths";
+import { runSerpLookupCheck } from "@/server/workflows/rankCheckLookupPath";
 import { pgStep } from "@/server/workflows/pgStep";
 import { createDataforseoClient } from "@/server/lib/dataforseo";
+import { resolveSerpProvider } from "@/server/lib/serp-provider";
 import { captureServerEvent } from "@/server/lib/posthog";
 import { AppError } from "@/server/lib/errors";
 import { autumn } from "@/server/billing/autumn";
@@ -357,16 +359,19 @@ export class RankCheckWorkflow extends WorkflowEntrypoint<
       );
 
       const keywords = prepareResult.keywords;
-      const client = createDataforseoClient(billingCustomer);
+      // No provider configured keeps the DataForSEO path, whose calls fail
+      // with DATAFORSEO_NOT_CONFIGURED.
+      const serpProvider = await resolveSerpProvider();
 
-      console.log(`[rank-check] ${runId} loaded ${keywords.length} keywords`);
+      console.log(
+        `[rank-check] ${runId} loaded ${keywords.length} keywords (serp=${serpProvider?.kind ?? "none"})`,
+      );
 
       let batchError: string | null = null;
       let queueStats: QueuedCheckStats | null = null;
 
       try {
         const checkContext = {
-          client,
           keywords,
           devices,
           serpDepth,
@@ -376,13 +381,21 @@ export class RankCheckWorkflow extends WorkflowEntrypoint<
           locationName,
           runId,
         };
-        // Scheduled checks use DataForSEO's task queue (~30% of live cost);
-        // manual checks stay on the live endpoint for instant results, and
-        // only the pairs the live endpoint missed go to the queue.
-        queueStats =
-          trigger === "scheduled"
-            ? await runQueuedCheck(step, checkContext)
-            : await runLiveCheck(step, checkContext);
+        if (serpProvider?.kind === "semrush") {
+          await runSerpLookupCheck(step, {
+            ...checkContext,
+            provider: serpProvider.provider,
+          });
+        } else {
+          const client = createDataforseoClient(billingCustomer);
+          // Scheduled checks use DataForSEO's task queue (~30% of live cost);
+          // manual checks stay on the live endpoint for instant results, and
+          // only the pairs the live endpoint missed go to the queue.
+          queueStats =
+            trigger === "scheduled"
+              ? await runQueuedCheck(step, { ...checkContext, client })
+              : await runLiveCheck(step, { ...checkContext, client });
+        }
       } catch (error) {
         // Batch failure — snapshots for completed batches are already
         // persisted incrementally. Continue to finalization.

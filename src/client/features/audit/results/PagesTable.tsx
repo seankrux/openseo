@@ -8,6 +8,7 @@ import { ExternalLink } from "lucide-react";
 import { Badge } from "@/client/components/ui/badge";
 import { DataTable, useDataTable } from "@/client/components/table/DataTable";
 import { SortableHeader } from "@/client/components/table/SortableHeader";
+import { TablePagination } from "@/client/components/table/TablePagination";
 import {
   extractHostname,
   extractPathname,
@@ -29,6 +30,8 @@ import {
 } from "@/client/features/audit/results/AuditResultsTableFilterLogic";
 
 const pageColumnHelper = createColumnHelper<PageRow>();
+
+const PAGES_PER_PAGE = 100;
 
 /**
  * Path shown in the URL/redirect cells. Redirect sources on another host
@@ -212,6 +215,7 @@ export function PagesTable({
   const [sorting, setSorting] = useState<SortingState>([
     { id: "url", desc: false },
   ]);
+  const [page, setPage] = useState(1);
   const activeFilterCount = countActiveFilters(filters, EMPTY_PAGES_FILTERS);
   const filteredPages = useMemo(
     () => filterPages(pages, filters),
@@ -230,15 +234,30 @@ export function PagesTable({
       }),
     [issues, pages, startUrl],
   );
+  const currentPage = Math.min(
+    page,
+    Math.max(1, Math.ceil(filteredPages.length / PAGES_PER_PAGE)),
+  );
   const table = useDataTable({
     data: filteredPages,
     columns,
-    state: { sorting },
-    onSortingChange: setSorting,
+    state: {
+      sorting,
+      pagination: { pageIndex: currentPage - 1, pageSize: PAGES_PER_PAGE },
+    },
+    onSortingChange: (updater) => {
+      setSorting(updater);
+      setPage(1);
+    },
     withSorting: true,
+    withPagination: true,
+    autoResetPageIndex: false,
   });
 
-  const resetFilters = () => setFilters(EMPTY_PAGES_FILTERS);
+  const resetFilters = () => {
+    setFilters(EMPTY_PAGES_FILTERS);
+    setPage(1);
+  };
 
   return (
     <DataTable
@@ -259,12 +278,25 @@ export function PagesTable({
           {showFilters ? (
             <PagesFilterBar
               filters={filters}
-              onChange={setFilters}
+              onChange={(next) => {
+                setFilters(next);
+                setPage(1);
+              }}
               activeFilterCount={activeFilterCount}
               onReset={resetFilters}
             />
           ) : null}
         </>
+      }
+      footer={
+        filteredPages.length > PAGES_PER_PAGE ? (
+          <TablePagination
+            page={currentPage}
+            pageSize={PAGES_PER_PAGE}
+            totalCount={filteredPages.length}
+            onPageChange={setPage}
+          />
+        ) : undefined
       }
     />
   );

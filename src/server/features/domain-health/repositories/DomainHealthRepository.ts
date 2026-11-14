@@ -32,7 +32,10 @@ function parseIds(raw: string | null | undefined): string[] {
 }
 
 export const DomainHealthRepository = {
-  async listCurrent(organizationId: string, opts?: { class?: DomainHealthClass; limit?: number }) {
+  async listCurrent(
+    organizationId: string,
+    opts?: { class?: DomainHealthClass; limit?: number },
+  ) {
     const limit = opts?.limit ?? 500;
     const rows = await db
       .select()
@@ -98,6 +101,7 @@ export const DomainHealthRepository = {
             "timeout",
             "cf_error",
             "parked",
+            "blank_page",
           ]),
         ),
       )

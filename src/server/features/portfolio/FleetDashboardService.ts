@@ -26,7 +26,11 @@ import { GSC_OAUTH_PROVIDER_ID } from "@/shared/gsc";
 import { GA4_OAUTH_PROVIDER_ID } from "@/shared/ga4";
 import { GscConnectionRepository } from "@/server/features/gsc/repositories/GscConnectionRepository";
 import { Ga4ConnectionRepository } from "@/server/features/ga4/repositories/Ga4ConnectionRepository";
-import { getCached, setCached } from "@/server/lib/r2-cache";
+import { getCached, getCachedShared, setCached } from "@/server/lib/r2-cache";
+import { yieldIfBusy } from "@/server/lib/cooperative-yield";
+import { classifyGscError } from "@/server/lib/gscErrors";
+import type { GscRequestOptions } from "@/server/lib/gscClient";
+import { GoogleGrantError } from "@/server/features/google/googleOAuthErrors";
 import { GscService } from "@/server/features/gsc/services/GscService";
 import {
   TTL_SECONDS,
@@ -56,11 +60,30 @@ const WARM_SCAN_ROWS = 150;
 /** Leave room for cache-only assembly inside the self-hosted 150s scheduler. */
 const WARM_MAX_MS = 100_000;
 const ERROR_RETRY_MS = 30 * 60 * 1000;
+const TRANSIENT_RETRY_MS = 5 * 60 * 1000;
+function errorRetryMs(error: string) {
+  return classifyGscError(error) === "transient"
+    ? TRANSIENT_RETRY_MS
+    : ERROR_RETRY_MS;
+}
 const AUTH_CHECK_TTL_SECONDS = 30 * 60;
 const BING_REFRESH_AFTER_MS = REFRESH_AFTER_MS;
 const BING_MAX_AGE_MS = TTL_SECONDS * 1000;
-/** Parallel R2 reads while assembling the snapshot (1,600+ sites x 3 keys). */
-const READ_CONCURRENCY = 32;
+/**
+ * Sites read at once while assembling the snapshot (five cache reads each).
+ * The local R2 emulation does its disk I/O on workerd's one event-loop thread,
+ * so more parallel reads finish no sooner; they only queue ahead of page
+ * requests. At 32 the app stopped answering for 15 to 50 seconds at every
+ * scheduler tick (measured 2026-11-11).
+ */
+const READ_CONCURRENCY = 4;
+/**
+ * A full build reads every site and is abandoned at FLEET_BUILD_TIMEOUT_MS, so
+ * it reads a little wider than warms and folds: a build that overruns its
+ * deadline persists nothing and starts over at every tick. Builds are rare
+ * (no usable snapshot or parts).
+ */
+const BUILD_READ_CONCURRENCY = 8;
 /** Rows kept for the CSV export (the dashboard shows the first 15). */
 const TOP_QUERIES_EXPORT = 1000;
 
@@ -262,6 +285,8 @@ export type FleetDashboard = {
     down: FleetDownDomain[];
     missingTag: number;
   };
+  /** Last site of the previous rotating reread slice (see refreshFleet). */
+  foldCursor?: string | null;
 };
 
 async function listFleet(organizationId: string) {
@@ -370,6 +395,9 @@ const authCheckSchema = z.object({
   checkedAt: z.string(),
   revision: z.string().nullable(),
   error: z.string().nullable(),
+  kind: z
+    .enum(["auth", "transient", "setup", "quota", "other", "permission"])
+    .optional(),
 });
 type AuthCheck = z.infer<typeof authCheckSchema>;
 type GoogleIdentity = {
@@ -419,7 +447,10 @@ async function readAuthChecks(rows: FleetRow[], organizationId: string) {
       parsed.success &&
       parsed.data.revision === id.revision &&
       ageMs(parsed.data.checkedAt) >= 0 &&
-      ageMs(parsed.data.checkedAt) < AUTH_CHECK_TTL_SECONDS * 1000
+      ageMs(parsed.data.checkedAt) <
+        (parsed.data.kind === "transient"
+          ? TRANSIENT_RETRY_MS
+          : AUTH_CHECK_TTL_SECONDS * 1000)
     )
       checks.set(id.key, parsed.data);
   });
@@ -451,14 +482,21 @@ function connectionTime(value: string) {
   );
 }
 
+// Constructing an Intl.DateTimeFormat costs far more than formatting with one,
+// and every provider entry asks; build one per time zone.
+const reportingDayFormats = new Map<string, Intl.DateTimeFormat>();
 function sameReportingDay(fetchedAt: string, timeZone = "UTC") {
   try {
-    const day = new Intl.DateTimeFormat("en-CA", {
-      timeZone,
-      year: "numeric",
-      month: "2-digit",
-      day: "2-digit",
-    });
+    let day = reportingDayFormats.get(timeZone);
+    if (!day) {
+      day = new Intl.DateTimeFormat("en-CA", {
+        timeZone,
+        year: "numeric",
+        month: "2-digit",
+        day: "2-digit",
+      });
+      reportingDayFormats.set(timeZone, day);
+    }
     return day.format(new Date(fetchedAt)) === day.format(new Date());
   } catch {
     return false;
@@ -539,8 +577,12 @@ function bingAttemptKey(organizationId: string, r: FleetRow) {
   return `fleet-bing-attempt:v1:${organizationId}:${r.projectId}:${r.bingBindingId}`;
 }
 
-async function readFleetEvidence(rows: FleetRow[], organizationId: string) {
-  return mapLimit(rows, READ_CONCURRENCY, async (r) => {
+async function readFleetEvidence(
+  rows: FleetRow[],
+  organizationId: string,
+  concurrency = READ_CONCURRENCY,
+) {
+  return mapLimit(rows, concurrency, async (r) => {
     const [gsc, ga4, queries, bing, bingAttempt] = await Promise.all([
       r.siteUrl
         ? getCached(cacheKey(r.projectId, r.siteUrl), { allowExpired: true })
@@ -553,10 +595,13 @@ async function readFleetEvidence(rows: FleetRow[], organizationId: string) {
       r.siteUrl
         ? getCached(queriesKey(r.projectId, r.siteUrl), { allowExpired: true })
         : null,
-      r.bingSiteUrl && hasBingWorkspaceAccess(organizationId)
-        ? BingWebmasterService.getStoredSnapshot({
-            projectId: r.projectId,
+      r.bingSiteUrl && r.bingBindingId && hasBingWorkspaceAccess(organizationId)
+        ? BingWebmasterService.getStoredSnapshotForBinding({
             organizationId,
+            projectId: r.projectId,
+            domain: r.domain,
+            bindingId: r.bingBindingId,
+            siteUrl: r.bingSiteUrl,
           })
         : null,
       r.bingSiteUrl
@@ -591,17 +636,23 @@ function bingMetrics(
   };
 }
 
-async function fetchTopQueries(projectId: string): Promise<SiteQueries> {
+async function fetchTopQueries(
+  projectId: string,
+  options?: GscRequestOptions,
+): Promise<SiteQueries> {
   const w = windows();
   const fetchedAt = new Date().toISOString();
   try {
-    const res = await GscService.getPerformance({
-      projectId,
-      startDate: w.curStart,
-      endDate: w.end,
-      dimensions: ["query"],
-      rowLimit: QUERIES_PER_SITE,
-    } as Parameters<typeof GscService.getPerformance>[0]);
+    const res = await GscService.getPerformance(
+      {
+        projectId,
+        startDate: w.curStart,
+        endDate: w.end,
+        dimensions: ["query"],
+        rowLimit: QUERIES_PER_SITE,
+      } as Parameters<typeof GscService.getPerformance>[0],
+      options,
+    );
     return {
       fetchedAt,
       rows: res.rows
@@ -636,7 +687,13 @@ export async function warmFleetCaches(
   budget = WARM_BUDGET_DEFAULT,
 ) {
   if (warmStartedAt && Date.now() - warmStartedAt < WARM_MAX_MS + 20_000)
-    return { ran: 0, pending: 0, budgetUsed: 0, timedOut: false, skipped: true };
+    return {
+      ran: 0,
+      pending: 0,
+      budgetUsed: 0,
+      timedOut: false,
+      skipped: true,
+    };
   warmStartedAt = Date.now();
   try {
     return await warmFleetCachesOnce(organizationId, budget);
@@ -645,11 +702,9 @@ export async function warmFleetCaches(
   }
 }
 
-async function warmFleetCachesOnce(
-  organizationId: string,
-  budget: number,
-) {
+async function warmFleetCachesOnce(organizationId: string, budget: number) {
   const deadline = Date.now() + WARM_MAX_MS;
+  const abort = new AbortController();
   const limit = Math.max(0, Math.min(WARM_BUDGET_DEFAULT, Math.floor(budget)));
   const allRows = await listFleet(organizationId);
   // Authorization checks are a handful of keys; per-site evidence is read
@@ -678,7 +733,7 @@ async function warmFleetCachesOnce(
     if (!parsed.success) return true;
     const v = parsed.data;
     const age = ageMs(v.fetchedAt);
-    if (v.error) return age < 0 || age >= ERROR_RETRY_MS;
+    if (v.error) return age < 0 || age >= errorRetryMs(v.error);
     return (
       age < 0 ||
       age >= refreshAfter ||
@@ -704,10 +759,9 @@ async function warmFleetCachesOnce(
   let lastId: string | null = null;
   let scannedRows = 0;
   let totalTasks = 0;
-  // Existing Google clients do not expose AbortSignal for OAuth. Bound awaiting
-  // and stop ALL further work on timeout; never fan out replacements for a hung
-  // request. At most three requests can remain in flight, and late results are
-  // not written. Bing itself additionally cancels each request after 10 seconds.
+  // The fleet deadline cancels native Google OAuth/report fetches as well as
+  // stopping scheduling. Keep the await guard for cache/DB collaborators and
+  // reject late results before they can overwrite a successor's evidence.
   async function bounded<T>(work: Promise<T>): Promise<T> {
     let timer: ReturnType<typeof setTimeout> | undefined;
     try {
@@ -717,7 +771,10 @@ async function warmFleetCachesOnce(
           timer = setTimeout(
             () => {
               timedOut = true;
-              reject(new Error("Fleet warm deadline"));
+              abort.abort(
+                new DOMException("Fleet warm deadline", "AbortError"),
+              );
+              reject(abort.signal.reason);
             },
             Math.max(0, deadline - Date.now()),
           );
@@ -729,48 +786,121 @@ async function warmFleetCachesOnce(
   }
   const preflights = new Map<string, Promise<AuthCheck | null>>();
   async function preflight(id: GoogleIdentity): Promise<AuthCheck | null> {
-    if (checks.has(id.key)) return checks.get(id.key)!;
+    const cached = checks.get(id.key);
+    // Keep legacy warnings visible until an actual preflight rechecks them;
+    // old untyped failures may have been transient token endpoint outages.
+    if (cached && (!cached.error || cached.kind)) return cached;
     const existing = preflights.get(id.key);
     if (existing) return existing;
     if (used >= limit) return null;
     used++;
     const work = (async () => {
       let error: string | null = null;
+      let kind: AuthCheck["kind"];
       try {
         // Never let an unspecified account fall back to another user's grant.
         if (!id.userId || !id.accountId || !id.revision)
-          throw new Error("Missing explicit account grant");
+          throw new GoogleGrantError("Missing explicit account grant");
         await bounded(
           getGoogleAccessToken({
             providerId: id.providerId,
             userId: id.userId,
             accountId: id.accountId,
+            signal: abort.signal,
           }),
         );
-      } catch {
+      } catch (cause) {
         if (timedOut) return null;
+        kind = classifyGscError(cause);
         error =
-          "Google account authorization failed; reconnect this account or retry.";
+          kind === "auth"
+            ? "Google account authorization failed; reconnect this account."
+            : kind === "quota"
+              ? "Google token refresh rate limit reached; waiting before retry."
+              : kind === "setup"
+                ? "Google OAuth configuration needs review; reconnecting the account will not repair it."
+                : "Google token refresh is temporarily unavailable; waiting for a scheduled retry.";
       }
       const check = {
         checkedAt: new Date().toISOString(),
         revision: id.revision,
         error,
+        ...(kind && { kind }),
       };
-      if (canWrite()) await setCached(id.key, check, AUTH_CHECK_TTL_SECONDS);
+      if (canWrite())
+        await setCached(
+          id.key,
+          check,
+          kind === "transient"
+            ? TRANSIENT_RETRY_MS / 1000
+            : AUTH_CHECK_TTL_SECONDS,
+        );
       checks.set(id.key, check);
       return check;
     })();
     preflights.set(id.key, work);
     return work;
   }
-  for (
-    let offset = 0;
-    offset < rotatedRows.length;
-    offset += WARM_SCAN_ROWS
-  ) {
+  const reserveRetry = () => {
+    if (!canWrite() || used >= limit) return false;
+    used++;
+    return true;
+  };
+  const requestOptions = { signal: abort.signal, reserveRetry };
+  // Retry a small slice of known transient failures before the ordinary ring,
+  // without changing its cursor or spending the whole turn on a failed prefix.
+  const snapshot = (await getCachedShared(snapshotKey(organizationId)).catch(
+    () => null,
+  )) as FleetDashboard | null;
+  const recoveryCursorKey = `fleet-gsc-recovery-cursor:v1:${organizationId}`;
+  const recoveryCursor = await getCached(recoveryCursorKey).catch(() => null);
+  const failures = (
+    Array.isArray(snapshot?.inventory) ? snapshot.inventory : []
+  )
+    .filter(
+      (r) =>
+        r?.gsc?.status === "error" &&
+        classifyGscError(r.gsc.error) === "transient" &&
+        ageMs(r.gsc.fetchedAt ?? undefined) >= TRANSIENT_RETRY_MS,
+    )
+    .sort((a, b) =>
+      a.projectId < b.projectId ? -1 : a.projectId > b.projectId ? 1 : 0,
+    );
+  const recoveryStart = Math.max(
+    0,
+    failures.findIndex(
+      (r) => typeof recoveryCursor !== "string" || r.projectId > recoveryCursor,
+    ),
+  );
+  const recoveryRing = [
+    ...failures.slice(recoveryStart),
+    ...failures.slice(0, recoveryStart),
+  ];
+  const recoveryIds = new Set(
+    recoveryRing
+      .slice(0, Math.min(3, Math.floor(limit / 8)))
+      .map((r) => r.projectId),
+  );
+  let lastRecoveryId: string | null = null;
+  const scanWindows = [
+    {
+      rows: allRows.filter((r) => recoveryIds.has(r.projectId)),
+      recovery: true,
+      offset: -1,
+    },
+    ...Array.from(
+      { length: Math.ceil(rotatedRows.length / WARM_SCAN_ROWS) },
+      (_, i) => ({
+        rows: rotatedRows.slice(i * WARM_SCAN_ROWS, (i + 1) * WARM_SCAN_ROWS),
+        recovery: false,
+        offset: i * WARM_SCAN_ROWS,
+      }),
+    ),
+  ];
+  for (const { rows, recovery, offset } of scanWindows) {
+    if (!rows.length) continue;
     if (timedOut || Date.now() >= deadline - 20_000 || used >= limit) break;
-    const rows = rotatedRows.slice(offset, offset + WARM_SCAN_ROWS);
+    await yieldIfBusy();
     const evidence = await readFleetEvidence(rows, organizationId);
     scannedRows += rows.length;
     tasks = [];
@@ -798,7 +928,7 @@ async function warmFleetCachesOnce(
             await setCached(
               key,
               value,
-              value.error ? ERROR_RETRY_MS / 1000 : ttl,
+              value.error ? errorRetryMs(value.error) / 1000 : ttl,
             );
         };
         const parsed = gscSchema.safeParse(e.gsc);
@@ -812,7 +942,19 @@ async function warmFleetCachesOnce(
             cost: 1,
             google,
             run: async () => {
-              const value = await fetchGsc(r.projectId);
+              const value = await fetchGsc(
+                r.projectId,
+                recovery
+                  ? {
+                      ...requestOptions,
+                      // One bounded batch leaves time for the normal fleet ring.
+                      signal: AbortSignal.any([
+                        abort.signal,
+                        AbortSignal.timeout(45_000),
+                      ]),
+                    }
+                  : requestOptions,
+              );
               await saveGsc(
                 cacheKey(r.projectId, r.siteUrl!),
                 value,
@@ -820,7 +962,10 @@ async function warmFleetCachesOnce(
               );
             },
           });
-        if (due(e.queries, QUERIES_REFRESH_AFTER_MS, "UTC", r.gscUpdatedAt))
+        if (
+          !recovery &&
+          due(e.queries, QUERIES_REFRESH_AFTER_MS, "UTC", r.gscUpdatedAt)
+        )
           tasks.push({
             projectId: r.projectId,
             id: `${r.projectId}:queries`,
@@ -829,13 +974,14 @@ async function warmFleetCachesOnce(
             run: async () => {
               await saveGsc(
                 queriesKey(r.projectId, r.siteUrl!),
-                await fetchTopQueries(r.projectId),
+                await fetchTopQueries(r.projectId, requestOptions),
                 QUERIES_TTL_SECONDS,
               );
             },
           });
       }
       if (
+        !recovery &&
         r.ga4PropertyId &&
         due(
           e.ga4,
@@ -858,6 +1004,7 @@ async function warmFleetCachesOnce(
               propertyId: r.ga4PropertyId!,
               userId: r.ga4UserId,
               ga4AccountId: r.ga4AccountId,
+              signal: abort.signal,
             });
             const current = await Ga4ConnectionRepository.getByProjectId(
               r.projectId,
@@ -885,6 +1032,7 @@ async function warmFleetCachesOnce(
         ageMs(attempt.data.fetchedAt) >= 0 &&
         ageMs(attempt.data.fetchedAt) < ERROR_RETRY_MS;
       if (
+        !recovery &&
         r.bingSiteUrl &&
         hasBingWorkspaceAccess(organizationId) &&
         !bingFailedRecently &&
@@ -930,7 +1078,7 @@ async function warmFleetCachesOnce(
     // failed prefix cannot reset progress. Persist across scheduler invocations.
     tasks.sort((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
     const after =
-      offset === 0 && typeof savedCursor === "string"
+      !recovery && offset === 0 && typeof savedCursor === "string"
         ? tasks.findIndex((t) => t.id > savedCursor)
         : 0;
     const start = after < 0 ? 0 : after;
@@ -942,7 +1090,8 @@ async function warmFleetCachesOnce(
       processed++;
       if (index > lastProcessed) {
         lastProcessed = index;
-        lastId = task.id;
+        if (recovery) lastRecoveryId = task.projectId;
+        else lastId = task.id;
       }
     };
     await Promise.all(
@@ -981,29 +1130,40 @@ async function warmFleetCachesOnce(
     // Stop where work ran out; otherwise the whole window is done, so the
     // next warm (or the next window) starts after its last site.
     if (processed < ordered.length) break;
-    lastId = `${rows.at(-1)!.projectId}:~`;
+    if (!recovery) lastId = `${rows.at(-1)!.projectId}:~`;
   }
+  if (lastRecoveryId)
+    await setCached(recoveryCursorKey, lastRecoveryId, 7 * 24 * 3600);
   if (lastId) await setCached(cursorKey, lastId, 7 * 24 * 3600);
-  if (ran > 0) {
-    const snap = (await getCached(
-      snapshotKey(organizationId),
-    )) as FleetDashboard | null;
-    if (isReusableSnapshot(snap, organizationId)) {
-      // Leave generatedAt alone. Moving it would keep this snapshot fresh and
-      // the 30-minute refresh would never see sites this warm did not touch.
-      const patched = await refreshFleetSnapshot(organizationId, snap, {
-        rows: allRows,
-        reread: touched,
-        includeNew: false,
-        keepClock: true,
-      });
-      await setCached(
-        snapshotKey(organizationId),
-        patched,
-        SNAPSHOT_TTL_SECONDS,
-      );
-    }
-  }
+  if (ran > 0)
+    await withFleetLock(organizationId, async (lease) => {
+      try {
+        const snap = (await getCachedShared(
+          snapshotKey(organizationId),
+        )) as FleetDashboard | null;
+        const parts = isReusableSnapshot(snap, organizationId)
+          ? await readParts(organizationId)
+          : null;
+        if (!snap || !parts) return;
+        // Leave generatedAt alone. Moving it would keep this snapshot fresh
+        // and the 30-minute refresh would never see sites this warm did not
+        // touch.
+        await persistFleet(
+          organizationId,
+          await refreshFleet(organizationId, parts, snap.foldCursor ?? null, {
+            rows: allRows,
+            reread: touched,
+            includeNew: false,
+            keepGeneratedAt: snap.generatedAt,
+          }),
+          lease,
+        );
+      } catch (error) {
+        // Unreadable state or unusable parts: the scheduler fold or build
+        // repairs it; the warm itself already succeeded.
+        console.error("[fleet] warm patch skipped", error);
+      }
+    });
   return {
     ran,
     pending: Math.max(0, totalTasks - ran),
@@ -1192,30 +1352,235 @@ async function healthRollup(
 
 type FleetEvidence = Awaited<ReturnType<typeof readFleetEvidence>>[number];
 
-function buildInventoryRow(
-  r: FleetRow,
-  e: FleetEvidence,
+/**
+ * Per-site parts. Everything the dashboard aggregates is kept per site as raw
+ * evidence (not as a status), in one companion object next to the snapshot.
+ * Status is always recomputed by providerEntry at assembly time, so a stored
+ * row can never freeze a status, and the chart, query table and Bing notes are
+ * re-aggregated from the parts on every build or fold. A part is replaced
+ * whenever its site is reread. Payloads that can no longer be counted (stale,
+ * failed or replaced evidence) are dropped; only small metrics stay for the
+ * "refreshing" display.
+ *
+ * Parts are our own output, so they are version-checked rather than
+ * schema-parsed on read (a parse of every site costs seconds at 1,600 sites);
+ * a part that does not fit makes the fold throw, and the caller then builds.
+ * Parts hold no clock, so they are rewritten only when a part changed.
+ */
+const PARTS_TTL_SECONDS = 7 * 24 * 3600;
+/** Sites a fold rereads from R2 beyond those it was told to (rotating slice). */
+const FOLD_ROTATE_SITES = 40;
+/** Extra missing/error sites a fold rereads ahead of the rotation. */
+const FOLD_PROBLEM_SITES = 20;
+const FOLD_CHUNK_SITES = 4;
+/** Stop starting optional chunks after this long, so a fold stays cheap. */
+const FOLD_REREAD_MS = 2_000;
+
+function partsKey(organizationId: string) {
+  // v2: parts carry the Bing binding id.
+  return `fleet-dashboard-parts:v2:${organizationId}`;
+}
+
+/** null: nothing stored; "invalid": stored but not usable evidence. */
+type EvidenceStub = null | "invalid" | { fetchedAt: string; error?: string };
+type PackedDaily = {
+  /** First day, YYYY-MM-DD. */
+  b: string;
+  /** Flat [dayOffset, clicks, impressions, ...]. */
+  v: number[];
+};
+type SitePart = {
+  gsc: {
+    site: string | null;
+    ev: EvidenceStub;
+    metrics: NonNullable<FleetInventoryRow["gsc"]["metrics"]> | null;
+    daily?: PackedDaily;
+  };
+  queries: {
+    ev: EvidenceStub;
+    rows?: Array<[string, number, number, number]>;
+  };
+  ga4: {
+    property: string | null;
+    ev: EvidenceStub;
+    metrics: NonNullable<FleetInventoryRow["ga4"]["metrics"]> | null;
+  };
+  bing: {
+    site: string | null;
+    /** Binding id: a replaced binding keeps the same site URL. */
+    binding: string | null;
+    ev: EvidenceStub;
+    metrics: NonNullable<FleetInventoryRow["bing"]["metrics"]> | null;
+    /** Identifies the exact provider dates; totals need all sites to match. */
+    sig: string | null;
+    limits?: string[];
+  };
+};
+type FleetParts = { v: 1; sites: Record<string, SitePart> };
+type FleetBuild = {
+  dashboard: FleetDashboard;
+  parts: FleetParts;
+  partsChanged: boolean;
+};
+
+async function readParts(organizationId: string): Promise<FleetParts | null> {
+  const raw = (await getCachedShared(partsKey(organizationId))) as {
+    v?: unknown;
+    sites?: unknown;
+  } | null;
+  return raw && raw.v === 1 && raw.sites && typeof raw.sites === "object"
+    ? (raw as FleetParts)
+    : null;
+}
+
+/** Parts first: a snapshot is only ever reused together with its parts. */
+async function persistFleet(
   organizationId: string,
-  checks: Map<string, AuthCheck>,
-): FleetInventoryRow {
+  built: FleetBuild,
+  lease: FleetLease,
+) {
+  // A run that outlived the lock must not write over its successors.
+  if (lease.expired) return;
+  if (built.partsChanged)
+    await setCached(partsKey(organizationId), built.parts, PARTS_TTL_SECONDS);
+  if (lease.expired) return;
+  await setCached(
+    snapshotKey(organizationId),
+    built.dashboard,
+    SNAPSHOT_TTL_SECONDS,
+  );
+}
+
+/**
+ * One writer per organization at a time (single isolate). A fold, a warm patch
+ * and a full build each read the stored state, assemble and persist inside it;
+ * otherwise a fold that started earlier persists over a warm patch's rows.
+ * A run that hangs (an R2 read that never returns) is abandoned at its
+ * deadline: its caller gets a rejection, the lock is released, and its lease
+ * expires so a late finish cannot persist. Folds and warm patches get 200 s.
+ * A run that turns into a full build extends its deadline to 340 s from the
+ * start of the run: live full builds took 113 to 314 s and the scheduler tick
+ * is cut off at 360 s. A build is all or nothing: if it is abandoned, nothing
+ * persists and the next scheduler tick starts over, so the 340 s deadline has
+ * to stay above the slowest build.
+ */
+const FLEET_LOCK_TIMEOUT_MS = 200_000;
+const FLEET_BUILD_TIMEOUT_MS = 340_000;
+type FleetLease = {
+  expired: boolean;
+  /** Move the deadline to this long after the run started (never revives). */
+  extendTo: (totalMs: number) => void;
+};
+const fleetLocks = new Map<string, Promise<unknown>>();
+function withFleetLock<T>(
+  organizationId: string,
+  work: (lease: FleetLease) => Promise<T>,
+): Promise<T> {
+  const run = (fleetLocks.get(organizationId) ?? Promise.resolve()).then(() => {
+    const startedAt = Date.now();
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    let abandon!: (error: Error) => void;
+    const timeout = new Promise<never>((_, reject) => {
+      abandon = reject;
+    });
+    const arm = (totalMs: number) => {
+      clearTimeout(timer);
+      timer = setTimeout(
+        () => {
+          lease.expired = true;
+          abandon(new Error("Fleet snapshot work timed out"));
+        },
+        Math.max(0, startedAt + totalMs - Date.now()),
+      );
+    };
+    const lease: FleetLease = {
+      expired: false,
+      extendTo: (totalMs) => {
+        if (!lease.expired) arm(totalMs);
+      },
+    };
+    arm(FLEET_LOCK_TIMEOUT_MS);
+    return Promise.race([work(lease), timeout]).finally(() =>
+      clearTimeout(timer),
+    );
+  });
+  const tail = run.then(
+    () => undefined,
+    () => undefined,
+  );
+  fleetLocks.set(organizationId, tail);
+  void tail.then(() => {
+    if (fleetLocks.get(organizationId) === tail)
+      fleetLocks.delete(organizationId);
+  });
+  return run;
+}
+
+function stubOf(raw: unknown): EvidenceStub {
+  if (raw == null) return null;
+  const parsed = cacheEvidenceSchema.safeParse(raw);
+  if (!parsed.success) return "invalid";
+  return parsed.data.error
+    ? { fetchedAt: parsed.data.fetchedAt, error: parsed.data.error }
+    : { fetchedAt: parsed.data.fetchedAt };
+}
+
+function stubTime(ev: EvidenceStub): string | null {
+  return ev && ev !== "invalid" ? ev.fetchedAt : null;
+}
+
+function packDaily(
+  daily: Array<[string, number, number]> | undefined,
+): PackedDaily | undefined {
+  const points = (daily ?? []).flatMap(([day, clicks, impressions]) => {
+    const t = Date.parse(`${day}T00:00:00Z`);
+    return Number.isNaN(t) ? [] : [{ t, clicks, impressions }];
+  });
+  if (!points.length) return undefined;
+  const base = Math.min(...points.map((p) => p.t));
+  return {
+    b: new Date(base).toISOString().slice(0, 10),
+    v: points.flatMap((p) => [
+      Math.round((p.t - base) / 86400_000),
+      p.clicks,
+      p.impressions,
+    ]),
+  };
+}
+
+function hash32(text: string) {
+  let h = 0x811c9dc5;
+  for (let i = 0; i < text.length; i++) {
+    h ^= text.charCodeAt(i);
+    h = Math.imul(h, 0x01000193);
+  }
+  return (h >>> 0).toString(36);
+}
+
+/** Null unless every provider row has a date; equal only for equal date sets. */
+function bingDateSignature(snapshot: BingSnapshot): string | null {
+  const dates = snapshot.performance.map((row) => row.date);
+  if (!dates.length || dates.some((d) => d === null)) return null;
+  const sorted = (dates as string[]).sort();
+  return `${sorted.length}:${sorted[0]}:${sorted.at(-1)}:${hash32(sorted.join(","))}`;
+}
+
+function buildPart(r: FleetRow, e: FleetEvidence): SitePart {
   const g = gscSchema.safeParse(e.gsc);
   const a = ga4Schema.safeParse(e.ga4);
+  const q = queriesSchema.safeParse(e.queries);
   const attempt = cacheEvidenceSchema.safeParse(e.bingAttempt);
   const bingError =
     attempt.success &&
     attempt.data.error &&
     (!e.bing ||
       Date.parse(attempt.data.fetchedAt) >= Date.parse(e.bing.fetchedAt));
+  const bingSnapshot = e.bing && !bingError ? e.bing : null;
   return {
-    projectId: r.projectId,
-    name: r.name,
-    domain: r.domain,
-    gsc: providerEntry(
-      r.siteUrl,
-      r.gscAccountId,
-      r.gscEmail,
-      e.gsc,
-      g.success
+    gsc: {
+      site: r.siteUrl,
+      ev: stubOf(e.gsc),
+      metrics: g.success
         ? {
             clicks: g.data.clicks,
             prevClicks: g.data.prevClicks,
@@ -1225,17 +1590,16 @@ function buildInventoryRow(
             prevPosition: g.data.prevPosition,
           }
         : null,
-      g.success && sameReportingDay(g.data.fetchedAt),
-      TTL_SECONDS * 1000,
-      r.gscUpdatedAt,
-      googleCheck(r, "gsc", organizationId, checks),
-    ),
-    ga4: providerEntry(
-      r.ga4PropertyId,
-      r.ga4AccountId,
-      r.ga4Email,
-      e.ga4,
-      a.success
+      daily: g.success ? packDaily(g.data.daily) : undefined,
+    },
+    queries: {
+      ev: stubOf(e.queries),
+      rows: q.success ? q.data.rows : undefined,
+    },
+    ga4: {
+      property: r.ga4PropertyId,
+      ev: stubOf(e.ga4),
+      metrics: a.success
         ? {
             sessions: a.data.sessions,
             prevSessions: a.data.prevSessions,
@@ -1243,68 +1607,151 @@ function buildInventoryRow(
             prevUsers: a.data.prevActiveUsers,
           }
         : null,
-      a.success &&
-        sameReportingDay(a.data.fetchedAt, r.ga4PropertyTimeZone ?? "UTC"),
+    },
+    bing: {
+      site: r.bingSiteUrl,
+      binding: r.bingBindingId,
+      ev: stubOf(bingError ? e.bingAttempt : e.bing),
+      metrics: bingSnapshot ? bingMetrics(bingSnapshot) : null,
+      sig: bingSnapshot ? bingDateSignature(bingSnapshot) : null,
+      limits: bingSnapshot?.limitations.length
+        ? bingSnapshot.limitations
+        : undefined,
+    },
+  };
+}
+
+/** Provider entries: the only place a part becomes a status (providerEntry). */
+function entries(
+  r: FleetRow,
+  part: SitePart,
+  organizationId: string,
+  checks?: Map<string, AuthCheck>,
+) {
+  const stamp = stubTime(part.gsc.ev);
+  const ga4Stamp = stubTime(part.ga4.ev);
+  const queryStamp = stubTime(part.queries.ev);
+  const rows = part.queries.rows;
+  return {
+    gsc: providerEntry(
+      r.siteUrl,
+      r.gscAccountId,
+      r.gscEmail,
+      part.gsc.ev,
+      part.gsc.metrics,
+      part.gsc.metrics !== null && stamp !== null && sameReportingDay(stamp),
+      TTL_SECONDS * 1000,
+      r.gscUpdatedAt,
+      checks && googleCheck(r, "gsc", organizationId, checks),
+    ),
+    ga4: providerEntry(
+      r.ga4PropertyId,
+      r.ga4AccountId,
+      r.ga4Email,
+      part.ga4.ev,
+      part.ga4.metrics,
+      part.ga4.metrics !== null &&
+        ga4Stamp !== null &&
+        sameReportingDay(ga4Stamp, r.ga4PropertyTimeZone ?? "UTC"),
       TTL_SECONDS * 1000,
       r.ga4UpdatedAt,
-      googleCheck(r, "ga4", organizationId, checks),
+      checks && googleCheck(r, "ga4", organizationId, checks),
     ),
     bing: providerEntry(
       r.bingSiteUrl,
       null,
       null,
-      bingError ? e.bingAttempt : e.bing,
-      e.bing && !bingError ? bingMetrics(e.bing) : null,
+      part.bing.ev,
+      part.bing.metrics,
       true,
       BING_MAX_AGE_MS,
+    ),
+    queries: providerEntry(
+      r.siteUrl,
+      r.gscAccountId,
+      r.gscEmail,
+      part.queries.ev,
+      rows ?? null,
+      rows !== undefined && queryStamp !== null && sameReportingDay(queryStamp),
+      QUERIES_TTL_SECONDS * 1000,
+      r.gscUpdatedAt,
+      checks && googleCheck(r, "gsc", organizationId, checks),
     ),
   };
 }
 
-export async function buildFleetDashboard(
+function inventoryRow(
+  r: FleetRow,
+  part: SitePart,
   organizationId: string,
-): Promise<FleetDashboard> {
-  const w = windows();
-  const rows = await listFleet(organizationId);
-  const domains = new Map(rows.map((r) => [r.projectId, r.domain ?? r.name]));
-  const [evidence, checks] = await Promise.all([
-    readFleetEvidence(rows, organizationId),
-    readAuthChecks(rows, organizationId),
-  ]);
-  const inventory: FleetInventoryRow[] = rows.map((r, i) =>
-    buildInventoryRow(r, evidence[i]!, organizationId, checks),
-  );
-  const gscRows = evidence.map((e, i) => {
-    const parsed = gscSchema.safeParse(e.gsc);
-    return inventory[i]!.gsc.status === "available" && parsed.success
-      ? parsed.data
-      : null;
-  });
-  const ga4Rows = evidence.map((e, i) => {
-    const parsed = ga4Schema.safeParse(e.ga4);
-    return inventory[i]!.ga4.status === "available" && parsed.success
-      ? parsed.data
-      : null;
-  });
-  const queryRows = evidence.map((e, i) => {
-    const r = rows[i]!;
-    const parsed = queriesSchema.safeParse(e.queries);
-    if (!parsed.success) return null;
-    const q = parsed.data;
-    const entry = providerEntry(
-      r.siteUrl,
-      r.gscAccountId,
-      r.gscEmail,
-      q,
-      q.rows,
-      sameReportingDay(q.fetchedAt),
-      QUERIES_TTL_SECONDS * 1000,
-      r.gscUpdatedAt,
-      googleCheck(r, "gsc", organizationId, checks),
-    );
-    return entry.status === "available" ? q : null;
-  });
+  checks: Map<string, AuthCheck>,
+): FleetInventoryRow {
+  const { gsc, ga4, bing } = entries(r, part, organizationId, checks);
+  return {
+    projectId: r.projectId,
+    name: r.name,
+    domain: r.domain,
+    gsc,
+    ga4,
+    bing,
+  };
+}
 
+/** Does the part describe the site's current provider bindings? */
+function partMatches(r: FleetRow, part: SitePart) {
+  return (
+    part.gsc.site === r.siteUrl &&
+    part.ga4.property === r.ga4PropertyId &&
+    part.bing.site === r.bingSiteUrl &&
+    part.bing.binding === r.bingBindingId
+  );
+}
+
+/**
+ * Drop payloads that can never be counted again without a reread. Auth is
+ * left out on purpose: a recovered grant makes stored evidence countable.
+ */
+function prunePart(r: FleetRow, part: SitePart, organizationId: string) {
+  const e = entries(r, part, organizationId);
+  const dropGsc = e.gsc.status !== "available" && part.gsc.daily !== undefined;
+  const dropQueries =
+    e.queries.status !== "available" && part.queries.rows !== undefined;
+  const dropBing =
+    e.bing.status !== "available" && part.bing.limits !== undefined;
+  // Same object when nothing is dropped, so an unchanged part is detectable.
+  if (!dropGsc && !dropQueries && !dropBing) return part;
+  const { daily: _daily, ...gscPart } = part.gsc;
+  const { rows: _rows, ...queriesPart } = part.queries;
+  const { limits: _limits, ...bingPart } = part.bing;
+  return {
+    ...part,
+    gsc: dropGsc ? gscPart : part.gsc,
+    queries: dropQueries ? queriesPart : part.queries,
+    bing: dropBing ? bingPart : part.bing,
+  };
+}
+
+/** A missing or failed provider read that a reread could fix. */
+function needsEvidence(r: FleetRow, part: SitePart, organizationId: string) {
+  const { gsc, ga4, bing } = entries(r, part, organizationId);
+  return [gsc, ga4, bing].some(
+    (entry) => entry.status === "missing" || entry.status === "error",
+  );
+}
+
+function assembleDashboard(input: {
+  rows: FleetRow[];
+  sites: Record<string, SitePart>;
+  inventory: FleetInventoryRow[];
+  checks: Map<string, AuthCheck>;
+  organizationId: string;
+  audit: FleetDashboard["audit"];
+  health: FleetDashboard["health"];
+  generatedAt: string;
+}): FleetDashboard {
+  const { rows, sites, inventory, checks, organizationId, audit, health } =
+    input;
+  const w = windows();
   const gsc = {
     sites: 0,
     clicks: 0,
@@ -1313,41 +1760,96 @@ export async function buildFleetDashboard(
     prevImpressions: 0,
     position: null as number | null,
     prevPosition: null as number | null,
-    errors: 0,
+    errors: inventory.filter((row) => row.gsc.status === "error").length,
   };
   let posW = 0;
   let prevPosW = 0;
-  const sites: FleetSite[] = [];
+  const gscSites: FleetSite[] = [];
   const dayMap = new Map<string, [number, number]>();
   let dailySites = 0;
-  gsc.errors = inventory.filter((r) => r.gsc.status === "error").length;
-  gscRows.forEach((g, i) => {
-    if (!g) return;
-    gsc.sites += 1;
-    gsc.clicks += g.clicks;
-    gsc.prevClicks += g.prevClicks;
-    gsc.impressions += g.impressions;
-    gsc.prevImpressions += g.prevImpressions;
-    if (g.position != null) posW += g.position * g.impressions;
-    if (g.prevPosition != null) prevPosW += g.prevPosition * g.prevImpressions;
+  const ga4 = {
+    sites: 0,
+    sessions: 0,
+    prevSessions: 0,
+    users: 0,
+    prevUsers: 0,
+    zeroSessionSites: 0,
+    errors: inventory.filter((row) => row.ga4.status === "error").length,
+  };
+  const qAgg = new Map<
+    string,
+    { clicks: number; impressions: number; posW: number; sites: number }
+  >();
+  let queriesCached = 0;
+  const bingParts: Array<{
+    metrics: NonNullable<FleetInventoryRow["bing"]["metrics"]>;
+    part: SitePart["bing"];
+  }> = [];
+
+  inventory.forEach((row, i) => {
     const r = rows[i]!;
-    sites.push({
-      projectId: r.projectId,
-      domain: r.domain ?? r.name,
-      clicks: g.clicks,
-      prevClicks: g.prevClicks,
-      impressions: g.impressions,
-      delta: g.clicks - g.prevClicks,
-    });
-    if (g.daily?.length) {
-      dailySites += 1;
-      for (const [d, c, im] of g.daily) {
-        const v = dayMap.get(d) ?? [0, 0];
-        v[0] += c;
-        v[1] += im;
-        dayMap.set(d, v);
+    const part = sites[row.projectId]!;
+    const g = row.gsc.status === "available" ? row.gsc.metrics : null;
+    if (g) {
+      gsc.sites += 1;
+      gsc.clicks += g.clicks;
+      gsc.prevClicks += g.prevClicks;
+      gsc.impressions += g.impressions;
+      gsc.prevImpressions += g.prevImpressions;
+      if (g.position != null) posW += g.position * g.impressions;
+      if (g.prevPosition != null)
+        prevPosW += g.prevPosition * g.prevImpressions;
+      gscSites.push({
+        projectId: row.projectId,
+        domain: row.domain ?? row.name,
+        clicks: g.clicks,
+        prevClicks: g.prevClicks,
+        impressions: g.impressions,
+        delta: g.clicks - g.prevClicks,
+      });
+      const daily = part.gsc.daily;
+      if (daily) {
+        dailySites += 1;
+        const base = Date.parse(`${daily.b}T00:00:00Z`);
+        for (let k = 0; k + 2 < daily.v.length; k += 3) {
+          const d = new Date(base + daily.v[k]! * 86400_000)
+            .toISOString()
+            .slice(0, 10);
+          const v = dayMap.get(d) ?? [0, 0];
+          v[0] += daily.v[k + 1]!;
+          v[1] += daily.v[k + 2]!;
+          dayMap.set(d, v);
+        }
       }
     }
+    const a = row.ga4.status === "available" ? row.ga4.metrics : null;
+    if (a) {
+      ga4.sites += 1;
+      ga4.sessions += a.sessions;
+      ga4.prevSessions += a.prevSessions;
+      ga4.users += a.users;
+      ga4.prevUsers += a.prevUsers;
+      if (a.sessions === 0) ga4.zeroSessionSites += 1;
+    }
+    const queries = entries(r, part, organizationId, checks).queries;
+    if (queries.status === "available" && part.queries.rows) {
+      queriesCached += 1;
+      for (const [query, clicks, impressions, position] of part.queries.rows) {
+        const v = qAgg.get(query) ?? {
+          clicks: 0,
+          impressions: 0,
+          posW: 0,
+          sites: 0,
+        };
+        v.clicks += clicks;
+        v.impressions += impressions;
+        v.posW += position * impressions;
+        v.sites += 1;
+        qAgg.set(query, v);
+      }
+    }
+    if (row.bing.status === "available" && row.bing.metrics)
+      bingParts.push({ metrics: row.bing.metrics, part: part.bing });
   });
   gsc.position = gsc.impressions > 0 ? posW / gsc.impressions : null;
   gsc.prevPosition =
@@ -1372,48 +1874,6 @@ export async function buildFleetDashboard(
     });
   }
 
-  const ga4 = {
-    sites: 0,
-    sessions: 0,
-    prevSessions: 0,
-    users: 0,
-    prevUsers: 0,
-    zeroSessionSites: 0,
-    errors: 0,
-  };
-  ga4.errors = inventory.filter((r) => r.ga4.status === "error").length;
-  for (const a of ga4Rows) {
-    if (!a) continue;
-    ga4.sites += 1;
-    ga4.sessions += a.sessions;
-    ga4.prevSessions += a.prevSessions;
-    ga4.users += a.activeUsers;
-    ga4.prevUsers += a.prevActiveUsers;
-    if (a.sessions === 0) ga4.zeroSessionSites += 1;
-  }
-
-  const qAgg = new Map<
-    string,
-    { clicks: number; impressions: number; posW: number; sites: number }
-  >();
-  let queriesCached = 0;
-  for (const q of queryRows) {
-    if (!q || q.error) continue;
-    queriesCached += 1;
-    for (const [query, clicks, impressions, position] of q.rows) {
-      const v = qAgg.get(query) ?? {
-        clicks: 0,
-        impressions: 0,
-        posW: 0,
-        sites: 0,
-      };
-      v.clicks += clicks;
-      v.impressions += impressions;
-      v.posW += position * impressions;
-      v.sites += 1;
-      qAgg.set(query, v);
-    }
-  }
   const topQueriesExport = [...qAgg.entries()]
     .sort(
       (a, b) =>
@@ -1430,60 +1890,44 @@ export async function buildFleetDashboard(
           : null,
       sites: v.sites,
     }));
-  const topQueries = topQueriesExport.slice(0, 15);
 
-  const bingSnapshots = evidence.flatMap((e, i) =>
-    inventory[i]!.bing.status === "available" && e.bing ? [e.bing] : [],
-  );
-  const dateSets = bingSnapshots.map((s) =>
-    s.performance.map((r) => r.date).sort(),
-  );
   // Never present mixed/unknown provider periods as one fleet reporting window.
+  const first = bingParts[0];
   const uniformDates =
-    dateSets.length > 0 &&
-    dateSets[0]!.length > 0 &&
-    dateSets.every(
-      (dates) =>
-        dates.every((d) => d !== null) &&
-        JSON.stringify(dates) === JSON.stringify(dateSets[0]),
+    !!first &&
+    first.part.sig !== null &&
+    first.metrics.startDate !== null &&
+    bingParts.every(
+      ({ metrics, part }) =>
+        part.sig === first.part.sig &&
+        metrics.clicks !== null &&
+        metrics.impressions !== null,
     );
   const bing: FleetDashboard["bing"] = {
-    sites: bingSnapshots.length,
+    sites: bingParts.length,
     clicks: uniformDates
-      ? bingSnapshots.reduce(
-          (n, s) => n + s.performance.reduce((sum, r) => sum + r.clicks, 0),
-          0,
-        )
+      ? bingParts.reduce((n, p) => n + (p.metrics.clicks ?? 0), 0)
       : null,
     impressions: uniformDates
-      ? bingSnapshots.reduce(
-          (n, s) =>
-            n + s.performance.reduce((sum, r) => sum + r.impressions, 0),
-          0,
-        )
+      ? bingParts.reduce((n, p) => n + (p.metrics.impressions ?? 0), 0)
       : null,
-    errors: inventory.filter((r) => r.bing.status === "error").length,
+    errors: inventory.filter((row) => row.bing.status === "error").length,
     dateBasis: "provider-returned",
-    startDate: uniformDates ? dateSets[0]![0]! : null,
-    endDate: uniformDates ? dateSets[0]!.at(-1)! : null,
+    startDate: uniformDates ? first.metrics.startDate : null,
+    endDate: uniformDates ? first.metrics.endDate : null,
     limitations: [
       ...new Set([
         "Bing combines search surfaces and is not comparable to Google Search Console.",
         "Missing provider rows are not zero activity; date coverage and timezone are provider-defined.",
         "Fleet totals require identical known provider-returned dates across all included Bing snapshots; no previous-period comparison is inferred.",
-        ...bingSnapshots.flatMap((s) => s.limitations),
+        ...bingParts.flatMap((p) => p.part.limits ?? []),
       ]),
     ],
   };
-  const byDelta = [...sites].sort((a, b) => b.delta - a.delta);
-  const audit = await auditRollup(
-    new Set(rows.map((r) => r.projectId)),
-    domains,
-  );
-  const health = await healthRollup(organizationId);
+  const byDelta = [...gscSites].sort((a, b) => b.delta - a.delta);
 
   return {
-    generatedAt: new Date().toISOString(),
+    generatedAt: input.generatedAt,
     inventory,
     providerIssues: providerIssues(inventory),
     windows: w,
@@ -1511,11 +1955,99 @@ export async function buildFleetDashboard(
       .filter((s) => s.delta < 0)
       .reverse()
       .slice(0, 8),
-    topQueries,
+    topQueries: topQueriesExport.slice(0, 15),
     topQueriesExport,
     audit,
     health,
   };
+}
+
+/** Parts to snapshot: statuses, aggregates, audit and health, all from now. */
+async function assembleFleet(
+  organizationId: string,
+  input: {
+    rows: FleetRow[];
+    sites: Record<string, SitePart>;
+    /** Stored parts this fold started from; absent for a full build. */
+    previousSites?: Record<string, SitePart>;
+    cursor: string | null;
+    checks: Map<string, AuthCheck>;
+    generatedAt: string;
+  },
+): Promise<FleetBuild> {
+  const { rows, sites, previousSites, cursor, checks, generatedAt } = input;
+  const pruned: Record<string, SitePart> = {};
+  let partsChanged =
+    !previousSites || Object.keys(previousSites).length !== rows.length;
+  for (const r of rows) {
+    await yieldIfBusy();
+    const part = prunePart(r, sites[r.projectId]!, organizationId);
+    pruned[r.projectId] = part;
+    const before = previousSites?.[r.projectId];
+    // Identity differs for every reread or pruned part; compare by content.
+    if (
+      !partsChanged &&
+      part !== before &&
+      JSON.stringify(part) !== JSON.stringify(before)
+    )
+      partsChanged = true;
+  }
+  const inventory: FleetInventoryRow[] = [];
+  for (const r of rows) {
+    await yieldIfBusy();
+    inventory.push(
+      inventoryRow(r, pruned[r.projectId]!, organizationId, checks),
+    );
+  }
+  const domains = new Map(rows.map((r) => [r.projectId, r.domain ?? r.name]));
+  const [audit, health] = await Promise.all([
+    auditRollup(new Set(rows.map((r) => r.projectId)), domains),
+    healthRollup(organizationId),
+  ]);
+  return {
+    dashboard: {
+      ...assembleDashboard({
+        rows,
+        sites: pruned,
+        inventory,
+        checks,
+        organizationId,
+        audit,
+        health,
+        generatedAt,
+      }),
+      foldCursor: cursor,
+    },
+    parts: { v: 1, sites: pruned },
+    partsChanged,
+  };
+}
+
+/** Full read of every site's cache. */
+async function buildFleet(organizationId: string) {
+  const rows = await listFleet(organizationId);
+  const [evidence, checks] = await Promise.all([
+    readFleetEvidence(rows, organizationId, BUILD_READ_CONCURRENCY),
+    readAuthChecks(rows, organizationId),
+  ]);
+  const sites: Record<string, SitePart> = {};
+  for (const [i, r] of rows.entries()) {
+    await yieldIfBusy();
+    sites[r.projectId] = buildPart(r, evidence[i]!);
+  }
+  return assembleFleet(organizationId, {
+    rows,
+    sites,
+    cursor: null,
+    checks,
+    generatedAt: new Date().toISOString(),
+  });
+}
+
+export async function buildFleetDashboard(
+  organizationId: string,
+): Promise<FleetDashboard> {
+  return (await buildFleet(organizationId)).dashboard;
 }
 
 function isReusableSnapshot(
@@ -1525,7 +2057,10 @@ function isReusableSnapshot(
   if (!snapshot || typeof snapshot.generatedAt !== "string") return false;
   if (Number.isNaN(Date.parse(snapshot.generatedAt))) return false;
   if (ageMs(snapshot.generatedAt) < 0) return false;
-  if (!Array.isArray(snapshot.inventory) || !Array.isArray(snapshot.providerIssues))
+  if (
+    !Array.isArray(snapshot.inventory) ||
+    !Array.isArray(snapshot.providerIssues)
+  )
     return false;
   if (!Array.isArray(snapshot.daily) || !Array.isArray(snapshot.topQueries))
     return false;
@@ -1551,7 +2086,7 @@ function isReusableSnapshot(
 function isFreshDashboard(
   snapshot: FleetDashboard | null,
   organizationId: string,
-): snapshot is FleetDashboard {
+): boolean {
   const w = windows();
   return (
     isReusableSnapshot(snapshot, organizationId) &&
@@ -1561,364 +2096,198 @@ function isFreshDashboard(
   );
 }
 
-/** Status of a stored row from the fields already on it, plus the current binding. */
-function recomputeEntry<Metrics>(
-  entry: FleetProviderEntry<Metrics>,
-  property: string | null,
-  accountId: string | null,
-  email: string | null,
-  maxAgeMs: number,
-  timeZone: string | null,
-  updatedAt: string | null,
-  auth?: AuthCheck,
-): FleetProviderEntry<Metrics> {
-  // Annotate once. A bare `{ metrics: null }` in this generic infers
-  // FleetProviderEntry<null> and fails the return type.
-  const base: FleetProviderEntry<Metrics> = {
-    status: "unlinked",
-    property,
-    accountId,
-    email,
-    fetchedAt: null,
-    error: null,
-    metrics: null,
-  };
-  if (!property) return { ...base, property: null };
-  if (auth?.error)
-    return {
-      ...base,
-      status: "error",
-      fetchedAt: entry.property === property ? entry.fetchedAt : null,
-      error: auth.error,
-    };
-  if (
-    entry.property !== property ||
-    entry.status === "missing" ||
-    !entry.fetchedAt
-  )
-    return {
-      ...base,
-      status: "missing",
-      error: "No stored snapshot; waiting for a scheduled refresh.",
-    };
-  const beforeBinding =
-    !!updatedAt && Date.parse(entry.fetchedAt) < connectionTime(updatedAt);
-  if (beforeBinding)
-    return {
-      ...base,
-      status: "stale",
-      fetchedAt: entry.fetchedAt,
-      error: "Stored snapshot is stale or covers a previous reporting window.",
-    };
-  if (entry.status === "error")
-    return {
-      ...base,
-      status: "error",
-      fetchedAt: entry.fetchedAt,
-      error: entry.error,
-    };
-  const currentWindow =
-    timeZone === null || sameReportingDay(entry.fetchedAt, timeZone);
-  const age = ageMs(entry.fetchedAt);
-  if (age < 0 || age > maxAgeMs || !currentWindow)
-    return {
-      ...base,
-      status: "stale",
-      fetchedAt: entry.fetchedAt,
-      error: "Stored snapshot is stale or covers a previous reporting window.",
-      metrics: entry.metrics,
-    };
-  if (!entry.metrics)
-    return {
-      ...base,
-      status: "error",
-      fetchedAt: entry.fetchedAt,
-      error: "Stored metrics are invalid; waiting for a scheduled refresh.",
-    };
-  return {
-    ...base,
-    status: "available",
-    fetchedAt: entry.fetchedAt,
-    metrics: entry.metrics,
-  };
-}
-
-function recomputeInventoryRow(
-  r: FleetRow,
-  stored: FleetInventoryRow,
-  organizationId: string,
-  checks: Map<string, AuthCheck>,
-): FleetInventoryRow {
-  return {
-    projectId: r.projectId,
-    name: r.name,
-    domain: r.domain,
-    gsc: recomputeEntry(
-      stored.gsc,
-      r.siteUrl,
-      r.gscAccountId,
-      r.gscEmail,
-      TTL_SECONDS * 1000,
-      "UTC",
-      r.gscUpdatedAt,
-      googleCheck(r, "gsc", organizationId, checks),
-    ),
-    ga4: recomputeEntry(
-      stored.ga4,
-      r.ga4PropertyId,
-      r.ga4AccountId,
-      r.ga4Email,
-      TTL_SECONDS * 1000,
-      r.ga4PropertyTimeZone ?? "UTC",
-      r.ga4UpdatedAt,
-      googleCheck(r, "ga4", organizationId, checks),
-    ),
-    bing: recomputeEntry(
-      stored.bing,
-      r.bingSiteUrl,
-      null,
-      null,
-      BING_MAX_AGE_MS,
-      null,
-      null,
-    ),
-  };
-}
-
-function foldRefreshedDashboard(input: {
-  rows: FleetRow[];
-  inventory: FleetInventoryRow[];
-  previous: FleetDashboard;
-  audit: FleetDashboard["audit"];
-  health: FleetDashboard["health"];
-  keepClock: boolean;
-}): FleetDashboard {
-  const { rows, inventory, previous, audit, health, keepClock } = input;
-  const gsc = {
-    sites: 0,
-    clicks: 0,
-    prevClicks: 0,
-    impressions: 0,
-    prevImpressions: 0,
-    position: null as number | null,
-    prevPosition: null as number | null,
-    errors: inventory.filter((row) => row.gsc.status === "error").length,
-  };
-  let posW = 0;
-  let prevPosW = 0;
-  const sites: FleetSite[] = [];
-  for (const row of inventory) {
-    const metrics = row.gsc.status === "available" ? row.gsc.metrics : null;
-    if (!metrics) continue;
-    gsc.sites += 1;
-    gsc.clicks += metrics.clicks;
-    gsc.prevClicks += metrics.prevClicks;
-    gsc.impressions += metrics.impressions;
-    gsc.prevImpressions += metrics.prevImpressions;
-    if (metrics.position != null) posW += metrics.position * metrics.impressions;
-    if (metrics.prevPosition != null)
-      prevPosW += metrics.prevPosition * metrics.prevImpressions;
-    sites.push({
-      projectId: row.projectId,
-      domain: row.domain ?? row.name,
-      clicks: metrics.clicks,
-      prevClicks: metrics.prevClicks,
-      impressions: metrics.impressions,
-      delta: metrics.clicks - metrics.prevClicks,
-    });
-  }
-  gsc.position = gsc.impressions > 0 ? posW / gsc.impressions : null;
-  gsc.prevPosition =
-    gsc.prevImpressions > 0 ? prevPosW / gsc.prevImpressions : null;
-
-  const ga4 = {
-    sites: 0,
-    sessions: 0,
-    prevSessions: 0,
-    users: 0,
-    prevUsers: 0,
-    zeroSessionSites: 0,
-    errors: inventory.filter((row) => row.ga4.status === "error").length,
-  };
-  for (const row of inventory) {
-    const metrics = row.ga4.status === "available" ? row.ga4.metrics : null;
-    if (!metrics) continue;
-    ga4.sites += 1;
-    ga4.sessions += metrics.sessions;
-    ga4.prevSessions += metrics.prevSessions;
-    ga4.users += metrics.users;
-    ga4.prevUsers += metrics.prevUsers;
-    if (metrics.sessions === 0) ga4.zeroSessionSites += 1;
-  }
-
-  const bingRows = inventory.flatMap((row) =>
-    row.bing.status === "available" && row.bing.metrics
-      ? [row.bing.metrics]
-      : [],
-  );
-  const firstBing = bingRows[0];
-  const bingWindow =
-    firstBing &&
-    firstBing.startDate !== null &&
-    firstBing.endDate !== null &&
-    bingRows.every(
-      (metrics) =>
-        metrics.startDate === firstBing.startDate &&
-        metrics.endDate === firstBing.endDate &&
-        metrics.clicks !== null &&
-        metrics.impressions !== null,
-    )
-      ? { startDate: firstBing.startDate, endDate: firstBing.endDate }
-      : null;
-  const uniform = bingWindow !== null;
-  const byDelta = [...sites].sort((a, b) => b.delta - a.delta);
-  return {
-    generatedAt: keepClock ? previous.generatedAt : new Date().toISOString(),
-    inventory,
-    providerIssues: providerIssues(inventory),
-    windows: keepClock ? previous.windows : windows(),
-    coverage: {
-      projects: rows.length,
-      gscLinked: rows.filter((row) => row.siteUrl).length,
-      ga4Linked: rows.filter((row) => row.ga4PropertyId).length,
-      gscCached: gsc.sites,
-      ga4Cached: ga4.sites,
-      bingLinked: rows.filter((row) => row.bingSiteUrl).length,
-      bingCached: bingRows.length,
-      queriesCached: previous.coverage.queriesCached,
-      audited: audit.audited,
-      neither: rows.filter(
-        (row) => !row.siteUrl && !row.ga4PropertyId && !row.bingSiteUrl,
-      ).length,
-    },
-    gsc,
-    daily: previous.daily,
-    dailySites: previous.dailySites,
-    ga4,
-    bing: {
-      sites: bingRows.length,
-      clicks: uniform
-        ? bingRows.reduce((sum, metrics) => sum + (metrics.clicks ?? 0), 0)
-        : null,
-      impressions: uniform
-        ? bingRows.reduce((sum, metrics) => sum + (metrics.impressions ?? 0), 0)
-        : null,
-      errors: inventory.filter((row) => row.bing.status === "error").length,
-      dateBasis: "provider-returned",
-      startDate: bingWindow?.startDate ?? null,
-      endDate: bingWindow?.endDate ?? null,
-      limitations: previous.bing.limitations,
-    },
-    gainers: byDelta.filter((site) => site.delta > 0).slice(0, 8),
-    losers: byDelta
-      .filter((site) => site.delta < 0)
-      .reverse()
-      .slice(0, 8),
-    topQueries: previous.topQueries,
-    topQueriesExport: previous.topQueriesExport,
-    audit,
-    health,
-  };
-}
-
 /**
- * Fold the next snapshot from the previous one. listFleet is the site set.
- * Stored rows are reused. R2 is read only for reread ids and, when includeNew
- * is set, for projects the snapshot does not have yet.
+ * Fold the next snapshot from the stored parts. listFleet is the site set.
+ * R2 is read for: the reread ids; projects without a part (when includeNew) or
+ * whose provider binding changed; a bounded rotating slice of the fleet (the
+ * cursor is stored with the snapshot, so every site is reread within
+ * ceil(sites / FOLD_ROTATE_SITES) folds, which catches cache writes outside
+ * the warm); and a bounded number of sites with missing or failed evidence.
+ * Everything else is re-derived from the stored parts, so statuses and
+ * aggregates always reflect the current time, windows, bindings and grants.
  */
-async function refreshFleetSnapshot(
+async function refreshFleet(
   organizationId: string,
-  previous: FleetDashboard,
+  previous: FleetParts,
+  cursor: string | null,
   options: {
     rows?: FleetRow[];
     reread: Set<string>;
     includeNew: boolean;
-    keepClock?: boolean;
+    /** Keep this generatedAt (warm patches must not delay the next fold). */
+    keepGeneratedAt?: string;
   },
-): Promise<FleetDashboard> {
-  const fleet = options.rows ?? (await listFleet(organizationId));
-  const previousById = new Map(
-    previous.inventory.map((row) => [row.projectId, row]),
+) {
+  const listed = options.rows ?? (await listFleet(organizationId));
+  const rows = listed.filter(
+    (r) => options.includeNew || previous.sites[r.projectId],
   );
-  const needed = fleet.filter((row) => {
-    if (options.reread.has(row.projectId)) return true;
-    return options.includeNew && !previousById.has(row.projectId);
+  const mandatory = rows.filter((r) => {
+    const part = previous.sites[r.projectId];
+    return !part || !partMatches(r, part) || options.reread.has(r.projectId);
   });
-  const [evidence, checks] = await Promise.all([
-    readFleetEvidence(needed, organizationId),
-    readAuthChecks(fleet, organizationId),
-  ]);
-  const rebuilt = new Map(
-    needed.map((row, index) => [
-      row.projectId,
-      buildInventoryRow(row, evidence[index]!, organizationId, checks),
-    ]),
+  const mandatoryIds = new Set(mandatory.map((r) => r.projectId));
+
+  // Rotating slice from the cursor, then more sites that lack usable evidence.
+  const byId = [...rows].sort((a, b) => (a.projectId < b.projectId ? -1 : 1));
+  const startAt = Math.max(
+    0,
+    byId.findIndex((r) => cursor === null || r.projectId > cursor),
   );
-  const rows: FleetRow[] = [];
-  const inventory: FleetInventoryRow[] = [];
-  for (const row of fleet) {
-    const fresh = rebuilt.get(row.projectId);
-    if (fresh) {
-      rows.push(row);
-      inventory.push(fresh);
-      continue;
-    }
-    const stored = previousById.get(row.projectId);
-    if (!stored) continue;
-    rows.push(row);
-    inventory.push(
-      recomputeInventoryRow(row, stored, organizationId, checks),
-    );
+  const ring = [...byId.slice(startAt), ...byId.slice(0, startAt)];
+  const slice = ring.slice(0, FOLD_ROTATE_SITES);
+  const inSlice = new Set(slice.map((r) => r.projectId));
+  const problems = ring
+    .filter(
+      (r) =>
+        !inSlice.has(r.projectId) &&
+        !mandatoryIds.has(r.projectId) &&
+        needsEvidence(r, previous.sites[r.projectId]!, organizationId),
+    )
+    .slice(0, FOLD_PROBLEM_SITES);
+  const optional = [...slice, ...problems];
+
+  const evidence = new Map<string, FleetEvidence>();
+  const [checks, mandatoryEvidence] = await Promise.all([
+    readAuthChecks(rows, organizationId),
+    readFleetEvidence(mandatory, organizationId),
+  ]);
+  mandatory.forEach((r, i) => evidence.set(r.projectId, mandatoryEvidence[i]!));
+  const startedAt = Date.now();
+  let handled = 0;
+  for (let i = 0; i < optional.length; i += FOLD_CHUNK_SITES) {
+    if (i > 0 && Date.now() - startedAt >= FOLD_REREAD_MS) break;
+    const chunk = optional.slice(i, i + FOLD_CHUNK_SITES);
+    const unread = chunk.filter((r) => !evidence.has(r.projectId));
+    const read = await readFleetEvidence(unread, organizationId);
+    unread.forEach((r, k) => evidence.set(r.projectId, read[k]!));
+    handled = i + chunk.length;
   }
-  const domains = new Map(
-    rows.map((row) => [row.projectId, row.domain ?? row.name]),
-  );
-  const [audit, health] = await Promise.all([
-    auditRollup(
-      new Set(rows.map((row) => row.projectId)),
-      domains,
-    ),
-    healthRollup(organizationId),
-  ]);
-  return foldRefreshedDashboard({
+  const slicesDone = Math.min(handled, slice.length);
+
+  const sites: Record<string, SitePart> = {};
+  for (const r of rows) {
+    await yieldIfBusy();
+    const e = evidence.get(r.projectId);
+    sites[r.projectId] = e ? buildPart(r, e) : previous.sites[r.projectId]!;
+  }
+  return assembleFleet(organizationId, {
     rows,
-    inventory,
-    previous,
-    audit,
-    health,
-    keepClock: options.keepClock === true,
+    sites,
+    previousSites: previous.sites,
+    cursor: slicesDone > 0 ? slice[slicesDone - 1]!.projectId : cursor,
+    checks,
+    generatedAt: options.keepGeneratedAt ?? new Date().toISOString(),
   });
 }
 
 /**
- * Page read: the cached snapshot, or a fresh cache-only build on a miss. The
- * domain health panel is one cheap DB read, so it is always live; otherwise it
- * could disagree with the Domain health page for up to 30 minutes.
- * A reusable snapshot past max age is folded again without rereading every site.
- * refresh=true keeps the full read for callers that ask for it.
+ * Page read: the cached snapshot, or a fresh cache-only build when there is
+ * none. The domain health panel is one cheap DB read, so it is always live;
+ * otherwise it could disagree with the Domain health page for up to 30
+ * minutes. A reusable snapshot past max age is folded again without rereading
+ * every site. A page view never runs a full build for a snapshot it already
+ * has: when parts are missing or a fold fails it serves the stale snapshot
+ * and leaves the build to the scheduler. refresh=true keeps the full read for
+ * callers that ask for it.
  */
 export async function getFleetDashboard(
   organizationId: string,
   refresh = false,
 ) {
-  if (!refresh) {
-    const cached = (await getCached(
-      snapshotKey(organizationId),
-    )) as FleetDashboard | null;
-    if (isFreshDashboard(cached, organizationId))
-      return { ...cached, health: await healthRollup(organizationId) };
-    if (isReusableSnapshot(cached, organizationId)) {
-      const fresh = await refreshFleetSnapshot(organizationId, cached, {
-        reread: new Set(),
-        includeNew: true,
-      });
-      await setCached(snapshotKey(organizationId), fresh, SNAPSHOT_TTL_SECONDS);
-      return fresh;
+  if (refresh) return refreshSnapshot(organizationId, "build");
+  const cached = (await getCachedShared(
+    snapshotKey(organizationId),
+  )) as FleetDashboard | null;
+  if (cached && isFreshDashboard(cached, organizationId))
+    return { ...cached, health: await healthRollup(organizationId) };
+  const stale = isReusableSnapshot(cached, organizationId) ? cached : null;
+  // Do not queue a request behind a full build.
+  const building = fleetBuilds.get(organizationId);
+  if (stale && building && !building.expired)
+    return { ...stale, health: await healthRollup(organizationId) };
+  try {
+    return await refreshSnapshot(organizationId, "page");
+  } catch (error) {
+    if (!stale) throw error;
+    console.error("[fleet] refresh failed, serving stale snapshot", error);
+    return { ...stale, health: await healthRollup(organizationId) };
+  }
+}
+
+/**
+ * Fold (or, where allowed, build) and persist the snapshot. Concurrent callers
+ * of one mode share one in-flight run, and the run re-reads the stored state
+ * inside the writer lock, so a stale page view, the scheduler and a warm patch
+ * never write over each other.
+ * - page: fold; serve the stale snapshot if it cannot be folded; build only
+ *   when there is no usable snapshot.
+ * - scheduler: fold; build when it cannot be folded.
+ * - build: always build.
+ */
+type RefreshMode = "page" | "scheduler" | "build";
+const inflightRefreshes = new Map<string, Promise<FleetDashboard>>();
+/** The lease of the build in progress; an abandoned build no longer counts. */
+const fleetBuilds = new Map<string, FleetLease>();
+function refreshSnapshot(organizationId: string, mode: RefreshMode) {
+  const key = `${mode}:${organizationId}`;
+  const existing = inflightRefreshes.get(key);
+  if (existing) return existing;
+  const run = withFleetLock(organizationId, (lease) =>
+    refreshSnapshotLocked(organizationId, mode, lease),
+  ).finally(() => inflightRefreshes.delete(key));
+  inflightRefreshes.set(key, run);
+  return run;
+}
+
+async function refreshSnapshotLocked(
+  organizationId: string,
+  mode: RefreshMode,
+  lease: FleetLease,
+): Promise<FleetDashboard> {
+  const snap =
+    mode === "build"
+      ? null
+      : ((await getCachedShared(
+          snapshotKey(organizationId),
+        )) as FleetDashboard | null);
+  // Another writer may have refreshed it while this run waited for the lock.
+  if (snap && isFreshDashboard(snap, organizationId))
+    return { ...snap, health: await healthRollup(organizationId) };
+  const usable = isReusableSnapshot(snap, organizationId) ? snap : null;
+  const serveStale = async () => {
+    console.warn("[fleet] serving stale snapshot until the scheduler builds");
+    return { ...usable!, health: await healthRollup(organizationId) };
+  };
+  const parts = usable ? await readParts(organizationId) : null;
+  if (usable && !parts && mode === "page") return serveStale();
+  let built: FleetBuild | null = null;
+  if (usable && parts) {
+    try {
+      built = await refreshFleet(
+        organizationId,
+        parts,
+        usable.foldCursor ?? null,
+        { reread: new Set(), includeNew: true },
+      );
+    } catch (error) {
+      console.error("[fleet] fold failed", error);
+      if (mode === "page") return serveStale();
     }
   }
-  const fresh = await buildFleetDashboard(organizationId);
-  await setCached(snapshotKey(organizationId), fresh, SNAPSHOT_TTL_SECONDS);
-  return fresh;
+  if (!built) {
+    lease.extendTo(FLEET_BUILD_TIMEOUT_MS);
+    fleetBuilds.set(organizationId, lease);
+    try {
+      built = await buildFleet(organizationId);
+    } finally {
+      // Only the owner clears it: a late settle must not clear a successor's.
+      if (fleetBuilds.get(organizationId) === lease)
+        fleetBuilds.delete(organizationId);
+    }
+  }
+  await persistFleet(organizationId, built, lease);
+  return built.dashboard;
 }
 
 /**
@@ -2055,18 +2424,12 @@ async function runScheduledFleetDashboardOnce() {
   const { organizationId } = selected;
   // A full evidence read takes most of a tick on a large fleet, so a tick does
   // either a snapshot fold or a warm, never both (both overran the 150s limit).
-  const snap = (await getCached(
+  const snap = (await getCachedShared(
     snapshotKey(organizationId),
   )) as FleetDashboard | null;
   if (!isFreshDashboard(snap, organizationId)) {
     const startedAt = Date.now();
-    const fresh = isReusableSnapshot(snap, organizationId)
-      ? await refreshFleetSnapshot(organizationId, snap, {
-          reread: new Set(),
-          includeNew: true,
-        })
-      : await buildFleetDashboard(organizationId);
-    await setCached(snapshotKey(organizationId), fresh, SNAPSHOT_TTL_SECONDS);
+    await refreshSnapshot(organizationId, "scheduler");
     console.log("[fleet] rebuilt snapshot", {
       organizationId,
       ms: Date.now() - startedAt,

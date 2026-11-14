@@ -58,6 +58,10 @@ export const audits = pgTable(
   (table) => [
     index("audits_project_id_idx").on(table.projectId),
     index("audits_started_by_user_id_idx").on(table.startedByUserId),
+    // Latest audit per project (max(started_at) by project_id).
+    index("audits_project_started_idx").on(table.projectId, table.startedAt),
+    // Stale-audit watchdog: status = 'running' and started_at < cutoff.
+    index("audits_status_started_idx").on(table.status, table.startedAt),
   ],
 );
 
@@ -142,6 +146,12 @@ export const auditIssues = pgTable(
   },
   (table) => [
     index("audit_issues_audit_type_idx").on(table.auditId, table.issueType),
+    // Covers the per-audit issue rollups (group by type and severity).
+    index("audit_issues_audit_severity_type_idx").on(
+      table.auditId,
+      table.severity,
+      table.issueType,
+    ),
     index("audit_issues_page_id_idx").on(table.pageId),
   ],
 );

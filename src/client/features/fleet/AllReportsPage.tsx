@@ -13,6 +13,10 @@ import {
 import { buildCsv, type CsvValue } from "@/client/lib/csv";
 import { getDomainHealth } from "@/serverFunctions/domainHealth";
 import { getFleetDashboard } from "@/serverFunctions/portfolio";
+import {
+  CHANGE_LABELS,
+  HEALTH_LABELS,
+} from "@/client/features/fleet/DomainHealthPage";
 
 function download(name: string, headers: string[], rows: CsvValue[][]) {
   const blob = new Blob([buildCsv(headers, rows)], {
@@ -64,7 +68,7 @@ const EXPORTS: Exporter[] = [
         ],
         d.rows.map((r) => [
           r.domain,
-          r.class,
+          HEALTH_LABELS[r.class] ?? r.class,
           r.httpStatus,
           r.finalUrl,
           r.redirectHops,
@@ -91,9 +95,9 @@ const EXPORTS: Exporter[] = [
         ["Domain", "Change", "From", "To", "Detected"],
         d.changes.map((c) => [
           c.domain,
-          c.kind,
-          c.fromClass,
-          c.toClass,
+          CHANGE_LABELS[c.kind] ?? c.kind.replace(/_/g, " "),
+          c.fromClass ? (HEALTH_LABELS[c.fromClass] ?? c.fromClass) : "",
+          c.toClass ? (HEALTH_LABELS[c.toClass] ?? c.toClass) : "",
           c.detectedAt,
         ]),
       );

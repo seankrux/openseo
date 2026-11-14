@@ -2,6 +2,7 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useRef, useState } from "react";
+import { toast } from "sonner";
 import { PageHeader } from "@/client/components/PageHeader";
 import { TablePagination } from "@/client/components/table/TablePagination";
 import { Button } from "@/client/components/ui/button";
@@ -73,8 +74,13 @@ function Ga4SetupPage() {
   const site = useMutation({
     mutationFn: (v: { projectId: string; apply: boolean }) =>
       runGa4SetupSite({ data: { ...v, confirm: v.apply } }),
+    meta: { errorToast: false },
+    onMutate: (): void => {
+      bulk.reset();
+    },
     onSuccess: (r) => {
       const result = r as Result;
+      toast.success(`${result.domain}: ${result.final}`);
       setResults((current) => [
         result,
         ...current.filter((entry) => entry.domain !== result.domain),
@@ -85,6 +91,10 @@ function Ga4SetupPage() {
   const bulk = useMutation({
     mutationFn: (v: { apply: boolean; limit: number }) =>
       runGa4SetupBulk({ data: { ...v, confirm: v.apply } }),
+    meta: { errorToast: false },
+    onMutate: (): void => {
+      site.reset();
+    },
     onSuccess: (r) => {
       setResults((r as { results: Result[] }).results);
       void qc.invalidateQueries({ queryKey: ["ga4-setup"] });
@@ -345,7 +355,9 @@ function Ga4SetupPage() {
                             {entry.domain}
                           </TableCell>
                           <TableCell>
-                            {state ? statusLabel(state.status) : "Not attempted"}
+                            {state
+                              ? statusLabel(state.status)
+                              : "Not attempted"}
                           </TableCell>
                           <TableCell className="whitespace-nowrap">
                             {state?.measurementId ?? "—"}

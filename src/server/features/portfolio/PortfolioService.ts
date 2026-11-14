@@ -2,7 +2,7 @@
 // summary query behind the fleet pages. Results are cached per project in the
 // R2 cache (12h TTL); FleetDashboardService warms them on a budget and serves
 // the site table and dashboard from one assembled snapshot.
-import { eq, inArray, sql } from "drizzle-orm";
+import { eq, sql } from "drizzle-orm";
 import { db } from "@/db";
 import {
   gscConnections,
@@ -13,6 +13,8 @@ import {
 } from "@/db/schema";
 import { GscService } from "@/server/features/gsc/services/GscService";
 import { createGa4DataClient } from "@/server/lib/ga4Client";
+import { classifyGscError } from "@/server/lib/gscErrors";
+import type { GscRequestOptions } from "@/server/lib/gscClient";
 import { ga4CacheKey } from "./PortfolioCacheKeys";
 
 export { ga4CacheKey } from "./PortfolioCacheKeys";
@@ -87,17 +89,23 @@ export function cacheKey(projectId: string, siteUrl: string) {
   return `portfolio-gsc:v1:${projectId}:${siteUrl}`;
 }
 
-export async function fetchGsc(projectId: string): Promise<PortfolioGsc> {
+export async function fetchGsc(
+  projectId: string,
+  options?: GscRequestOptions,
+): Promise<PortfolioGsc> {
   const w = windows();
   const fetchedAt = new Date().toISOString();
   try {
-    const res = await GscService.getPerformance({
-      projectId,
-      startDate: w.prevStart,
-      endDate: w.end,
-      dimensions: ["date"],
-      rowLimit: 200,
-    } as Parameters<typeof GscService.getPerformance>[0]);
+    const res = await GscService.getPerformance(
+      {
+        projectId,
+        startDate: w.prevStart,
+        endDate: w.end,
+        dimensions: ["date"],
+        rowLimit: 200,
+      } as Parameters<typeof GscService.getPerformance>[0],
+      options,
+    );
     const agg = (from: string, to: string) => {
       let clicks = 0;
       let impressions = 0;
@@ -157,6 +165,7 @@ export async function fetchGa4(conn: {
   propertyId: string;
   userId: string;
   ga4AccountId: string;
+  signal?: AbortSignal;
 }): Promise<PortfolioGa4> {
   const fetchedAt = new Date().toISOString();
   try {
@@ -164,6 +173,7 @@ export async function fetchGa4(conn: {
       userId: conn.userId,
       ga4AccountId: conn.ga4AccountId,
       propertyId: conn.propertyId,
+      signal: conn.signal,
     });
     const res = await client.runReport({
       dateRanges: [
@@ -178,7 +188,12 @@ export async function fetchGa4(conn: {
       keepEmptyRows: false,
       returnPropertyQuota: true,
     });
-    const out = { sessions: 0, activeUsers: 0, prevSessions: 0, prevActiveUsers: 0 };
+    const out = {
+      sessions: 0,
+      activeUsers: 0,
+      prevSessions: 0,
+      prevActiveUsers: 0,
+    };
     for (const row of res.rows ?? []) {
       const range = row.dimensionValues?.[0]?.value ?? "date_range_0";
       const sessions = Number(row.metricValues?.[0]?.value ?? 0);
@@ -199,7 +214,12 @@ export async function fetchGa4(conn: {
       prevSessions: 0,
       prevActiveUsers: 0,
       fetchedAt,
-      error: error instanceof Error ? error.message.slice(0, 200) : "GA4 error",
+      error:
+        classifyGscError(error) === "transient"
+          ? "Google Analytics reporting is temporarily unavailable; waiting for a scheduled retry."
+          : error instanceof Error
+            ? error.message.slice(0, 200)
+            : "GA4 error",
     };
   }
 }
@@ -207,6 +227,9 @@ export async function fetchGa4(conn: {
 export async function getAuditSummaries(projectIds: string[]) {
   const out = new Map<string, PortfolioRow["audit"]>();
   if (projectIds.length === 0) return out;
+  // Drizzle's single-table SQLite projection removes column qualifiers. Keep
+  // the outer ID explicit so subqueries cannot bind to their own child-table ID.
+  const auditId = sql`${audits}.${sql.identifier(audits.id.name)}`;
   // Latest audit per project.
   const latest = await db
     .select({
@@ -216,60 +239,42 @@ export async function getAuditSummaries(projectIds: string[]) {
       completedAt: audits.completedAt,
       pagesCrawled: audits.pagesCrawled,
       startedAt: audits.startedAt,
+      // Keep the aggregates in this statement: separate chunks add D1 round
+      // trips to every overview read, even when most audits have no scores.
+      critical: sql<number>`(select count(*) from ${auditIssues}
+        where ${auditIssues.auditId} = ${auditId}
+        and ${auditIssues.severity} = 'critical')`,
+      warning: sql<number>`(select count(*) from ${auditIssues}
+        where ${auditIssues.auditId} = ${auditId}
+        and ${auditIssues.severity} = 'warning')`,
+      lighthouseSeo: sql<
+        number | null
+      >`(select avg(${auditLighthouseResults.seoScore})
+        from ${auditLighthouseResults}
+        where ${auditLighthouseResults.auditId} = ${auditId})`,
+      lighthousePerf: sql<
+        number | null
+      >`(select avg(${auditLighthouseResults.performanceScore})
+        from ${auditLighthouseResults}
+        where ${auditLighthouseResults.auditId} = ${auditId})`,
     })
     .from(audits)
     .where(
       sql`${audits.startedAt} = (select max(a2.started_at) from audits a2 where a2.project_id = ${audits.projectId})`,
     );
-  const byAudit = new Map(latest.map((a) => [a.id, a]));
-  const auditIds = [...byAudit.keys()];
-  const issueCounts = new Map<string, { critical: number; warning: number }>();
-  const lh = new Map<string, { seo: number | null; perf: number | null }>();
-  for (let i = 0; i < auditIds.length; i += 90) {
-    const chunk = auditIds.slice(i, i + 90);
-    const issues = await db
-      .select({
-        auditId: auditIssues.auditId,
-        severity: auditIssues.severity,
-        n: sql<number>`count(*)`,
-      })
-      .from(auditIssues)
-      .where(inArray(auditIssues.auditId, chunk))
-      .groupBy(auditIssues.auditId, auditIssues.severity);
-    for (const r of issues) {
-      const c = issueCounts.get(r.auditId) ?? { critical: 0, warning: 0 };
-      if (r.severity === "critical") c.critical = Number(r.n);
-      if (r.severity === "warning") c.warning = Number(r.n);
-      issueCounts.set(r.auditId, c);
-    }
-    const scores = await db
-      .select({
-        auditId: auditLighthouseResults.auditId,
-        seo: sql<number | null>`avg(${auditLighthouseResults.seoScore})`,
-        perf: sql<number | null>`avg(${auditLighthouseResults.performanceScore})`,
-      })
-      .from(auditLighthouseResults)
-      .where(inArray(auditLighthouseResults.auditId, chunk))
-      .groupBy(auditLighthouseResults.auditId);
-    for (const r of scores)
-      lh.set(r.auditId, {
-        seo: r.seo == null ? null : Math.round(Number(r.seo)),
-        perf: r.perf == null ? null : Math.round(Number(r.perf)),
-      });
-  }
   const wanted = new Set(projectIds);
   for (const a of latest) {
     if (!wanted.has(a.projectId)) continue;
-    const c = issueCounts.get(a.id) ?? { critical: 0, warning: 0 };
-    const s = lh.get(a.id) ?? { seo: null, perf: null };
     out.set(a.projectId, {
       status: a.status,
       completedAt: a.completedAt,
       pagesCrawled: a.pagesCrawled,
-      critical: c.critical,
-      warning: c.warning,
-      lighthouseSeo: s.seo,
-      lighthousePerf: s.perf,
+      critical: Number(a.critical),
+      warning: Number(a.warning),
+      lighthouseSeo:
+        a.lighthouseSeo == null ? null : Math.round(Number(a.lighthouseSeo)),
+      lighthousePerf:
+        a.lighthousePerf == null ? null : Math.round(Number(a.lighthousePerf)),
     });
   }
   return out;
@@ -277,12 +282,18 @@ export async function getAuditSummaries(projectIds: string[]) {
 
 async function clearCache(organizationId: string) {
   const rows = await db
-    .select({ projectId: gscConnections.projectId, siteUrl: gscConnections.siteUrl })
+    .select({
+      projectId: gscConnections.projectId,
+      siteUrl: gscConnections.siteUrl,
+    })
     .from(gscConnections)
     .where(eq(gscConnections.organizationId, organizationId));
   const { env } = await import("cloudflare:workers");
   const ga4Rows = await db
-    .select({ projectId: ga4Connections.projectId, propertyId: ga4Connections.propertyId })
+    .select({
+      projectId: ga4Connections.projectId,
+      propertyId: ga4Connections.propertyId,
+    })
     .from(ga4Connections)
     .where(eq(ga4Connections.organizationId, organizationId));
   const keys = [
