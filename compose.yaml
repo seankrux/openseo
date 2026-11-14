@@ -9,6 +9,7 @@ services:
     # `cp .env.example .env` creates it.
     env_file:
       - .env
+      - /home/ubuntu/.config/bing/api.env
     # Anonymous usage heartbeat controls: docs/SELF_HOSTING_DOCKER.md#telemetry
     environment:
       # Required for local Docker self-hosting: exposes Compose env vars to cloudflare:workers bindings.
@@ -16,6 +17,7 @@ services:
       - PORT=${PORT:-3001}
       - ALLOWED_HOST=${ALLOWED_HOST:-}
       - AUTH_MODE=local_noauth
+      - BING_WEBMASTER_ENABLED=true
       - OPENSEO_TELEMETRY_DISABLED=${OPENSEO_TELEMETRY_DISABLED:-}
       - DO_NOT_TRACK=${DO_NOT_TRACK:-}
       - DATAFORSEO_API_KEY=${DATAFORSEO_API_KEY}

@@ -19,7 +19,12 @@ import { Route as VerifyEmailRouteImport } from './routes/verify-email'
 import { Route as Char91DotwellKnownChar93OpenaiAppsChallengeRouteImport } from './routes/[.well-known]/openai-apps-challenge'
 import { Route as AppIndexRouteImport } from './routes/_app/index'
 import { Route as AppAiRouteImport } from './routes/_app/ai'
+import { Route as AppAllReportsRouteImport } from './routes/_app/all-reports'
 import { Route as AppBillingRouteImport } from './routes/_app/billing'
+import { Route as AppDashboardRouteImport } from './routes/_app/dashboard'
+import { Route as AppDomainHealthRouteImport } from './routes/_app/domain-health'
+import { Route as AppGa4SetupRouteImport } from './routes/_app/ga4-setup'
+import { Route as AppOverviewRouteImport } from './routes/_app/overview'
 import { Route as AppProjectsRouteImport } from './routes/_app/projects'
 import { Route as AppSettingsRouteImport } from './routes/_app/settings'
 import { Route as AppSupportRouteImport } from './routes/_app/support'
@@ -120,9 +125,34 @@ const AppAiRoute = AppAiRouteImport.update({
   path: '/ai',
   getParentRoute: () => AppRouteRoute,
 } as any)
+const AppAllReportsRoute = AppAllReportsRouteImport.update({
+  id: '/all-reports',
+  path: '/all-reports',
+  getParentRoute: () => AppRouteRoute,
+} as any)
 const AppBillingRoute = AppBillingRouteImport.update({
   id: '/billing',
   path: '/billing',
+  getParentRoute: () => AppRouteRoute,
+} as any)
+const AppDashboardRoute = AppDashboardRouteImport.update({
+  id: '/dashboard',
+  path: '/dashboard',
+  getParentRoute: () => AppRouteRoute,
+} as any)
+const AppDomainHealthRoute = AppDomainHealthRouteImport.update({
+  id: '/domain-health',
+  path: '/domain-health',
+  getParentRoute: () => AppRouteRoute,
+} as any)
+const AppGa4SetupRoute = AppGa4SetupRouteImport.update({
+  id: '/ga4-setup',
+  path: '/ga4-setup',
+  getParentRoute: () => AppRouteRoute,
+} as any)
+const AppOverviewRoute = AppOverviewRouteImport.update({
+  id: '/overview',
+  path: '/overview',
   getParentRoute: () => AppRouteRoute,
 } as any)
 const AppProjectsRoute = AppProjectsRouteImport.update({
@@ -408,7 +438,12 @@ export interface FileRoutesByFullPath {
   '/verify-email': typeof VerifyEmailRoute
   '/.well-known/openai-apps-challenge': typeof Char91DotwellKnownChar93OpenaiAppsChallengeRoute
   '/ai': typeof AppAiRoute
+  '/all-reports': typeof AppAllReportsRoute
   '/billing': typeof AppBillingRoute
+  '/dashboard': typeof AppDashboardRoute
+  '/domain-health': typeof AppDomainHealthRoute
+  '/ga4-setup': typeof AppGa4SetupRoute
+  '/overview': typeof AppOverviewRoute
   '/projects': typeof AppProjectsRoute
   '/settings': typeof AppSettingsRouteWithChildren
   '/support': typeof AppSupportRoute
@@ -469,7 +504,12 @@ export interface FileRoutesByTo {
   '/verify-email': typeof VerifyEmailRoute
   '/.well-known/openai-apps-challenge': typeof Char91DotwellKnownChar93OpenaiAppsChallengeRoute
   '/ai': typeof AppAiRoute
+  '/all-reports': typeof AppAllReportsRoute
   '/billing': typeof AppBillingRoute
+  '/dashboard': typeof AppDashboardRoute
+  '/domain-health': typeof AppDomainHealthRoute
+  '/ga4-setup': typeof AppGa4SetupRoute
+  '/overview': typeof AppOverviewRoute
   '/projects': typeof AppProjectsRoute
   '/support': typeof AppSupportRoute
   '/sign-in': typeof AuthSignInRoute
@@ -528,7 +568,12 @@ export interface FileRoutesById {
   '/verify-email': typeof VerifyEmailRoute
   '/.well-known/openai-apps-challenge': typeof Char91DotwellKnownChar93OpenaiAppsChallengeRoute
   '/_app/ai': typeof AppAiRoute
+  '/_app/all-reports': typeof AppAllReportsRoute
   '/_app/billing': typeof AppBillingRoute
+  '/_app/dashboard': typeof AppDashboardRoute
+  '/_app/domain-health': typeof AppDomainHealthRoute
+  '/_app/ga4-setup': typeof AppGa4SetupRoute
+  '/_app/overview': typeof AppOverviewRoute
   '/_app/projects': typeof AppProjectsRoute
   '/_app/settings': typeof AppSettingsRouteWithChildren
   '/_app/support': typeof AppSupportRoute
@@ -592,7 +637,12 @@ export interface FileRouteTypes {
     | '/verify-email'
     | '/.well-known/openai-apps-challenge'
     | '/ai'
+    | '/all-reports'
     | '/billing'
+    | '/dashboard'
+    | '/domain-health'
+    | '/ga4-setup'
+    | '/overview'
     | '/projects'
     | '/settings'
     | '/support'
@@ -653,7 +703,12 @@ export interface FileRouteTypes {
     | '/verify-email'
     | '/.well-known/openai-apps-challenge'
     | '/ai'
+    | '/all-reports'
     | '/billing'
+    | '/dashboard'
+    | '/domain-health'
+    | '/ga4-setup'
+    | '/overview'
     | '/projects'
     | '/support'
     | '/sign-in'
@@ -711,7 +766,12 @@ export interface FileRouteTypes {
     | '/verify-email'
     | '/.well-known/openai-apps-challenge'
     | '/_app/ai'
+    | '/_app/all-reports'
     | '/_app/billing'
+    | '/_app/dashboard'
+    | '/_app/domain-health'
+    | '/_app/ga4-setup'
+    | '/_app/overview'
     | '/_app/projects'
     | '/_app/settings'
     | '/_app/support'
@@ -859,11 +919,46 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AppAiRouteImport
       parentRoute: typeof AppRouteRoute
     }
+    '/_app/all-reports': {
+      id: '/_app/all-reports'
+      path: '/all-reports'
+      fullPath: '/all-reports'
+      preLoaderRoute: typeof AppAllReportsRouteImport
+      parentRoute: typeof AppRouteRoute
+    }
     '/_app/billing': {
       id: '/_app/billing'
       path: '/billing'
       fullPath: '/billing'
       preLoaderRoute: typeof AppBillingRouteImport
+      parentRoute: typeof AppRouteRoute
+    }
+    '/_app/dashboard': {
+      id: '/_app/dashboard'
+      path: '/dashboard'
+      fullPath: '/dashboard'
+      preLoaderRoute: typeof AppDashboardRouteImport
+      parentRoute: typeof AppRouteRoute
+    }
+    '/_app/domain-health': {
+      id: '/_app/domain-health'
+      path: '/domain-health'
+      fullPath: '/domain-health'
+      preLoaderRoute: typeof AppDomainHealthRouteImport
+      parentRoute: typeof AppRouteRoute
+    }
+    '/_app/ga4-setup': {
+      id: '/_app/ga4-setup'
+      path: '/ga4-setup'
+      fullPath: '/ga4-setup'
+      preLoaderRoute: typeof AppGa4SetupRouteImport
+      parentRoute: typeof AppRouteRoute
+    }
+    '/_app/overview': {
+      id: '/_app/overview'
+      path: '/overview'
+      fullPath: '/overview'
+      preLoaderRoute: typeof AppOverviewRouteImport
       parentRoute: typeof AppRouteRoute
     }
     '/_app/projects': {
@@ -1342,7 +1437,12 @@ const AppPProjectIdRouteRouteWithChildren =
 
 interface AppRouteRouteChildren {
   AppAiRoute: typeof AppAiRoute
+  AppAllReportsRoute: typeof AppAllReportsRoute
   AppBillingRoute: typeof AppBillingRoute
+  AppDashboardRoute: typeof AppDashboardRoute
+  AppDomainHealthRoute: typeof AppDomainHealthRoute
+  AppGa4SetupRoute: typeof AppGa4SetupRoute
+  AppOverviewRoute: typeof AppOverviewRoute
   AppProjectsRoute: typeof AppProjectsRoute
   AppSettingsRoute: typeof AppSettingsRouteWithChildren
   AppSupportRoute: typeof AppSupportRoute
@@ -1355,7 +1455,12 @@ interface AppRouteRouteChildren {
 
 const AppRouteRouteChildren: AppRouteRouteChildren = {
   AppAiRoute: AppAiRoute,
+  AppAllReportsRoute: AppAllReportsRoute,
   AppBillingRoute: AppBillingRoute,
+  AppDashboardRoute: AppDashboardRoute,
+  AppDomainHealthRoute: AppDomainHealthRoute,
+  AppGa4SetupRoute: AppGa4SetupRoute,
+  AppOverviewRoute: AppOverviewRoute,
   AppProjectsRoute: AppProjectsRoute,
   AppSettingsRoute: AppSettingsRouteWithChildren,
   AppSupportRoute: AppSupportRoute,

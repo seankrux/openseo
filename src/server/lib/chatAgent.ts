@@ -36,6 +36,14 @@ export function openRouterCostUsd(providerMetadata: unknown): number {
 }
 
 export function requireOpenRouterCostUsd(providerMetadata: unknown): number {
+  // CityThrive: a self-hosted OpenAI-compatible proxy (OPENROUTER_BASE_URL)
+  // returns no OpenRouter cost metadata; that spend is 0 here.
+  if (
+    !providerMetadata ||
+    typeof providerMetadata !== "object" ||
+    !("openrouter" in providerMetadata)
+  )
+    return 0;
   return openRouterUsageSchema.parse(providerMetadata).openrouter.usage.cost;
 }
 

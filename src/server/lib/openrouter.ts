@@ -3,6 +3,7 @@ import {
   type LanguageModelV3,
   type OpenRouterProvider,
 } from "@openrouter/ai-sdk-provider";
+import { createOpenAICompatible } from "@ai-sdk/openai-compatible";
 import { wrapLanguageModel } from "ai";
 
 // OpenRouter model slug used for the SAM in-app chat agent. Override with
@@ -63,8 +64,18 @@ export function buildChatAgentModel(
   apiKey: string,
   modelId?: string,
   reasoningEffort: "max" | "low" = "max",
+  baseURL?: string,
 ): LanguageModelV3 {
   const model = modelId ?? DEFAULT_CHAT_AGENT_MODEL;
+  // CityThrive: OPENROUTER_BASE_URL points at any OpenAI-compatible proxy
+  // (CLIProxyAPI, OpenCode). Those servers reply with fields such as
+  // `reasoning_content: null` / `tool_calls: null` that the OpenRouter SDK's
+  // strict schema rejects ("Invalid JSON response", upstream #385), so a
+  // custom base URL goes through the generic OpenAI-compatible client, which
+  // accepts nullish fields. Unset = OpenRouter's default endpoint.
+  if (baseURL?.trim()) {
+    return openAiCompatibleModel(apiKey, baseURL.trim(), model, reasoningEffort);
+  }
   const openrouter = createOpenRouter({ apiKey });
   const primary = openRouterModel(openrouter, model, reasoningEffort);
   if (!model.startsWith("openai/")) return primary;
@@ -110,5 +121,44 @@ function openRouterModel(
   return openrouter(model, {
     usage: { include: true },
     extraBody: { reasoning: { effort: reasoningEffort } },
+  });
+}
+
+// Generic OpenAI-compatible chat model for self-hosted proxies. The proxy is
+// metered elsewhere (or free), so no OpenRouter cost metadata is produced;
+// cost readers treat missing metadata as 0.
+function openAiCompatibleModel(
+  apiKey: string,
+  baseURL: string,
+  model: string,
+  reasoningEffort: "max" | "low",
+): LanguageModelV3 {
+  const provider = createOpenAICompatible({
+    name: "openaiCompatible",
+    baseURL,
+    apiKey,
+    includeUsage: true,
+    supportsStructuredOutputs: true,
+  });
+  // Proxies expect plain model ids ("gpt-5.6-luna"), not OpenRouter slugs.
+  const id = model.includes("/") ? model.slice(model.indexOf("/") + 1) : model;
+  const base = provider.chatModel(id) as unknown as LanguageModelV3;
+  // OpenAI-style effort values; "max" is OpenRouter-only.
+  const effort = reasoningEffort === "low" ? "low" : "medium";
+  return wrapLanguageModel({
+    model: base,
+    middleware: {
+      specificationVersion: "v3",
+      transformParams: async ({ params }) => ({
+        ...params,
+        providerOptions: {
+          ...params.providerOptions,
+          openaiCompatible: {
+            reasoningEffort: effort,
+            ...params.providerOptions?.openaiCompatible,
+          },
+        },
+      }),
+    },
   });
 }

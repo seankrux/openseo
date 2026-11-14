@@ -41,7 +41,9 @@ export function ReportTemplatesList({
             <TableHead>Name</TableHead>
             <TableHead>Description</TableHead>
             <TableHead>Updated</TableHead>
-            <TableHead />
+            <TableHead>
+              <span className="sr-only">Actions</span>
+            </TableHead>
           </TableRow>
         </TableHeader>
         <TableBody>

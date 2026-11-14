@@ -5,6 +5,10 @@ import { isHostedAuthMode } from "@/lib/auth-mode";
 
 async function handleAuthRequest(request: Request) {
   if (!isHostedAuthMode(env.AUTH_MODE)) {
+    const pathname = new URL(request.url).pathname;
+    if (request.method === "GET" && pathname.endsWith("/get-session")) {
+      return Response.json(null, { status: 200 });
+    }
     return new Response("Not found", {
       status: 404,
     });

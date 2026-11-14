@@ -81,7 +81,11 @@ export function SearchPerformanceSelects({
           });
         }}
       >
-        <SelectTrigger size="sm" className="w-36" aria-label="Device filter">
+        <SelectTrigger
+          size="sm"
+          className="w-36"
+          aria-label={`Device filter: ${device === ALL ? "All devices" : DEVICE_LABELS[device]}`}
+        >
           <SelectValue />
         </SelectTrigger>
         <SelectContent>
@@ -103,7 +107,11 @@ export function SearchPerformanceSelects({
           });
         }}
       >
-        <SelectTrigger size="sm" className="w-36" aria-label="Country filter">
+        <SelectTrigger
+          size="sm"
+          className="w-36"
+          aria-label={`Country filter: ${country === ALL ? "All countries" : country.toUpperCase()}`}
+        >
           <SelectValue />
         </SelectTrigger>
         <SelectContent>
@@ -126,7 +134,11 @@ export function SearchPerformanceSelects({
           }
         }}
       >
-        <SelectTrigger size="sm" className="w-36" aria-label="Date range">
+        <SelectTrigger
+          size="sm"
+          className="w-36"
+          aria-label={`Date range: ${RANGE_LABELS[range]}`}
+        >
           <SelectValue />
         </SelectTrigger>
         <SelectContent>

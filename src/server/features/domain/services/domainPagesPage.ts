@@ -16,6 +16,7 @@ import type { ResearchScope } from "@/shared/researchScope";
 import type { RelevantPagesItem } from "@/server/lib/dataforseo";
 import { computeHasMore } from "@/server/features/domain/services/pagination";
 import type { DomainKeywordsFilters } from "@/types/schemas/domain";
+import { requireDataforseoApiKey } from "@/server/lib/dataforseo/config";
 
 const DOMAIN_PAGES_PAGE_TTL_SECONDS = 12 * 60 * 60;
 
@@ -61,21 +62,16 @@ function collectNumericRange(
   min: number | undefined,
   max: number | undefined,
 ) {
-  if (typeof min === "number" && Number.isFinite(min)) {
-    out.push([field, ">=", min]);
-  }
-  if (typeof max === "number" && Number.isFinite(max)) {
-    out.push([field, "<=", max]);
-  }
+  if (min != null) out.push([field, ">=", min]);
+  if (max != null) out.push([field, "<=", max]);
 }
 
-function parseTerms(value: string | undefined): string[] {
-  if (!value) return [];
-  return value
-    .toLowerCase()
-    .split(/[,+]/)
+function parseTerms(raw: string | undefined): string[] {
+  if (!raw) return [];
+  return raw
+    .split(",")
     .map((term) => term.trim())
-    .filter(Boolean);
+    .filter((term) => term.length > 0);
 }
 
 function buildPageFilters(
@@ -155,7 +151,7 @@ export async function getPagesPage(
   const orderBy = [`${SORT_FIELD_BY_MODE[input.sortMode]},${input.sortOrder}`];
   const filters = buildPageFilters(input.filters, input.search, scopeFilter);
 
-  const cacheKey = await buildCacheKey("domain:pages-page", {
+  const cacheKey = await buildCacheKey("domain:pages-page:v2", {
     organizationId: billingCustomer.organizationId,
     projectId: input.projectId,
     domain: target.hostname,
@@ -177,6 +173,7 @@ export async function getPagesPage(
     return cached.data;
   }
 
+  await requireDataforseoApiKey();
   const dataforseo = createDataforseoClient(billingCustomer);
   const response = await dataforseo.domain.relevantPages({
     target: target.hostname,
@@ -213,8 +210,6 @@ export async function getPagesPage(
     fetchedAt: new Date().toISOString(),
   };
 
-  // waitUntil, not void: workerd cancels unregistered pending I/O once the
-  // response is sent, so a fire-and-forget put never persists the cache.
   waitUntil(
     setCached(cacheKey, result, DOMAIN_PAGES_PAGE_TTL_SECONDS).catch(
       (error) => {
