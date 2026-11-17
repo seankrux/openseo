@@ -85,7 +85,7 @@ function dimensionExportTable(
       row.impressions,
       // CTR is a 0-1 ratio; exports keep two decimals, which would turn 0.0234
       // into 0.02. As a percentage the same precision reads 2.34.
-      Math.round(row.ctr * 10_000) / 100,
+      Math.round((row.ctr ?? 0) * 10_000) / 100,
       ...(showPosition ? [row.position] : []),
     ]),
   };

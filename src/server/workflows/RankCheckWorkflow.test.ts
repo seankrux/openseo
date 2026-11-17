@@ -413,7 +413,7 @@ describe("rank check SERP provider", () => {
     mocks.getRunById.mockResolvedValue(activeRun);
     mocks.getKeywordsForConfig.mockResolvedValue(keywords(2));
     mocks.getSnapshotsForRun.mockResolvedValue([]);
-    mocks.updateRun.mockResolvedValue(undefined);
+    mocks.updateRun.mockResolvedValue(true);
     mocks.isHostedServerAuthMode.mockResolvedValue(false);
   });
 

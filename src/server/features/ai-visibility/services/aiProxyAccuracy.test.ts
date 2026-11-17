@@ -21,6 +21,9 @@ const { testDb, mocks } = await vi.hoisted(async () => {
     },
   };
 });
+vi.mock("cloudflare:workflows", () => ({
+  NonRetryableError: class NonRetryableError extends Error {},
+}));
 vi.mock("cloudflare:workers", () => ({
   env: { DATABASE_PROVIDER: "d1" },
   waitUntil: vi.fn(),

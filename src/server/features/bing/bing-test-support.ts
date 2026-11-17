@@ -1,4 +1,3 @@
-import { readFileSync } from "node:fs";
 import { createClient } from "@libsql/client";
 import { drizzle } from "drizzle-orm/libsql";
 import { afterAll, beforeAll, beforeEach, vi } from "vitest";
@@ -121,7 +120,20 @@ beforeAll(async () => {
     CREATE TABLE organization (id text PRIMARY KEY);
     CREATE TABLE user (id text PRIMARY KEY);
     CREATE TABLE projects (id text PRIMARY KEY, organization_id text NOT NULL REFERENCES organization(id), domain text, archived_at text);
-    ${readFileSync("drizzle/sqlite/0056_bing_site_bindings.sql", "utf8")}`);
+    CREATE TABLE bing_site_bindings (
+      id text PRIMARY KEY NOT NULL,
+      project_id text NOT NULL,
+      organization_id text NOT NULL,
+      site_url text NOT NULL,
+      connected_by_user_id text NOT NULL,
+      created_at text DEFAULT (current_timestamp) NOT NULL,
+      updated_at text DEFAULT (current_timestamp) NOT NULL,
+      FOREIGN KEY (project_id) REFERENCES projects(id) ON DELETE cascade,
+      FOREIGN KEY (organization_id) REFERENCES organization(id) ON DELETE cascade,
+      FOREIGN KEY (connected_by_user_id) REFERENCES user(id) ON DELETE cascade
+    );
+    CREATE UNIQUE INDEX bing_site_bindings_project_idx ON bing_site_bindings (project_id);
+    CREATE INDEX bing_site_bindings_organization_idx ON bing_site_bindings (organization_id);`);
 });
 afterAll(() => client.close());
 beforeEach(async () => {

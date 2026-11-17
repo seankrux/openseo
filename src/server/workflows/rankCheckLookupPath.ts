@@ -9,7 +9,7 @@ import {
   type SerpProvider,
 } from "@/server/lib/serp-provider";
 import { getIsoCountryCode } from "@/shared/keyword-locations";
-import { KEYWORDS_PER_BATCH } from "@/shared/rank-tracking";
+const KEYWORDS_PER_BATCH = 100;
 import { pgStep } from "@/server/workflows/pgStep";
 import type { CheckContext } from "@/server/workflows/rankCheckPaths";
 import {

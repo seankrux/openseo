@@ -33,6 +33,7 @@ import {
 import {
   tryCreateRun,
   updateRun,
+  setRunErrorIfEmpty,
   getRunById,
   getLatestRunForConfig,
   getActiveRunForConfig,
@@ -433,6 +434,7 @@ export const RankTrackingRepository = {
   claimDueConfig,
   tryCreateRun,
   updateRun,
+  setRunErrorIfEmpty,
   getRunById,
   getLatestRunForConfig,
   getActiveRunForConfig,

@@ -16,6 +16,9 @@ vi.mock(
     },
   }),
 );
+vi.mock("@/server/lib/dataforseo/config", () => ({
+  requireDataforseoApiKey: async () => "test-key",
+}));
 vi.mock("@/server/lib/dataforseo", () => ({
   createDataforseoClient: vi.fn(),
   fetchKeywordMetricsForList: mocks.fetchKeywordMetricsForList,

@@ -1,3 +1,4 @@
+import { sort } from "remeda";
 import { z } from "zod";
 import { DashboardCacheService } from "@/server/features/dashboard/services/DashboardCacheService";
 import { GscConnectionRepository } from "@/server/features/gsc/repositories/GscConnectionRepository";
@@ -71,7 +72,7 @@ async function getPage(input: {
       }));
     },
   });
-  const rows = [...result.value].sort((a, b) => {
+  const rows = sort(result.value, (a, b) => {
     const first = a[input.sort];
     const second = b[input.sort];
     // Unknown values stay last in either direction; a real zero stays numeric.

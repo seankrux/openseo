@@ -16,6 +16,7 @@ beforeEach(() => {
   vi.mocked(ProjectService.getProjectForOrganization).mockResolvedValue({
     id: "project_1",
     name: "Concrete",
+    brandName: null,
     domain: "example.com",
     locationCode: 2840,
     languageCode: "en",

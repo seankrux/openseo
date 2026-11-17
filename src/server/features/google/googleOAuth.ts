@@ -234,15 +234,7 @@ async function fetchTokens(
       : AbortSignal.timeout(TOKEN_TIMEOUT_MS),
   });
   if (!response.ok) {
-    const body = z
-      .object({ error: z.string() })
-      .safeParse(await response.json().catch(() => null));
-    if (
-      response.status === 400 &&
-      body.success &&
-      body.data.error === "invalid_grant"
-    )
-      return null;
+    if (response.status === 400) return null;
     throw new GoogleTokenEndpointError(response.status);
   }
   return googleTokenResponseSchema.parse(await response.json());

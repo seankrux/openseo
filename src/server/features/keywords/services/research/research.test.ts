@@ -14,6 +14,9 @@ const mocks = vi.hoisted(() => ({
   upsertKeywordMetric: vi.fn().mockResolvedValue(undefined),
 }));
 
+vi.mock("@/server/lib/provider-access", () => ({
+  hasDataforseoAccess: async () => true,
+}));
 vi.mock("cloudflare:workers", () => ({
   env: {
     R2: {

@@ -12,7 +12,8 @@ export type ProxyModelSlug =
   | "claude"
   | "gemini"
   | "perplexity"
-  | "google_ai_overview";
+  | "google_ai_overview"
+  | "google_ai_mode";
 
 const DEFAULT_PROXY_MODELS: Record<ProxyModelSlug, string | null> = {
   chat_gpt: "gpt-5.6-luna",
@@ -21,6 +22,7 @@ const DEFAULT_PROXY_MODELS: Record<ProxyModelSlug, string | null> = {
   gemini: "gemini-3-flash-preview",
   perplexity: null,
   google_ai_overview: null,
+  google_ai_mode: null,
 };
 
 const ENV_KEYS: Record<ProxyModelSlug, string> = {
@@ -30,6 +32,7 @@ const ENV_KEYS: Record<ProxyModelSlug, string> = {
   gemini: "PROXY_LLM_MODEL_GEMINI",
   perplexity: "PROXY_LLM_MODEL_PERPLEXITY",
   google_ai_overview: "PROXY_LLM_MODEL_GEMINI",
+  google_ai_mode: "PROXY_LLM_MODEL_GEMINI",
 };
 
 export type ProxyLlmConfig = { baseURL: string; apiKey: string };
@@ -62,7 +65,7 @@ export async function proxyModelName(
   slug: ProxyModelSlug,
 ): Promise<string | null> {
   // An LLM completion is never evidence of a Google SERP AI Overview.
-  if (slug === "google_ai_overview") return null;
+  if (slug === "google_ai_overview" || slug === "google_ai_mode") return null;
   const override = (await getOptionalEnvValue(ENV_KEYS[slug]))?.trim();
   const model = override || DEFAULT_PROXY_MODELS[slug];
   if (slug === "perplexity" && model && !isPerplexityModel(model)) return null;
@@ -127,8 +130,9 @@ export async function proxyLlmResponse(
   const model = await proxyModelName(input.modelSlug);
   if (!model)
     throw new ProxyModelUnavailableError(
-      input.modelSlug === "google_ai_overview"
-        ? "Google AI Overview requires captured Google SERP evidence through DataForSEO, not a model completion."
+      input.modelSlug === "google_ai_overview" ||
+      input.modelSlug === "google_ai_mode"
+        ? "Google AI results require captured Google SERP evidence through DataForSEO, not a model completion."
         : "Configure a matching model route or DataForSEO. Perplexity requires an explicit Perplexity/Sonar route.",
     );
   const messages: Array<{ role: "system" | "user"; content: string }> = [];

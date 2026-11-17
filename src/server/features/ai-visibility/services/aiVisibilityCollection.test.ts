@@ -34,6 +34,7 @@ vi.mock("@/db", () => ({ db: testDb.db }));
 vi.mock("@/db/runBatch", () => ({ runBatch: testDb.runBatch }));
 vi.mock("@/server/lib/runtime-env", () => ({
   isHostedServerAuthMode: async () => false,
+  getOptionalEnvValue: async () => undefined,
 }));
 vi.mock("@/server/lib/dataforseo", () => ({
   MAX_TASKS_PER_POST: 100,

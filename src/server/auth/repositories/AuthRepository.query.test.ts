@@ -183,7 +183,7 @@ describe("transferOwnership", () => {
 describe("upsertDelegatedOrganization", () => {
   const input = { id: "org-delegated", name: "Workspace", slug: "workspace" };
   const changes = async () =>
-    Number((await client.execute("SELECT total_changes() AS n")).rows[0]!.n);
+    Number((await client.execute("SELECT total_changes() AS n")).rows[0].n);
 
   it("creates the organization, then writes nothing while it matches", async () => {
     await client.execute("DELETE FROM organization");

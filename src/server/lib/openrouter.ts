@@ -231,6 +231,7 @@ function openAiCompatibleModel(
   });
   // Proxies expect plain model ids ("gpt-5.6-luna"), not OpenRouter slugs.
   const id = model.includes("/") ? model.slice(model.indexOf("/") + 1) : model;
+  // oxlint-disable-next-line typescript/no-unsafe-type-assertion -- the compatible provider's chat model is a LanguageModelV3 at runtime
   const base = provider.chatModel(id) as unknown as LanguageModelV3;
   // OpenAI-style effort values; "max" is OpenRouter-only.
   const effort = reasoningEffort === "low" ? "low" : "medium";

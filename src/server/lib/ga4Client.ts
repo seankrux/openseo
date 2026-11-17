@@ -441,6 +441,7 @@ export function createGa4DataClient(opts: {
   userId: string;
   ga4AccountId: string;
   propertyId: string;
+  signal?: AbortSignal;
 }) {
   const propertyId = propertyIdSchema.parse(opts.propertyId);
   const access = memoizedGa4Access(opts);
@@ -459,7 +460,12 @@ export function createGa4DataClient(opts: {
             "Content-Type": "application/json",
           },
           body: JSON.stringify(request),
-          signal: AbortSignal.timeout(GA4_TIMEOUT_MS),
+          signal: opts.signal
+            ? AbortSignal.any([
+                AbortSignal.timeout(GA4_TIMEOUT_MS),
+                opts.signal,
+              ])
+            : AbortSignal.timeout(GA4_TIMEOUT_MS),
         });
       } catch {
         throw new Ga4DataApiError(

@@ -53,6 +53,15 @@ export async function updateRun(
   return updated.length > 0;
 }
 
+export async function setRunErrorIfEmpty(runId: string, errorMessage: string) {
+  await db
+    .update(rankCheckRuns)
+    .set({ errorMessage })
+    .where(
+      and(eq(rankCheckRuns.id, runId), isNull(rankCheckRuns.errorMessage)),
+    );
+}
+
 export async function getRunById(runId: string) {
   const rows = await db
     .select()

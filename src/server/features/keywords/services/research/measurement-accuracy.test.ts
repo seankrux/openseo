@@ -14,6 +14,16 @@ const mocks = vi.hoisted(() => ({
 }));
 vi.mock("cloudflare:workers", () => ({ env: {}, waitUntil: vi.fn() }));
 vi.mock("@/server/lib/runtime-env", () => ({ getRequiredEnvValue: mocks.key }));
+vi.mock("@/server/lib/provider-access", () => ({
+  hasDataforseoAccess: async () => {
+    try {
+      await mocks.key();
+      return true;
+    } catch {
+      return false;
+    }
+  },
+}));
 vi.mock("@/server/lib/dataforseo", () => ({
   createDataforseoClient: () => ({
     keywords: { ideas: mocks.ideas, adsIdeas: mocks.adsIdeas },

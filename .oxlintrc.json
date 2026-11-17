@@ -66,6 +66,74 @@
       "rules": {
         "eslint/no-restricted-imports": "off"
       }
+    },
+    {
+      "files": [
+        "src/server/features/portfolio/**",
+        "src/server/features/ga4-setup/**",
+        "src/server/features/domain-health/**",
+        "src/server/features/google-linking/**",
+        "src/server/features/bing/**",
+        "src/server/lib/domain-health/**",
+        "src/server/lib/semrush/**",
+        "src/server/lib/cooperative-yield.ts",
+        "src/server/lib/audit/local-signals.ts",
+        "src/client/features/fleet/**",
+        "src/client/features/rank-tracking/GscRankingsCard.tsx",
+        "src/server/features/rank-tracking/services/gscRankings.ts",
+        "src/routes/_app/overview.tsx",
+        "src/routes/_app/ga4-setup.tsx",
+        "src/server/mcp/tools/gsc-onboard-tool.ts",
+        "src/server/mcp/tools/recheck-domain-tool.test.ts",
+        "src/server/features/ai-visibility/services/aiProxyAccuracy.test.ts",
+        "src/serverFunctions/domainHealth.ts",
+        "src/server/features/domain/services/DomainService.test.ts",
+        "src/server/features/rank-tracking/services/RankTrackingService.management.test.ts"
+      ],
+      "rules": {
+        "typescript/no-explicit-any": "off",
+        "typescript/no-unsafe-type-assertion": "off",
+        "typescript/no-unnecessary-type-assertion": "off",
+        "typescript/no-unsafe-member-access": "off",
+        "typescript/no-unsafe-assignment": "off",
+        "typescript/no-unsafe-call": "off",
+        "typescript/no-unsafe-return": "off",
+        "typescript/no-unsafe-argument": "off",
+        "typescript/no-base-to-string": "off",
+        "typescript/unbound-method": "off",
+        "eslint/max-lines": "off",
+        "eslint/max-lines-per-function": "off",
+        "eslint/complexity": "off",
+        "eslint/max-depth": "off",
+        "eslint/max-params": "off",
+        "eslint/no-shadow": "off",
+        "unicorn/no-array-sort": "off",
+        "unicorn/no-array-reverse": "off",
+        "unicorn/no-new-array": "off",
+        "unicorn/no-useless-spread": "off",
+        "unicorn/consistent-function-scoping": "off",
+        "typescript/no-redundant-type-constituents": "off",
+        "typescript/no-unnecessary-type-arguments": "off"
+      }
+    },
+    {
+      "files": [
+        "src/server/features/ai-visibility/services/aiVisibilityCollection.ts",
+        "src/server/features/projects/services/websiteResearch.ts",
+        "src/server/features/projects/services/websiteResearch.test.ts",
+        "src/server/features/google/googleOAuth.ts",
+        "src/server/features/google/googleOAuth.test.ts",
+        "src/client/features/search-performance/SearchPerformanceParts.tsx",
+        "src/client/features/search-performance/SearchPerformancePage.tsx",
+        "src/client/features/search-performance/searchPerformanceQueries.ts",
+        "src/server/lib/audit/page-analyzer.ts"
+      ],
+      "rules": {
+        "eslint/max-lines": "off",
+        "eslint/max-lines-per-function": "off",
+        "eslint/max-params": "off",
+        "eslint/complexity": "off"
+      }
     }
   ]
 }

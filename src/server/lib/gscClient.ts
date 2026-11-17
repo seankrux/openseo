@@ -81,14 +81,20 @@ function messageForStatus(status: number, body: string): string {
   return `Search Console API error (${status}): ${body.slice(0, 300)}`;
 }
 
+export type GscRequestOptions = {
+  signal?: AbortSignal;
+};
+
 /** Free Google Search Console client. Unlike the DataForSEO client it does NOT
  *  meter credits — GSC is first-party data with no per-call cost. Access tokens
  *  come from (and are auto-refreshed against) the connector's stored
  *  google-search-console grant. */
-export function createGscClient(opts: {
-  userId: string;
-  gscAccountId?: string;
-}) {
+export function createGscClient(
+  opts: {
+    userId: string;
+    gscAccountId?: string;
+  } & GscRequestOptions,
+) {
   // One mint per client: a client lives for a single service call, and
   // concurrent requests (inspectUrls fans out) must not race the refresh.
   let tokenPromise: Promise<string> | undefined;
@@ -97,6 +103,7 @@ export function createGscClient(opts: {
       providerId: GSC_OAUTH_PROVIDER_ID,
       userId: opts.userId,
       accountId: opts.gscAccountId,
+      signal: opts.signal,
     }).catch((error: unknown) => {
       tokenPromise = undefined;
       // A slow token endpoint is an outage, not a revoked grant: request()
@@ -149,7 +156,9 @@ export function createGscClient(opts: {
           ...(hasBody ? { "Content-Type": "application/json" } : {}),
         },
         body: hasBody ? JSON.stringify(init?.body) : undefined,
-        signal: AbortSignal.timeout(GSC_TIMEOUT_MS),
+        signal: opts.signal
+          ? AbortSignal.any([AbortSignal.timeout(GSC_TIMEOUT_MS), opts.signal])
+          : AbortSignal.timeout(GSC_TIMEOUT_MS),
       });
     } catch (error) {
       if (error instanceof Error && error.name === "TimeoutError") {

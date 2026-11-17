@@ -1,4 +1,6 @@
 import { AppError } from "@/server/lib/errors";
+import { hasDataforseoAccess } from "@/server/lib/provider-access";
+import { DATAFORSEO_NOT_SET_UP_MESSAGE } from "@/shared/gateway-setup-messages";
 import type { BillingCustomerContext } from "@/server/billing/subscription";
 import type { CreditFeature } from "@/shared/billing-credit-features";
 import {
@@ -312,6 +314,12 @@ export async function research(
 
   if (uniqueKeywords.length === 0) {
     throw new AppError("VALIDATION_ERROR");
+  }
+  if (!(await hasDataforseoAccess())) {
+    throw new AppError(
+      "DATAFORSEO_NOT_CONFIGURED",
+      DATAFORSEO_NOT_SET_UP_MESSAGE,
+    );
   }
 
   const seedKeyword = uniqueKeywords[0];
