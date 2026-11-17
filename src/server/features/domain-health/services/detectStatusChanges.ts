@@ -5,7 +5,7 @@ import {
   type DomainHealthClass,
 } from "@/shared/domain-health";
 
-export type Snapshot = {
+type Snapshot = {
   class: DomainHealthClass;
   sslDaysRemaining: number | null;
   ga4Ids: string[];

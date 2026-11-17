@@ -5,7 +5,7 @@ import { GscService } from "@/server/features/gsc/services/GscService";
 import { windows } from "@/server/features/portfolio/PortfolioService";
 import { getCached, setCached } from "@/server/lib/r2-cache";
 
-export type GscRankingRow = {
+type GscRankingRow = {
   query: string;
   position: number;
   prevPosition: number | null;
@@ -13,7 +13,7 @@ export type GscRankingRow = {
   impressions: number;
 };
 
-export type GscRankings = {
+type GscRankings = {
   connected: boolean;
   siteUrl?: string;
   window?: {

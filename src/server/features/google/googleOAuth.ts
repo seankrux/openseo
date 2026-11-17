@@ -94,14 +94,14 @@ export const GA4_INTEGRATION: GoogleOAuthIntegration = {
  *  also asks for `webmasters` (add sites) and `siteverification` (DNS TXT
  *  verification) so the gsc_onboard_domain MCP tool can add and verify new
  *  properties with that login. Off by default (read-only, upstream behaviour). */
-export const GSC_MANAGE_SCOPES = [
+const GSC_MANAGE_SCOPES = [
   "https://www.googleapis.com/auth/webmasters",
   "https://www.googleapis.com/auth/siteverification",
 ] as const;
 
 /** CityThrive fork: GA4_OAUTH_MANAGE_SCOPES=1 adds analytics.edit so GA4 setup can create
  *  properties and web streams with the connected login. */
-export const GA4_MANAGE_SCOPES = [
+const GA4_MANAGE_SCOPES = [
   "https://www.googleapis.com/auth/analytics.edit",
 ] as const;
 

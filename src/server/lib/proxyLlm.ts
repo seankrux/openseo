@@ -6,7 +6,7 @@ import type { LlmResponseResult } from "@/server/lib/dataforseoLlmSchemas";
 import { AppError } from "@/server/lib/errors";
 import { safeHttpUrl } from "@/shared/safe-url";
 
-export type ProxyModelSlug =
+type ProxyModelSlug =
   | "chat_gpt"
   | "chatgpt"
   | "claude"

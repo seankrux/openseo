@@ -49,7 +49,7 @@ const WATCHDOG_BATCH_LIMIT = 100;
  */
 const DEFAULT_STALE_FAIL_AFTER_HOURS = 6;
 
-export async function getStaleFailAfterMs(): Promise<number> {
+async function getStaleFailAfterMs(): Promise<number> {
   const raw = await getOptionalEnvValue("AUDIT_STALE_FAIL_AFTER_HOURS");
   const hours = raw === undefined ? NaN : Number(raw);
   return (

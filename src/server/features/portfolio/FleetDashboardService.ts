@@ -121,7 +121,7 @@ type SiteQueries = {
   error?: string;
 };
 
-export type FleetSite = {
+type FleetSite = {
   projectId: string;
   domain: string;
   clicks: number;
@@ -130,7 +130,7 @@ export type FleetSite = {
   delta: number;
 };
 
-export type FleetQuery = {
+type FleetQuery = {
   query: string;
   clicks: number;
   impressions: number;
@@ -138,7 +138,7 @@ export type FleetQuery = {
   sites: number;
 };
 
-export type FleetDownDomain = {
+type FleetDownDomain = {
   projectId: string | null;
   domain: string;
   class: string;
@@ -150,7 +150,7 @@ export type FleetDownDomain = {
   checkedAt: string;
 };
 
-export type FleetProviderEntry<Metrics> = {
+type FleetProviderEntry<Metrics> = {
   status: "available" | "error" | "missing" | "stale" | "unlinked";
   property: string | null;
   accountId: string | null;
@@ -163,7 +163,7 @@ export type FleetProviderEntry<Metrics> = {
    */
   metrics: Metrics | null;
 };
-export type FleetInventoryRow = {
+type FleetInventoryRow = {
   projectId: string;
   name: string;
   domain: string | null;
@@ -195,7 +195,7 @@ export type FleetInventoryRow = {
 };
 
 /** One provider failure shared by many sites, for example an expired grant. */
-export type FleetProviderIssue = {
+type FleetProviderIssue = {
   provider: "gsc" | "ga4" | "bing";
   error: string;
   sites: number;
@@ -203,7 +203,7 @@ export type FleetProviderIssue = {
   projectId: string;
 };
 
-export type FleetDashboard = {
+type FleetDashboard = {
   generatedAt: string;
   inventory: FleetInventoryRow[];
   /** Up to three most common failures per provider, most sites first. */

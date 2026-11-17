@@ -1,6 +1,6 @@
 /** Fleet / operator shortcuts to public local SEO utilities (openseo.so). */
 
-export const OPENSEO_MARKETING_ORIGIN = "https://openseo.so";
+const OPENSEO_MARKETING_ORIGIN = "https://openseo.so";
 
 export function googleMapsSearchUrl(query: string): string {
   const q = query.trim();

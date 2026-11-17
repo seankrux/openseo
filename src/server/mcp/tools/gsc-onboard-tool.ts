@@ -23,7 +23,7 @@ async function j(url: string, init: RequestInit = {}) {
   return { status: r.status, body };
 }
 
-export async function onboardGscDomain(input: {
+async function onboardGscDomain(input: {
   userId: string;
   accountId: string;
   domain: string;

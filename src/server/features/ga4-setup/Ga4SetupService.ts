@@ -25,7 +25,7 @@ const STATE_KEY = "ga4setup:state";
 const LOG_KEY = "ga4setup:log";
 const MAX_ATTEMPTS = 6;
 
-export type SiteStatus = {
+type SiteStatus = {
   domain: string;
   projectId: string;
   status:
@@ -177,7 +177,7 @@ async function admin(
   return json;
 }
 
-export type SetupResult = {
+type SetupResult = {
   domain: string;
   projectId: string;
   apply: boolean;

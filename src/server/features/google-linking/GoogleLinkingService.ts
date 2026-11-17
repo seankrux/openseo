@@ -15,9 +15,7 @@ import {
 import { listProjects } from "@/server/features/projects/services/projects";
 import { bareHost, gscCandidatesFor } from "./domain";
 
-export { bareHost, gscCandidatesFor };
-
-export type LinkKind = "gsc" | "ga4" | "both";
+type LinkKind = "gsc" | "ga4" | "both";
 
 type GscSiteRow = {
   accountId: string;
@@ -221,7 +219,7 @@ async function ga4Sessions28d(userId: string, p: Ga4PropRow): Promise<number> {
   }
 }
 
-export type AutoLinkRow = {
+type AutoLinkRow = {
   projectId: string;
   domain: string;
   kind: "gsc" | "ga4";

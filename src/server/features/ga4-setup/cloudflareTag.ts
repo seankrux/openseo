@@ -6,11 +6,11 @@
 import { getOptionalEnvValue } from "@/server/lib/runtime-env";
 
 const API = "https://api.cloudflare.com/client/v4";
-export const GA4_INJECTOR_SCRIPT = "citythrive-ga4-injector";
+const GA4_INJECTOR_SCRIPT = "citythrive-ga4-injector";
 const KV_TITLE = "citythrive-ga4-map";
 const EXCLUDE = ["wp-content/*", "wp-includes/*", "wp-json/*", "wp-admin/*"];
 
-export type CfConfig = { token: string; accountId: string };
+type CfConfig = { token: string; accountId: string };
 
 export async function getCloudflareConfig(): Promise<CfConfig | null> {
   const token =
@@ -124,7 +124,7 @@ export function setHostsInTagMap(c: CfConfig, entries: Record<string, string>) {
   return run;
 }
 
-export type RoutePlan = {
+type RoutePlan = {
   zoneId: string | null;
   status: "ok" | "would_create" | "blocked" | "no_zone" | "error";
   create: string[];

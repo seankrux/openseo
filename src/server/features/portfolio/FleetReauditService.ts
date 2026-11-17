@@ -10,10 +10,10 @@ import { parseAuditConfig } from "@/server/lib/audit/types";
 import { asAppError } from "@/server/lib/errors";
 import { getCached, setCached } from "@/server/lib/r2-cache";
 
-export type FleetReauditMode = "off" | "gentle" | "normal" | "fast";
+type FleetReauditMode = "off" | "gentle" | "normal" | "fast";
 
 /** Audits started per 5-minute tick, and the cap on audits running at once. */
-export const FLEET_REAUDIT_RATES: Record<
+const FLEET_REAUDIT_RATES: Record<
   Exclude<FleetReauditMode, "off">,
   { perTick: number; maxRunning: number }
 > = {
@@ -23,7 +23,7 @@ export const FLEET_REAUDIT_RATES: Record<
 };
 
 /** A site is due when its latest audit started longer ago than this. */
-export const FLEET_REAUDIT_STALE_DAYS = 7;
+const FLEET_REAUDIT_STALE_DAYS = 7;
 
 const modeSchema = z.enum(["off", "gentle", "normal", "fast"]);
 const actorSchema = z.object({ userId: z.string(), userEmail: z.string() });

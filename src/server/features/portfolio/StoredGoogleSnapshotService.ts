@@ -38,7 +38,7 @@ export type StoredGscEvidence = Evidence<
   { clicks: number; impressions: number; position: number | null },
   StoredGscProvenance
 >;
-export type StoredGa4Evidence = Evidence<
+type StoredGa4Evidence = Evidence<
   { sessions: number; activeUsers: number },
   StoredGa4Provenance
 >;

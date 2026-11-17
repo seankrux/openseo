@@ -115,7 +115,7 @@ export function citySlugFromPath(
 }
 
 /** The site's own city is assumed to be spelled inside its domain. */
-export function slugMatchesDomain(words: string[], host: string): boolean {
+function slugMatchesDomain(words: string[], host: string): boolean {
   const compact = host
     .toLowerCase()
     .replace(/^www\./, "")

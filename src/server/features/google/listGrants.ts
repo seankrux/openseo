@@ -8,7 +8,7 @@ import {
   getGatewayGoogleStatus,
 } from "@/server/features/google/gatewayGoogle";
 
-export type GoogleGrantRef = {
+type GoogleGrantRef = {
   id: string;
   accountId: string;
   ownerUserId: string;

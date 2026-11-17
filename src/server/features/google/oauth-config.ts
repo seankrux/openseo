@@ -42,5 +42,3 @@ export async function hasGoogleOAuthConfig(
   }
   return false;
 }
-
-export { hasOwnGoogleOAuthConfig };

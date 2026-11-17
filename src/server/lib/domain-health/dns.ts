@@ -1,7 +1,7 @@
 import type { DnsResult } from "./types";
 
 /** Cloudflare DoH JSON endpoint — works in Workers and Docker (no system DNS). */
-export const DOH_ENDPOINT = "https://cloudflare-dns.com/dns-query";
+const DOH_ENDPOINT = "https://cloudflare-dns.com/dns-query";
 
 type DnsJsonAnswer = { type?: number; data?: string };
 type DnsJsonResponse = { Status?: number; Answer?: DnsJsonAnswer[] };

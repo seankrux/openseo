@@ -29,6 +29,8 @@
     "src/db/pg/schema.ts",
     // Standalone CLI/dev scripts, invoked via package.json scripts
     "scripts/**",
+    // Hand-run ops scripts (PlePer catalog and similar)
+    "ops/scripts/**",
     // shadcn components are copied in whole; pages use only some exports
     "src/client/components/ui/**",
   ],

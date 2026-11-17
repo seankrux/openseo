@@ -220,7 +220,7 @@ async function retireDomains(organizationId: string, domains: string[]) {
     console.log("[domain-health] retired", { organizationId, domains });
 }
 
-export async function checkAndRecord(
+async function checkAndRecord(
   organizationId: string,
   items: Array<{ domain: string; projectId: string | null }>,
   trigger: "scheduled_full" | "scheduled_problem" | "recheck" | "manual",
