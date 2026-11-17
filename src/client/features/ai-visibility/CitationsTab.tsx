@@ -222,7 +222,9 @@ function SourcesTable({
           <TableHead>Answers</TableHead>
           <TableHead>Prompts</TableHead>
           <TableHead>Engines</TableHead>
-          <TableHead />
+          <TableHead>
+            <span className="sr-only">Actions</span>
+          </TableHead>
         </TableRow>
       </TableHeader>
       <TableBody>

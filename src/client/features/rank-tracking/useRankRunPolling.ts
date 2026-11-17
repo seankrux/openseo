@@ -8,7 +8,7 @@ import { getLatestRankRun } from "@/serverFunctions/rank-tracking";
  */
 export function useRankRunPolling(projectId: string, configId: string) {
   const queryClient = useQueryClient();
-  const lastTerminalRunRef = useRef<string | undefined>(undefined);
+  const lastTerminalRunRef = useRef<string | null>(null);
 
   const { data: latestRun } = useQuery({
     queryKey: ["rankTrackingLatestRun", projectId, configId],
@@ -19,7 +19,13 @@ export function useRankRunPolling(projectId: string, configId: string) {
       const isTerminal =
         run?.status === "completed" || run?.status === "failed";
       const terminalRunKey = `${projectId}:${configId}:${run?.id}:${run?.status}`;
-      if (isTerminal && lastTerminalRunRef.current !== terminalRunKey) {
+      if (query.state.status === "success" && !isTerminal) {
+        lastTerminalRunRef.current ??= "";
+      }
+      if (isTerminal && lastTerminalRunRef.current === null) {
+        // The run finished before this page opened, so its queries are fresh.
+        lastTerminalRunRef.current = terminalRunKey;
+      } else if (isTerminal && lastTerminalRunRef.current !== terminalRunKey) {
         lastTerminalRunRef.current = terminalRunKey;
         void queryClient.invalidateQueries({
           queryKey: ["rankTrackingResults", projectId, configId],
@@ -35,9 +41,15 @@ export function useRankRunPolling(projectId: string, configId: string) {
         });
       }
 
-      // Keep polling active runs, including stale ones (they'll be cleaned up
-      // by the cron handler and we want to show the transition).
-      if (run?.status === "pending" || run?.status === "running") return 3000;
+      // A stale run stays active until the next start fails it (no cron
+      // reconciles rank runs), so it only needs the slow poll; the page
+      // already says it stopped responding. A delayed run can wait hours.
+      if (
+        (run?.status === "pending" || run?.status === "running") &&
+        !run.maybeStale &&
+        !run.isDelayed
+      )
+        return 3000;
       // Discover scheduled checks and checks started from another client.
       return 30_000;
     },

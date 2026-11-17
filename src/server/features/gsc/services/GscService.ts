@@ -1,10 +1,9 @@
-import { and, eq } from "drizzle-orm";
-import { db } from "@/db";
-import { account } from "@/db/schema";
 import { GSC_OAUTH_PROVIDER_ID } from "@/shared/gsc";
 import { AppError } from "@/server/lib/errors";
+import { listGoogleGrantsForUser } from "@/server/features/google/listGrants";
 import {
   createGscClient,
+  type GscRequestOptions,
   type GscSite,
   type UrlInspectionResult,
 } from "@/server/lib/gscClient";
@@ -40,6 +39,7 @@ type GscPerformanceResult = {
 type GscSiteListResult = {
   accounts: Array<{
     accountId: string;
+    ownerUserId: string;
     email: string | null;
     requiresReconnect: boolean;
     propertiesUnavailable: boolean;
@@ -56,29 +56,14 @@ async function getConnection(projectId: string): Promise<GscConnection | null> {
 /** Whether this user has linked a google-search-console grant (regardless of
  *  whether they've picked a property yet). Drives the connect-vs-pick UI. */
 async function userHasGrant(userId: string): Promise<boolean> {
-  const rows = await db
-    .select({ id: account.id })
-    .from(account)
-    .where(
-      and(
-        eq(account.userId, userId),
-        eq(account.providerId, GSC_OAUTH_PROVIDER_ID),
-      ),
-    )
-    .limit(1);
-  return rows.length > 0;
+  const grants = await listGrantsForUser(userId);
+  return grants.length > 0;
 }
 
+/** The Google accounts a member may pick a property from, including imported
+ *  self-host grants on local-admin when running behind the Every App gateway. */
 async function listGrantsForUser(userId: string) {
-  return db
-    .select({ id: account.id, accountId: account.accountId })
-    .from(account)
-    .where(
-      and(
-        eq(account.userId, userId),
-        eq(account.providerId, GSC_OAUTH_PROVIDER_ID),
-      ),
-    );
+  return listGoogleGrantsForUser(userId, GSC_OAUTH_PROVIDER_ID);
 }
 
 /** Expected ways a stored grant fails to reach Search Console: no token could be
@@ -99,7 +84,7 @@ async function listSitesForUserWithGrantStatus(
   const accounts = await Promise.all(
     grants.map(async (grant) => {
       const client = createGscClient({
-        userId,
+        userId: grant.ownerUserId,
         gscAccountId: grant.accountId,
       });
 
@@ -113,6 +98,7 @@ async function listSitesForUserWithGrantStatus(
         }
         return {
           accountId: grant.accountId,
+          ownerUserId: grant.ownerUserId,
           email,
           requiresReconnect: false,
           propertiesUnavailable: false,
@@ -133,6 +119,7 @@ async function listSitesForUserWithGrantStatus(
         }
         return {
           accountId: grant.accountId,
+          ownerUserId: grant.ownerUserId,
           email: null,
           requiresReconnect,
           propertiesUnavailable: !requiresReconnect,
@@ -155,7 +142,8 @@ async function setSite(input: {
   userId: string;
 }): Promise<GscConnection> {
   const grants = await listGrantsForUser(input.userId);
-  if (!grants.some((grant) => grant.accountId === input.accountId)) {
+  const grant = grants.find((row) => row.accountId === input.accountId);
+  if (!grant) {
     throw new AppError(
       "NOT_FOUND",
       "That Google account isn't connected to your OpenSEO account.",
@@ -163,8 +151,8 @@ async function setSite(input: {
   }
 
   const client = createGscClient({
-    userId: input.userId,
-    gscAccountId: input.accountId,
+    userId: grant.ownerUserId,
+    gscAccountId: grant.accountId,
   });
   const sites = await client.listSites();
   const match = sites.find((s) => s.siteUrl === input.siteUrl);
@@ -190,8 +178,8 @@ async function setSite(input: {
     projectId: input.projectId,
     organizationId: input.organizationId,
     siteUrl: input.siteUrl,
-    connectedByUserId: input.userId,
-    gscAccountId: input.accountId,
+    connectedByUserId: grant.ownerUserId,
+    gscAccountId: grant.accountId,
     connectedAccountEmail,
   });
 }
@@ -204,6 +192,7 @@ async function disconnect(input: { projectId: string }): Promise<void> {
 /** Pass-through of GSC `searchAnalytics.query` for a project's connected property. */
 async function getPerformance(
   input: GscPerformanceInput,
+  options?: GscRequestOptions,
 ): Promise<GscPerformanceResult> {
   const connection = await GscConnectionRepository.getByProjectId(
     input.projectId,
@@ -218,6 +207,7 @@ async function getPerformance(
     request.rowLimit = Math.max(1, Math.min(25000, input.rowLimit));
 
   const client = createGscClient({
+    ...options,
     userId: connection.connectedByUserId,
     gscAccountId: connection.gscAccountId ?? undefined,
   });
@@ -242,13 +232,17 @@ type GscInspectUrlsResult = {
   results: GscUrlInspection[];
 };
 
+/** A Worker opens at most 6 outbound connections at once and queues the
+ *  rest, so a wider fan-out only makes the extra inspections wait. */
+const INSPECT_CONCURRENCY = 5;
+
 /** Inspect 1–N URLs against a project's connected property. Resolves the
- *  connection once, then inspects every URL at once: Google answers each
- *  inspection in ~6 s, so a serial batch of ten held the request open for a
- *  minute and made it the usual casualty whenever its isolate ran out of
- *  memory. Per-URL failures are captured inline so one bad URL doesn't fail
- *  the batch. Token/grant failures propagate so the caller can prompt a
- *  reconnect. */
+ *  connection once, then inspects up to INSPECT_CONCURRENCY URLs at a time:
+ *  Google answers each inspection in ~6 s, so a serial batch of ten held the
+ *  request open for a minute and made it the usual casualty whenever its
+ *  isolate ran out of memory. Per-URL failures are captured inline so one bad
+ *  URL doesn't fail the batch. Token/grant failures propagate so the caller
+ *  can prompt a reconnect. */
 async function inspectUrls(input: {
   projectId: string;
   urls: string[];
@@ -264,25 +258,30 @@ async function inspectUrls(input: {
     userId: connection.connectedByUserId,
     gscAccountId: connection.gscAccountId ?? undefined,
   });
-  const results = await Promise.all(
-    input.urls.map(async (url): Promise<GscUrlInspection> => {
+  const results: GscUrlInspection[] = [];
+  let next = 0;
+  const worker = async () => {
+    while (next < input.urls.length) {
+      const index = next++;
+      const url = input.urls[index];
       try {
         const result = await client.inspectUrl(
           connection.siteUrl,
           url,
           input.languageCode,
         );
-        return { url, result };
+        results[index] = { url, result };
       } catch (error) {
         if (error instanceof GscTokenError) throw error;
-        return {
+        results[index] = {
           url,
           result: null,
           error: error instanceof Error ? error.message : "Inspection failed",
         };
       }
-    }),
-  );
+    }
+  };
+  await Promise.all(Array.from({ length: INSPECT_CONCURRENCY }, worker));
   return {
     siteUrl: connection.siteUrl,
     connectedBy: connection.connectedAccountEmail,

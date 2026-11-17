@@ -4,6 +4,7 @@ import {
   AUTUMN_SEO_DATA_TOP_UP_PLAN_ID,
   AUTUMN_SEO_DATA_TOPUP_BALANCE_FEATURE_ID,
 } from "@/shared/billing";
+import type * as AutumnModule from "@/server/billing/autumn";
 
 const { attachMock, getMock, updateMock, sendLoopsEventMock, contactsMock } =
   vi.hoisted(() => ({
@@ -14,7 +15,8 @@ const { attachMock, getMock, updateMock, sendLoopsEventMock, contactsMock } =
     contactsMock: vi.fn(),
   }));
 
-vi.mock("@/server/billing/autumn", () => ({
+vi.mock("@/server/billing/autumn", async (importOriginal) => ({
+  ...(await importOriginal<typeof AutumnModule>()),
   autumn: {
     billing: { attach: attachMock },
     customers: { get: getMock, update: updateMock },
@@ -22,6 +24,12 @@ vi.mock("@/server/billing/autumn", () => ({
   AUTUMN_TRACK_RETRY_OPTIONS: { retryCodes: ["429"] },
 }));
 vi.mock("@/server/lib/posthog", () => ({ captureServerEvent: vi.fn() }));
+// No request context here, so runAfterResponse awaits the capture.
+vi.mock("cloudflare:workers", () => ({
+  waitUntil: () => {
+    throw new Error("waitUntil() called outside a request context");
+  },
+}));
 vi.mock("@/server/billing/loops-sync", () => ({
   getOrganizationContacts: contactsMock,
 }));

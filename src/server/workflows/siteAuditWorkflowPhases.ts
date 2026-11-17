@@ -54,6 +54,8 @@ type AuditPhasesParams = {
   config: AuditConfig;
   access?: CrawlerAccess | null;
   renderUsage: RenderUsage;
+  /** A metered rendered audit's credit hold, which the crawl must stay in. */
+  renderHold?: { deadlineAt: number; credits: number };
 };
 
 export async function runAuditPhases(
@@ -378,12 +380,8 @@ async function finalizeAudit(args: {
       issueCount: linkIssues.length,
     });
     issues.push(...linkIssues);
-    if (crawl.rateLimited) {
-      issues.push({
-        issueType: "crawl-rate-limited",
-        pageId: null,
-        pageUrl: startUrl,
-      });
+    if (crawl.stopIssue) {
+      issues.push({ ...crawl.stopIssue, pageId: null, pageUrl: startUrl });
     }
     const persistStartedAt = Date.now();
     await AuditRepository.insertIssues(auditId, issues);

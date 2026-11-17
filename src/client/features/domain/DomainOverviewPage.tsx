@@ -617,8 +617,10 @@ export function DomainOverviewPage({
               <Alert variant="info">
                 <Info />
                 <AlertDescription className="text-foreground">
-                  Not enough data for this scope yet. Try another domain or a
-                  broader scope.
+                  {state.overview.organicTraffic != null ||
+                  state.overview.organicKeywords != null
+                    ? "The provider returned no ranked keywords for this scope. Observed zero values are shown below."
+                    : "No measured metrics are available for this scope. Try another domain or a broader scope."}
                 </AlertDescription>
               </Alert>
             ) : null}
@@ -645,10 +647,7 @@ export function DomainOverviewPage({
                         ) : (
                           "Estimated organic traffic"
                         ),
-                        value: formatMetric(
-                          state.overview.organicTraffic,
-                          state.overview.hasData,
-                        ),
+                        value: formatMetric(state.overview.organicTraffic),
                       },
                       {
                         label: overviewMetricsHint ? (
@@ -659,10 +658,7 @@ export function DomainOverviewPage({
                         ) : (
                           "Organic keywords"
                         ),
-                        value: formatMetric(
-                          state.overview.organicKeywords,
-                          state.overview.hasData,
-                        ),
+                        value: formatMetric(state.overview.organicKeywords),
                       },
                     ]}
                   />

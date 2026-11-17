@@ -1,4 +1,5 @@
 import { AppError } from "@/server/lib/errors";
+import { publicFetch } from "@/server/lib/public-fetch";
 import type { CrawlerAccess } from "@/shared/crawler-access";
 import { auditRequestHeaders } from "@/server/lib/audit/web-bot-auth";
 
@@ -219,6 +220,9 @@ export function isCrawlableUrl(url: string): boolean {
   if (parsed.protocol !== "http:" && parsed.protocol !== "https:") {
     return false;
   }
+  // Cloudflare-injected endpoints (email obfuscation, challenge, beacon)
+  // are not site content; crawling them yields bogus broken-link criticals.
+  if (parsed.pathname.toLowerCase().startsWith("/cdn-cgi/")) return false;
   return !isBlockedHost(parsed.hostname);
 }
 
@@ -280,7 +284,7 @@ export async function resolveStartUrlRedirects(
   for (let hop = 0; hop < START_URL_REDIRECT_HOPS; hop++) {
     let response: Response;
     try {
-      response = await fetch(current, {
+      response = await publicFetch(current, {
         method: "HEAD",
         redirect: "manual",
         headers: await auditRequestHeaders(current, access),

@@ -2,7 +2,11 @@ import { z } from "zod";
 import type { EnsuredUserContext } from "@/middleware/ensure-user/types";
 import { hasOrgPermission } from "@/lib/org-permissions";
 import { requireOrgPermission } from "@/server/auth/org-gate";
-import { autumn, AUTUMN_TRACK_RETRY_OPTIONS } from "@/server/billing/autumn";
+import {
+  autumn,
+  AUTUMN_TRACK_RETRY_OPTIONS,
+  isNoAnswerError,
+} from "@/server/billing/autumn";
 import {
   AUTO_RELOAD_FAILURE_METADATA_KEY,
   primesAutoReloadOnEnable,
@@ -13,6 +17,7 @@ import { sendLoopsEvent } from "@/server/email/loops-client";
 import { sha256Hex } from "@/server/lib/audit/ids";
 import { AppError } from "@/server/lib/errors";
 import { captureServerEvent } from "@/server/lib/posthog";
+import { runAfterResponse } from "@/server/lib/background";
 import { getOptionalEnvValue } from "@/server/lib/runtime-env";
 import {
   AUTO_RELOAD_CARD_FAILURE_REASONS,
@@ -48,20 +53,6 @@ const WAIT_REASONS = new Set([
   "attempt_limit_reached",
   "failed_attempt_limit_reached",
 ]);
-
-// The SDK's own errors for a request that did not get an answer: the charge
-// may still have gone through on Autumn's side. Matched by class name, as
-// the SDK does not set `name` on them.
-const NO_ANSWER_ERROR_NAMES = new Set([
-  "RequestTimeoutError",
-  "ConnectionError",
-  "RequestAbortedError",
-  "UnexpectedClientError",
-]);
-const isNoAnswerError = (error: unknown): error is Error =>
-  error instanceof Error &&
-  (NO_ANSWER_ERROR_NAMES.has(error.name) ||
-    NO_ANSWER_ERROR_NAMES.has(error.constructor.name));
 
 const usdToCredits = (usd: number) => usd * AUTUMN_SEO_DATA_CREDITS_PER_USD;
 
@@ -245,12 +236,14 @@ function captureSaved(
   caller: BillingCaller,
   properties: Record<string, unknown>,
 ) {
-  return captureServerEvent({
-    distinctId: caller.userId,
-    event: "billing:auto_reload_saved",
-    organizationId: caller.organizationId,
-    properties,
-  });
+  return runAfterResponse(
+    captureServerEvent({
+      distinctId: caller.userId,
+      event: "billing:auto_reload_saved",
+      organizationId: caller.organizationId,
+      properties,
+    }),
+  );
 }
 
 // Autumn reports every reload it buys or fails to buy. Only what is read is

@@ -4,28 +4,30 @@ import {
   createDataforseoClient,
   fetchKeywordMetricsForList,
 } from "@/server/lib/dataforseo";
+import { requireDataforseoApiKey } from "@/server/lib/dataforseo/config";
 import type { BillingCustomerContext } from "@/server/billing/subscription";
 import type { RefreshSavedKeywordMetricsInput } from "@/types/schemas/keywords";
 
-// Cap concurrent D1 upserts per group. A project can accumulate thousands of
-// saved keywords in one location/language, and fanning out one promise each
-// would flood D1/Worker resources; write in bounded chunks instead.
 const REFRESH_UPSERT_BATCH_SIZE = 100;
 
 export async function refreshSavedKeywordMetrics(
   input: RefreshSavedKeywordMetricsInput,
   billingCustomer: BillingCustomerContext,
 ): Promise<{ updated: number }> {
-  const { rows } = await KeywordResearchRepository.listSavedKeywordsByProject({
-    projectId: input.projectId,
-  });
+  const { rows: allRows } =
+    await KeywordResearchRepository.listSavedKeywordsByProject({
+      projectId: input.projectId,
+    });
+  const onlyIds = input.savedKeywordIds && new Set(input.savedKeywordIds);
+  const rows = onlyIds ? allRows.filter((r) => onlyIds.has(r.row.id)) : allRows;
 
   if (rows.length === 0) return { updated: 0 };
+
+  await requireDataforseoApiKey();
 
   const client = createDataforseoClient(billingCustomer);
   let updated = 0;
 
-  // Group by (locationCode, languageCode) so each provider call is homogeneous.
   const groups = new Map<string, typeof rows>();
   for (const row of rows) {
     const key = `${row.row.locationCode}:${row.row.languageCode}`;

@@ -1,6 +1,7 @@
 import { RankTrackingRepository } from "@/server/features/rank-tracking/repositories/RankTrackingRepository";
 import type { rankTrackingKeywords } from "@/db/schema";
 import { AppError } from "@/server/lib/errors";
+import { resolveSerpProvider } from "@/server/lib/serp-provider";
 import {
   devicesCount,
   estimateRankCheckCredits,
@@ -41,11 +42,18 @@ async function addKeywords(
   for (const raw of keywords) {
     if (rows.length >= available) break;
     const trimmed = raw.trim();
-    const normalized = matchCase ? trimmed : trimmed.toLowerCase();
+    // Lowercase with the tracker's language: Turkish "İstanbul" and "KIRMIZI"
+    // become "istanbul" and "kırmızı", not different words.
+    const normalized = matchCase
+      ? trimmed
+      : trimmed.toLocaleLowerCase(config.languageCode);
     if (
       normalized &&
       !seen.has(normalized) &&
-      !existingKeywords.has(normalized)
+      !existingKeywords.has(normalized) &&
+      // Rows added before language-aware lowercasing used toLowerCase(), so
+      // a Turkish re-add must not create a twin of that older row.
+      (matchCase || !existingKeywords.has(trimmed.toLowerCase()))
     ) {
       seen.add(normalized);
       rows.push({
@@ -159,20 +167,25 @@ async function estimateCost(
     keywords,
     config.devices,
     config.serpDepth,
-    "live",
   );
   const scheduleInterval = isScheduledRankTrackingInterval(
     config.scheduleInterval,
   )
     ? config.scheduleInterval
     : null;
+  const provider = await resolveSerpProvider();
   return {
+    provider: provider?.kind ?? null,
+    costBasis: "dataforseo" as const,
+    costNotice:
+      provider?.kind === "semrush"
+        ? "Semrush bills API units according to your plan. Dollar, credit and scheduled estimates here are DataForSEO references, not Semrush cost estimates."
+        : undefined,
     costUsd,
     costCredits,
     keywordCount,
     devicesCount: devicesCount(config.devices),
     totalChecks: keywordCount * devicesCount(config.devices),
-    method: "live" as const,
     existingKeywordCount,
     additionalKeywordCount: keywordCount - existingKeywordCount,
     scheduledEstimate: scheduleInterval

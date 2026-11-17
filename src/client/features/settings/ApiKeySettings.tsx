@@ -177,7 +177,9 @@ export function ApiKeySettings() {
                     ) : null}
                     <TableHead>Created</TableHead>
                     <TableHead>Last used</TableHead>
-                    <TableHead className="w-10" />
+                    <TableHead className="w-10">
+                      <span className="sr-only">Actions</span>
+                    </TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>

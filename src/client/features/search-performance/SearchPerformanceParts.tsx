@@ -1,4 +1,5 @@
 import { useMemo, useState } from "react";
+import type { SortingState } from "@tanstack/react-table";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { Copy, Loader2, Save } from "lucide-react";
 import { toast } from "sonner";
@@ -35,9 +36,13 @@ import { exportRows } from "@/client/lib/exportRows";
 import { captureClientEvent } from "@/client/lib/posthog";
 import {
   SEARCH_PERFORMANCE_PAGE_SIZES,
+  SEARCH_PERFORMANCE_SORT_FIELDS,
+  type SearchPerformanceSort,
+  type SearchPerformanceSortOrder,
   type SearchPerformanceTableDimension,
 } from "@/types/schemas/search-performance";
 import { saveKeywords } from "@/serverFunctions/keywords";
+import { TrackRankingsMenu } from "./TrackRankingsMenu";
 
 export type ExportTarget = "csv" | "sheets";
 
@@ -62,6 +67,7 @@ function dimensionExportTable(
   dimension: SearchPerformanceTableDimension,
   rows: SearchPerformanceTableRow[],
   stamp: string,
+  showPosition: boolean,
 ): ExportTable {
   const isPage = dimension === "page";
   return {
@@ -70,15 +76,17 @@ function dimensionExportTable(
       isPage ? "Page" : "Query",
       "Clicks",
       "Impressions",
-      "CTR",
-      "Position",
+      "CTR (%)",
+      ...(showPosition ? ["Position"] : []),
     ],
     rows: rows.map((row) => [
       row.key,
       row.clicks,
       row.impressions,
-      row.ctr,
-      row.position,
+      // CTR is a 0-1 ratio; exports keep two decimals, which would turn 0.0234
+      // into 0.02. As a percentage the same precision reads 2.34.
+      Math.round((row.ctr ?? 0) * 10_000) / 100,
+      ...(showPosition ? [row.position] : []),
     ]),
   };
 }
@@ -105,9 +113,13 @@ export function exportDimensionRows(
   rows: SearchPerformanceTableRow[],
   range: Report["range"],
   target: ExportTarget,
+  showPosition: boolean,
 ): Promise<void> {
   const stamp = `${range.startDate}-to-${range.endDate}`;
-  return runExport(dimensionExportTable(dimension, rows, stamp), target);
+  return runExport(
+    dimensionExportTable(dimension, rows, stamp, showPosition),
+    target,
+  );
 }
 
 type Delta = { text: string; improved: boolean } | null;
@@ -129,7 +141,14 @@ function positionDelta(current: number, previous: number): Delta {
   };
 }
 
-export function TotalsTable({ report }: { report: Report }) {
+/** Discover and Google News report no position, so it is left out there. */
+export function TotalsTable({
+  report,
+  showPosition,
+}: {
+  report: Report;
+  showPosition: boolean;
+}) {
   const { totals, prevTotals, range } = report;
   const deltaTitle = `Compared with ${range.prevStartDate} to ${range.prevEndDate}`;
   const metrics = [
@@ -148,11 +167,19 @@ export function TotalsTable({ report }: { report: Report }) {
       value: formatCtr(totals.ctr),
       delta: percentDelta(totals.ctr, prevTotals.ctr),
     },
-    {
-      label: "Average position",
-      value: formatPosition(totals.position),
-      delta: positionDelta(totals.position, prevTotals.position),
-    },
+    ...(showPosition
+      ? [
+          {
+            label: "Average position",
+            value:
+              totals.impressions > 0 ? formatPosition(totals.position) : "—",
+            delta:
+              totals.impressions > 0 && prevTotals.impressions > 0
+                ? positionDelta(totals.position, prevTotals.position)
+                : null,
+          },
+        ]
+      : []),
   ];
   return (
     <div className="rounded-xl border border-border bg-card p-4">
@@ -188,6 +215,11 @@ export function TotalsTable({ report }: { report: Report }) {
 export function DimensionTable({
   rows,
   keyLabel,
+  showPosition,
+  sort,
+  order,
+  onSortChange,
+  isRefreshing,
   isFiltered,
   isPastEnd,
   onClearFilters,
@@ -195,21 +227,43 @@ export function DimensionTable({
 }: {
   rows: SearchPerformanceTableRow[];
   keyLabel: string;
+  showPosition: boolean;
+  sort: SearchPerformanceSort;
+  order: SearchPerformanceSortOrder;
+  onSortChange: (
+    sort: SearchPerformanceSort,
+    order: SearchPerformanceSortOrder,
+  ) => void;
+  isRefreshing: boolean;
   isFiltered: boolean;
   isPastEnd: boolean;
   onClearFilters: () => void;
   onFirstPage: () => void;
 }) {
-  const columns = useMemo(() => buildDimensionColumns(keyLabel), [keyLabel]);
+  const columns = useMemo(
+    () => buildDimensionColumns(keyLabel, showPosition),
+    [keyLabel, showPosition],
+  );
+  const sorting: SortingState = [{ id: sort, desc: order === "desc" }];
   const table = useDataTable({
     data: rows,
     columns,
-    withSorting: true,
-    initialState: { sorting: [{ id: "clicks", desc: true }] },
+    manualSorting: true,
+    state: { sorting },
+    enableSortingRemoval: false,
+    enableMultiSort: false,
+    onSortingChange: (update) => {
+      const next = (typeof update === "function" ? update(sorting) : update)[0];
+      const field = SEARCH_PERFORMANCE_SORT_FIELDS.find(
+        (value) => value === next?.id,
+      );
+      if (field && next) onSortChange(field, next.desc ? "desc" : "asc");
+    },
   });
   return (
     <DataTable
       table={table}
+      isRefreshing={isRefreshing}
       isFiltered={isFiltered && !isPastEnd}
       onClearFilters={onClearFilters}
       empty={
@@ -380,6 +434,11 @@ export function StrikingDistanceTable({
             >
               Save as keywords
             </TableBulkActionButton>
+            <TrackRankingsMenu
+              projectId={projectId}
+              queries={selectedQueries}
+              onAdded={() => setRowSelection({})}
+            />
           </div>
         }
       />

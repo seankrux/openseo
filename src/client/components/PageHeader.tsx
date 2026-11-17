@@ -22,13 +22,15 @@ export function PageHeader({
   const header = (
     <div className="flex flex-wrap items-start justify-between gap-3">
       <div className="min-w-0 flex-1 basis-64 space-y-1">
-        <h1 className="text-2xl font-semibold tracking-tight">{title}</h1>
+        <h1 className="text-2xl font-semibold tracking-tight [overflow-wrap:anywhere]">
+          {title}
+        </h1>
         {description ? (
           <div className="text-sm text-muted-foreground">{description}</div>
         ) : null}
       </div>
       {actions ? (
-        <div className="flex shrink-0 flex-wrap items-center gap-2">
+        <div className="flex max-w-full flex-wrap items-center gap-2">
           {actions}
         </div>
       ) : null}
@@ -65,7 +67,7 @@ export function SectionHeader({
 }
 
 const BACK_LINK_CLASS =
-  "inline-flex items-center gap-1 text-sm text-muted-foreground transition-colors hover:text-foreground";
+  "inline-flex min-h-6 items-center gap-1 text-sm text-muted-foreground transition-colors hover:text-foreground";
 
 function BackLinkAnchor({
   className,

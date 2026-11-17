@@ -6,10 +6,8 @@ import {
 } from "../repositories/AiVisibilityRepository";
 import { AI_ANSWER_FAILURES, AiVisibilityError } from "./aiVisibilityErrors";
 import { aiScope } from "./aiVisibilityConfiguration";
-import {
-  getOptionalEnvValue,
-  isHostedServerAuthMode,
-} from "@/server/lib/runtime-env";
+import { getProxyLlmConfig } from "@/server/lib/proxyLlm";
+import { isHostedServerAuthMode } from "@/server/lib/runtime-env";
 import {
   getOrCreateOrganizationCustomer,
   getUsageCreditsRemaining,
@@ -17,54 +15,59 @@ import {
 } from "@/server/billing/subscription";
 import { AppError } from "@/server/lib/errors";
 import { sendCreditsExhaustedEvent } from "@/server/email/onboarding-drip";
-import type { AiRun } from "@/shared/ai-visibility";
+import { ownBrandName, type AiRun } from "@/shared/ai-visibility";
 import type { RunAiCheckInput } from "@/types/schemas/ai-visibility";
 import { requireConfiguration } from "./aiVisibilityMutation";
 import { aiPromptIsBranded } from "./aiVisibilityMatching";
 import { aiRunView } from "./aiVisibilityResults";
 import { aiCostForAnswers } from "./aiVisibilityCost";
-import { startWorkflow } from "@/server/lib/startWorkflow";
+import { hasDataforseoAccess } from "@/server/lib/provider-access";
+import {
+  isWorkflowActive,
+  readWorkflowStatus,
+  startWorkflow,
+  STUCK_RUN_AFTER_MS,
+  terminateStuckWorkflow,
+} from "@/server/lib/startWorkflow";
 
-const ACTIVE_WORKFLOW_STATUSES = new Set([
-  "queued",
-  "running",
-  "waiting",
-  "waitingForPause",
-  "paused",
-]);
 const STARTUP_GRACE_MS = 60_000;
 
 /**
  * Why an active run's workflow is no longer collecting it, or null while it
- * is. The workflow instance id is the run id, like rank checks.
+ * is. The workflow instance id is the run id, like rank checks. A run active
+ * for too long is stuck, even if its workflow still reports running.
  */
 async function staleRunReason(run: RunRow): Promise<string | null> {
   if (run.status !== "queued" && run.status !== "running") return null;
-  const status = await env.AI_VISIBILITY_WORKFLOW.get(run.id)
-    .then((instance) => instance.status())
-    .catch(() => null);
-  if (status && ACTIVE_WORKFLOW_STATUSES.has(status.status)) return null;
-  if (Date.now() - Date.parse(run.createdAt) < STARTUP_GRACE_MS) return null;
-  if (!status) return AI_ANSWER_FAILURES.stoppedBeforeStart;
+  const status = await readWorkflowStatus(env.AI_VISIBILITY_WORKFLOW, run.id);
+  const ageMs = Date.now() - Date.parse(run.createdAt);
+  // A failed lookup says nothing about the workflow: treat it as still active.
+  if (status === null || (status !== "missing" && isWorkflowActive(status))) {
+    if (ageMs < STUCK_RUN_AFTER_MS) return null;
+    console.warn(`[ai-visibility] ${run.id} workflow stuck`);
+    return AI_ANSWER_FAILURES.stopped;
+  }
+  if (ageMs < STARTUP_GRACE_MS) return null;
+  if (status === "missing") return AI_ANSWER_FAILURES.stoppedBeforeStart;
   console.warn(`[ai-visibility] ${run.id} workflow stopped (${status.status})`);
   return AI_ANSWER_FAILURES.stopped;
 }
 
-/** Fails a run and its unfinished answers. Safe on a finished run. */
 export async function failAiRun(runId: string, error: string) {
   const run = await repo.getRunInternal(runId);
   if (!run || (run.status !== "queued" && run.status !== "running")) return;
   await repo.failPendingObservations(runId, error);
-  await repo.updateRun(runId, {
+  await repo.updateActiveRun(runId, {
     status: "failed",
     completedAt: new Date().toISOString(),
   });
 }
 
-/** Fails an active run whose workflow has stopped, so it never blocks the tracker. */
 export async function reconcileAiRun(run: RunRow): Promise<RunRow> {
   const reason = await staleRunReason(run);
   if (!reason) return run;
+  // A stuck instance may still be running: stop it so it posts no more calls.
+  await terminateStuckWorkflow(env.AI_VISIBILITY_WORKFLOW, run.id);
   await failAiRun(run.id, reason);
   return (await repo.getRunInternal(run.id)) ?? run;
 }
@@ -75,7 +78,7 @@ export async function startRun(
   billing: BillingCustomerContext,
   promptIds?: string[],
 ): Promise<AiRun> {
-  if (!(await getOptionalEnvValue("DATAFORSEO_API_KEY")))
+  if (!(await hasDataforseoAccess()) && !(await getProxyLlmConfig()))
     throw new AiVisibilityError(
       "PROVIDER_NOT_CONFIGURED",
       "An operator must configure DATAFORSEO_API_KEY before collection. Your saved tracker remains available.",
@@ -96,19 +99,14 @@ export async function startRun(
       "NO_ACTIVE_PROMPTS",
       "Add or unpause prompts before starting a check.",
     );
-  // Hosted checks need credits for every answer before they start, like rank
-  // checks. The tracker says why no check ran, whichever path started it.
   if (await isHostedServerAuthMode()) {
     const required = aiCostForAnswers(
       scope.prompts.flatMap(() => scope.engines),
       true,
       trigger === "scheduled" ? "queued" : "live",
     ).costCredits;
-    // getOrCreate: an org's first check can come before its Autumn customer.
     const { id } = await getOrCreateOrganizationCustomer(billing);
     const credits = await getUsageCreditsRemaining(id);
-    // Clamp at 0: research setup can overdraw monthly credits, and top-up
-    // credits still pay for the check.
     const available =
       Math.max(credits.monthlyRemaining, 0) +
       Math.max(credits.topupRemaining, 0);
@@ -123,7 +121,7 @@ export async function startRun(
       );
     }
   }
-  const own = { name: project.name, domain: project.domain };
+  const own = { name: ownBrandName(project), domain: project.domain };
   // Two attempts: once normally, once after failing a stale blocker.
   for (let attempt = 0; attempt < 2; attempt++) {
     const id = crypto.randomUUID();
@@ -149,13 +147,10 @@ export async function startRun(
         ),
       );
     } catch (error) {
-      // The one-active-run index rejected the insert, or it truly failed.
       const blocker = await repo.getActiveRun(config.tracker.id);
       if (!blocker) throw error;
-      if (attempt === 0 && (await staleRunReason(blocker))) {
-        await reconcileAiRun(blocker);
+      if (attempt === 0 && (await reconcileAiRun(blocker)).status === "failed")
         continue;
-      }
       throw new AiVisibilityError(
         "RUN_IN_PROGRESS",
         "A check is already collecting answers. Read that run instead of starting another; this check was not started or charged.",
@@ -198,7 +193,6 @@ export async function runCheck(
 ): Promise<AiRun> {
   const config = await requireConfiguration(input.projectId);
   const scope = aiScope(config, input.promptIds);
-  // Price the check now and refuse it above what the user approved.
   const { costUsd } = aiCostForAnswers(
     scope.prompts.flatMap(() => scope.engines),
     await isHostedServerAuthMode(),

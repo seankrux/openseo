@@ -1,4 +1,6 @@
 import { AppError } from "@/server/lib/errors";
+import { hasDataforseoAccess } from "@/server/lib/provider-access";
+import { DATAFORSEO_NOT_SET_UP_MESSAGE } from "@/shared/gateway-setup-messages";
 import type { BillingCustomerContext } from "@/server/billing/subscription";
 import type { CreditFeature } from "@/shared/billing-credit-features";
 import {
@@ -12,6 +14,12 @@ import type { KeywordResearchRow } from "@/types/keywords";
 import type { ResolvedResearchKeywordsInput } from "@/types/schemas/keywords";
 import { z } from "zod";
 import { getKeywordDataProvider } from "@/shared/keyword-locations";
+import {
+  hasKeywordWildcard,
+  keywordWildcardError,
+  wildcardAnchor,
+} from "@/shared/keyword-wildcard";
+import { escapeLikeTerm, joinClauses } from "@/server/lib/dataforseo/filters";
 import {
   interleaveRows,
   normalizeKeyword,
@@ -69,16 +77,19 @@ const cachedResultSchema = z.object({
   usedFallback: z.boolean(),
 });
 
-// v5: auto mode blends suggestions + ideas. v4 (collapsed close variants)
-// only ran in previews; skip it so those entries are never reused.
-const CACHE_VERSION = 5;
+// v6: only measured provider data; do not reuse unverified proxy results.
+const CACHE_VERSION = 6;
 
 async function fetchRowsFromSource(
   source: KeywordSource,
   input: ResolvedResearchKeywordsInput,
   seedKeyword: string,
   billingCustomer: BillingCustomerContext,
-  opts: { creditFeature?: CreditFeature; resultLimit?: number } = {},
+  opts: {
+    creditFeature?: CreditFeature;
+    resultLimit?: number;
+    filters?: unknown[];
+  } = {},
 ): Promise<EnrichedKeyword[]> {
   return fetchResearchRowsBySource(
     {
@@ -89,6 +100,7 @@ async function fetchRowsFromSource(
       resultLimit: opts.resultLimit ?? input.resultLimit,
       includeClickstreamData: input.clickstream,
       ignoreSynonyms: !input.groupKeywords,
+      filters: opts.filters,
       creditFeature: opts.creditFeature,
     },
     billingCustomer,
@@ -165,6 +177,42 @@ async function fetchAutoRows(
     source: "blended",
     usedFallback: true,
   };
+}
+
+/**
+ * "best * for dogs": suggestions (keywords containing a phrase) for the
+ * anchor "for dogs", filtered by DataForSEO before it applies the limit, so
+ * every row matches. A bare `%` at either end would let "seo" match "seoul",
+ * so the pattern is pinned to word boundaries with four `like` conditions.
+ */
+async function fetchWildcardRows(
+  input: ResolvedResearchKeywordsInput,
+  seedKeyword: string,
+  billingCustomer: BillingCustomerContext,
+  creditFeature?: CreditFeature,
+): Promise<ResearchResult> {
+  const pattern = seedKeyword
+    .replace(/\s+/g, " ")
+    .replace(/\*+/g, "*")
+    .split("*")
+    .map(escapeLikeTerm)
+    .join("%");
+  const filters = joinClauses(
+    [pattern, `${pattern} %`, `% ${pattern}`, `% ${pattern} %`].map((value) => [
+      "keyword",
+      "like",
+      value,
+    ]),
+    "or",
+  );
+  const rows = await fetchRowsFromSource(
+    "suggestions",
+    input,
+    wildcardAnchor(seedKeyword),
+    billingCustomer,
+    { creditFeature, filters },
+  );
+  return { rows, source: "suggestions", usedFallback: false };
 }
 
 async function fetchGoogleAdsRows(
@@ -267,19 +315,31 @@ export async function research(
   if (uniqueKeywords.length === 0) {
     throw new AppError("VALIDATION_ERROR");
   }
+  if (!(await hasDataforseoAccess())) {
+    throw new AppError(
+      "DATAFORSEO_NOT_CONFIGURED",
+      DATAFORSEO_NOT_SET_UP_MESSAGE,
+    );
+  }
 
   const seedKeyword = uniqueKeywords[0];
+  const wildcardError = keywordWildcardError(seedKeyword, input.locationCode);
+  if (wildcardError) throw new AppError("VALIDATION_ERROR", wildcardError);
+  const wildcard = hasKeywordWildcard(seedKeyword);
   const provider = getKeywordDataProvider(input.locationCode);
   // Labs source modes, clickstream, and synonym filtering don't exist for
   // Google-Ads-served countries; normalize them so equivalent requests share
   // one cache entry. Local volume replaces the clickstream volume, so a local
-  // request never pays for clickstream.
+  // request never pays for clickstream. A wildcard always runs one filtered
+  // suggestions call, whatever mode was asked for.
   const effectiveInput: ResolvedResearchKeywordsInput =
     provider === "google_ads"
       ? { ...input, mode: "auto", clickstream: false, groupKeywords: false }
-      : input.locationName
-        ? { ...input, clickstream: false }
-        : input;
+      : {
+          ...input,
+          mode: wildcard ? "suggestions" : input.mode,
+          clickstream: input.locationName ? false : input.clickstream,
+        };
   const mode = effectiveInput.mode ?? "auto";
   const cacheKey = await buildResearchCacheKey(
     effectiveInput,
@@ -305,27 +365,34 @@ export async function research(
         billingCustomer,
         creditFeature,
       )
-    : provider === "google_ads"
-      ? await fetchGoogleAdsRows(
+    : wildcard
+      ? await fetchWildcardRows(
           effectiveInput,
           seedKeyword,
           billingCustomer,
           creditFeature,
         )
-      : mode === "auto"
-        ? await fetchAutoRows(
+      : provider === "google_ads"
+        ? await fetchGoogleAdsRows(
             effectiveInput,
             seedKeyword,
             billingCustomer,
             creditFeature,
           )
-        : await fetchManualRows(
-            mode,
-            effectiveInput,
-            seedKeyword,
-            billingCustomer,
-            creditFeature,
-          );
+        : mode === "auto"
+          ? await fetchAutoRows(
+              effectiveInput,
+              seedKeyword,
+              billingCustomer,
+              creditFeature,
+            )
+          : await fetchManualRows(
+              mode,
+              effectiveInput,
+              seedKeyword,
+              billingCustomer,
+              creditFeature,
+            );
 
   await setCached(cacheKey, result, CACHE_TTL.researchResult);
   // Keyword metrics are stored per country, so local rows are not persisted.

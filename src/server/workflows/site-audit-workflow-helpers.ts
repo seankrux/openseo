@@ -6,6 +6,7 @@ import type { PageFetchClass } from "@/shared/audit-fetch-class";
 import { sha256Hex } from "@/server/lib/audit/ids";
 import { normalizeUrl } from "@/server/lib/audit/url-utils";
 import type { CrawlThrottle } from "@/server/lib/audit/crawl-throttle";
+import { publicFetch } from "@/server/lib/public-fetch";
 import { crawlerHeadersFor, type CrawlerAccess } from "@/shared/crawler-access";
 import { auditRequestHeaders } from "@/server/lib/audit/web-bot-auth";
 
@@ -19,7 +20,9 @@ function parseLinkHeaderCanonical(
     const match = part.match(/<([^>]+)>\s*;([^]*)/);
     if (!match) continue;
     if (/rel\s*=\s*"?canonical"?/i.test(match[2])) {
-      return normalizeUrl(match[1].trim(), pageUrl);
+      return normalizeUrl(match[1].trim(), pageUrl, {
+        keepTrackingParams: true,
+      });
     }
   }
   return null;
@@ -82,7 +85,7 @@ async function fetchPage(
     // /docs/) need no special handling: normalizeUrl preserves trailing
     // slashes, so /docs and /docs/ are distinct URLs and the redirect resolves
     // to its canonical target instead of cycling back to its own source.
-    const response = await fetch(url, {
+    const response = await publicFetch(url, {
       headers: {
         Accept: "text/html,application/xhtml+xml",
         ...(await auditRequestHeaders(url, access)),
@@ -182,7 +185,8 @@ export async function crawlPage(
     );
 
     // Rendering replaces the body of a readable HTML page, a bot challenge, or
-    // a throttled Shopify page with what the browser loaded. Redirects,
+    // a throttled Shopify page with what the browser loaded. A block can be
+    // any content type: a host's firewall need not answer with HTML. Redirects,
     // non-HTML files, origin errors, login walls and other rate limits keep
     // their existing paths. The direct response's timing and headers stay
     // authoritative.
@@ -191,8 +195,11 @@ export async function crawlPage(
     if (
       render &&
       (throttled ||
-        (isHtml && (challenged || (fetchClass === "ok" && statusCode < 400))))
+        challenged ||
+        (isHtml && fetchClass === "ok" && statusCode < 400))
     ) {
+      // Nothing reads a non-HTML refusal, and a render can take many seconds.
+      if (!isHtml) await response.body?.cancel();
       try {
         const page = await render(url);
         body = page.html;
@@ -260,7 +267,9 @@ export async function crawlPage(
       title: analysis.title,
       metaDescription: analysis.metaDescription,
       canonicalUrl: analysis.canonical
-        ? (normalizeUrl(analysis.canonical, url) ?? analysis.canonical)
+        ? (normalizeUrl(analysis.canonical, url, {
+            keepTrackingParams: true,
+          }) ?? analysis.canonical)
         : null,
       robotsMeta: analysis.robotsMeta,
       xRobotsTag,
@@ -293,6 +302,7 @@ export async function crawlPage(
       links: analysis.links,
       hasStructuredData: analysis.hasStructuredData,
       hreflangTags: analysis.hreflangTags,
+      local: analysis.local,
       isIndexable,
       responseTimeMs,
       crawlDepth,

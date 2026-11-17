@@ -139,6 +139,7 @@ describe("Ga4Service", () => {
       accounts: [
         {
           accountId: "sub-a",
+          ownerUserId: "u1",
           email: null,
           requiresReconnect: true,
           propertiesUnavailable: false,
@@ -146,6 +147,7 @@ describe("Ga4Service", () => {
         },
         {
           accountId: "sub-b",
+          ownerUserId: "u1",
           email: null,
           requiresReconnect: false,
           propertiesUnavailable: true,

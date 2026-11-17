@@ -14,8 +14,10 @@ import { DefaultCatchBoundary } from "@/client/components/DefaultCatchBoundary";
 import { captureGoogleLinkError } from "@/client/features/integrations/googleLinkError";
 import { ExportToSheetsModal } from "@/client/components/table/ExportToSheetsModal";
 import { themePreferenceInitScript } from "@/client/lib/theme";
+import { runtimeAuthModeScript } from "@/lib/auth-mode";
 import { NotFound } from "@/client/components/NotFound";
 import { PrivacyBootstrap } from "@/client/components/PrivacyChoices";
+import { SkeletonPage } from "@/client/components/SkeletonPresets";
 import { TooltipProvider } from "@/client/components/ui/tooltip";
 import appCss from "@/client/styles/app.css?url";
 import { Toaster } from "sonner";
@@ -46,6 +48,10 @@ export const Route = createRootRoute({
       {
         name: "google",
         content: "notranslate",
+      },
+      {
+        name: "mobile-web-app-capable",
+        content: "yes",
       },
       {
         name: "apple-mobile-web-app-capable",
@@ -95,15 +101,25 @@ function RootDocument({ children }: { children: React.ReactNode }) {
     import.meta.env.DEV && import.meta.env.VITE_SHOW_DEVTOOLS !== "false";
 
   return (
-    <html suppressHydrationWarning translate="no">
+    <html lang="en" suppressHydrationWarning translate="no">
       <head>
         <script
           dangerouslySetInnerHTML={{ __html: themePreferenceInitScript }}
         />
+        <script dangerouslySetInnerHTML={{ __html: runtimeAuthModeScript() }} />
         <HeadContent />
       </head>
       <body>
-        <ClientOnly>
+        <ClientOnly
+          fallback={
+            <main className="min-h-svh p-4 md:p-6" aria-busy="true">
+              <p role="status" className="font-medium">
+                Loading OpenSEO…
+              </p>
+              <SkeletonPage />
+            </main>
+          }
+        >
           <QueryClientProvider client={queryClient}>
             <TooltipProvider>
               <PrivacyBootstrap />
@@ -126,6 +142,9 @@ function RootDocument({ children }: { children: React.ReactNode }) {
             </TooltipProvider>
           </QueryClientProvider>
         </ClientOnly>
+        <noscript>
+          <p>Enable JavaScript in your browser to use OpenSEO.</p>
+        </noscript>
         <Scripts />
       </body>
     </html>

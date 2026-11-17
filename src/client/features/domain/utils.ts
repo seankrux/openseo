@@ -71,12 +71,8 @@ export function formatRounded(value: number | null | undefined) {
   return new Intl.NumberFormat().format(Math.round(value));
 }
 
-export function formatMetric(
-  value: number | null | undefined,
-  hasData: boolean | undefined,
-) {
-  // The page's "Not enough data" banner explains the empty values.
-  if (!hasData) return "-";
+export function formatMetric(value: number | null | undefined) {
+  // Zero is an observed metric; only a missing value is unavailable.
   return formatRounded(value);
 }
 

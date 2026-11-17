@@ -1,4 +1,8 @@
-import { isHostedAuthMode } from "@/lib/auth-mode";
+import {
+  isEveryAppAuthMode,
+  isHostedAuthMode,
+  usesBetterAuth,
+} from "@/lib/auth-mode";
 
 let workersEnvPromise: Promise<Record<string, unknown> | null> | null = null;
 
@@ -13,13 +17,18 @@ export async function getOptionalEnvValue(
  * Object's `this.env`, needed because Think's `getModel()` hook is sync).
  * Same policy as the async form: process.env first (where local `.env.local`
  * secrets land in dev), skipping empty strings, then the given env.
+ * In Vitest, explicit mocked worker env bindings take precedence over the
+ * container's process.env so unit tests can override AUTH_MODE / secrets.
  */
-export function getEnvValueSync(
-  // `object` so interface-typed envs (e.g. Cloudflare.Env) are accepted
-  // without a cast.
-  env: object,
-  name: string,
-): string | undefined {
+export function getEnvValueSync(env: object, name: string): string | undefined {
+  const isVitest =
+    typeof process !== "undefined" && process.env?.VITEST === "true";
+  if (isVitest) {
+    const workerVal: unknown = Reflect.get(env, name);
+    if (typeof workerVal === "string" && workerVal !== "") {
+      return workerVal;
+    }
+  }
   const processValue =
     typeof process !== "undefined" ? process.env?.[name] : undefined;
   if (processValue) {
@@ -41,7 +50,15 @@ export async function isHostedServerAuthMode(): Promise<boolean> {
   return isHostedAuthMode(await getOptionalEnvValue("AUTH_MODE"));
 }
 
-async function getWorkersEnv(): Promise<Record<string, unknown> | null> {
+export async function isEveryAppServerAuthMode(): Promise<boolean> {
+  return isEveryAppAuthMode(await getOptionalEnvValue("AUTH_MODE"));
+}
+
+export async function usesBetterAuthServer(): Promise<boolean> {
+  return usesBetterAuth(await getOptionalEnvValue("AUTH_MODE"));
+}
+
+export async function getWorkersEnv(): Promise<Record<string, unknown> | null> {
   if (!workersEnvPromise) {
     workersEnvPromise = loadWorkersEnv();
   }

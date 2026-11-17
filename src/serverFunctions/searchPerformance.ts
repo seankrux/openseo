@@ -1,4 +1,5 @@
 import { createServerFn } from "@tanstack/react-start";
+import { SearchPerformanceTableService } from "@/server/features/gsc/services/SearchPerformanceTableService";
 import {
   GscNotConnectedError,
   GscService,
@@ -9,6 +10,7 @@ import {
   type GscPerformanceFilter,
 } from "@/server/features/gsc/searchAnalytics";
 import {
+  buildDailyTrend,
   buildStrikingDistanceRows,
   previousPeriod,
   sumSearchTotals,
@@ -16,6 +18,7 @@ import {
 } from "@/server/features/gsc/searchPerformanceReport";
 import { requireProjectContext } from "@/serverFunctions/middleware";
 import {
+  type SearchPerformanceType,
   searchPerformanceInputSchema,
   searchPerformanceTableExportInputSchema,
   searchPerformanceTableInputSchema,
@@ -34,6 +37,7 @@ const EXPORT_ROW_LIMIT = 1000;
  *  country applies everywhere except the country breakdown itself (so the
  *  dropdown keeps every option visible while one country is selected). */
 function buildGscFilters(data: {
+  searchType: SearchPerformanceType;
   device?: string;
   country?: string;
   pageFilter?: { operator: "contains" | "equals"; expression: string };
@@ -47,7 +51,8 @@ function buildGscFilters(data: {
     : [];
   if (data.pageFilter)
     nonCountryFilters.push({ dimension: "page", ...data.pageFilter });
-  if (data.queryFilter)
+  // Discover and Google News have no query dimension to filter on.
+  if (data.queryFilter && data.searchType === "web")
     nonCountryFilters.push({ dimension: "query", ...data.queryFilter });
   const filters: GscPerformanceFilter[] = data.country
     ? [
@@ -81,6 +86,7 @@ export const getSearchPerformanceReport = createServerFn({ method: "POST" })
     const prev = previousPeriod(startDate, endDate);
     const projectId = context.projectId;
     const { nonCountryFilters, filters } = buildGscFilters(data);
+    const type = data.searchType;
 
     try {
       const [current, previous, queryPages, countries] = await Promise.all([
@@ -88,6 +94,7 @@ export const getSearchPerformanceReport = createServerFn({ method: "POST" })
           projectId,
           startDate,
           endDate,
+          type,
           dimensions: ["date"],
           filters,
           rowLimit: DAILY_ROW_LIMIT,
@@ -96,22 +103,28 @@ export const getSearchPerformanceReport = createServerFn({ method: "POST" })
           projectId,
           startDate: prev.startDate,
           endDate: prev.endDate,
+          type,
           dimensions: ["date"],
           filters,
           rowLimit: DAILY_ROW_LIMIT,
         }),
+        // Striking distance needs queries and positions, which only web has.
+        type === "web"
+          ? GscService.getPerformance({
+              projectId,
+              startDate,
+              endDate,
+              type,
+              dimensions: ["query", "page"],
+              filters,
+              rowLimit: STRIKING_DISTANCE_FETCH_LIMIT,
+            })
+          : { rows: [] },
         GscService.getPerformance({
           projectId,
           startDate,
           endDate,
-          dimensions: ["query", "page"],
-          filters,
-          rowLimit: STRIKING_DISTANCE_FETCH_LIMIT,
-        }),
-        GscService.getPerformance({
-          projectId,
-          startDate,
-          endDate,
+          type,
           dimensions: ["country"],
           filters: nonCountryFilters,
           rowLimit: COUNTRY_ROW_LIMIT,
@@ -128,6 +141,7 @@ export const getSearchPerformanceReport = createServerFn({ method: "POST" })
         },
         totals: sumSearchTotals(current.rows),
         prevTotals: sumSearchTotals(previous.rows),
+        trend: buildDailyTrend(current.rows, startDate, endDate),
         strikingDistance: buildStrikingDistanceRows(queryPages.rows),
         countries: toDimensionRows(countries.rows),
       };
@@ -140,9 +154,8 @@ export const getSearchPerformanceReport = createServerFn({ method: "POST" })
   });
 
 /**
- * One page of the queries or pages table, paginated server-side against GSC via
- * `startRow` so it scales to large properties. GSC returns no total count, so we
- * fetch one extra row to detect a next page. All first-party GSC data, free.
+ * Sort the bounded matching dataset before paginating. The service shares a
+ * short-lived cache across page and sort changes. All first-party GSC data, free.
  */
 export const getSearchPerformanceTable = createServerFn({ method: "POST" })
   .middleware(requireProjectContext)
@@ -152,35 +165,27 @@ export const getSearchPerformanceTable = createServerFn({ method: "POST" })
       dateRange: data.dateRange,
     });
     const { filters } = buildGscFilters(data);
-    const offset = (data.page - 1) * data.pageSize;
 
     try {
-      const result = await GscService.getPerformance({
+      const result = await SearchPerformanceTableService.getPage({
         projectId: context.projectId,
+        organizationId: context.organizationId,
         startDate,
         endDate,
-        dimensions: [data.dimension],
+        dimension: data.dimension,
         filters,
-        // One extra row tells us whether a further page exists.
-        rowLimit: data.pageSize + 1,
-        startRow: offset,
+        page: data.page,
+        pageSize: data.pageSize,
+        sort: data.sort,
+        order: data.order,
       });
-
-      const fetched = toDimensionRows(result.rows);
-      const hasNextPage = fetched.length > data.pageSize;
-      const rows = hasNextPage ? fetched.slice(0, data.pageSize) : fetched;
 
       return {
         connected: true as const,
         dimension: data.dimension,
         page: data.page,
         pageSize: data.pageSize,
-        hasNextPage,
-        totalCount:
-          !hasNextPage && (offset === 0 || rows.length > 0)
-            ? offset + rows.length
-            : null,
-        rows,
+        ...result,
       };
     } catch (error) {
       if (isExpectedConnectionFailure(error)) {
@@ -207,6 +212,7 @@ export const exportSearchPerformanceTable = createServerFn({ method: "POST" })
       projectId: context.projectId,
       startDate,
       endDate,
+      type: data.searchType,
       dimensions: [data.dimension],
       filters,
       rowLimit: EXPORT_ROW_LIMIT,
@@ -215,5 +221,7 @@ export const exportSearchPerformanceTable = createServerFn({ method: "POST" })
     return {
       dimension: data.dimension,
       rows: toDimensionRows(result.rows),
+      rowLimit: EXPORT_ROW_LIMIT,
+      limitReached: result.rows.length >= EXPORT_ROW_LIMIT,
     };
   });

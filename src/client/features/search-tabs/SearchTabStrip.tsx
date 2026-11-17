@@ -25,6 +25,8 @@ type Props = {
   onSelect: (tab: SearchTab) => void;
   onClose: (tabId: string) => void;
   onViewed: (tabId: string, when?: number) => void;
+  /** Inside another card: no card of its own, just a divider above the tabs. */
+  embedded?: boolean;
 };
 
 type SearchTabQueryConfig = {
@@ -41,13 +43,20 @@ export function SearchTabStrip({
   onSelect,
   onClose,
   onViewed,
+  embedded = false,
 }: Props) {
   if (tabs.length === 0) return null;
 
   return (
-    <div className="rounded-xl border border-border bg-card p-1">
+    <div
+      className={
+        embedded
+          ? "border-t border-border pt-3"
+          : "rounded-xl border border-border bg-card p-1"
+      }
+    >
       <div
-        role="tablist"
+        role="group"
         aria-label="Search tabs"
         className="flex min-w-0 items-stretch gap-1 overflow-x-auto"
       >
@@ -65,9 +74,8 @@ export function SearchTabStrip({
             >
               <button
                 type="button"
-                role="tab"
                 data-search-tab-id={tab.id}
-                aria-selected={active}
+                aria-current={active ? "true" : undefined}
                 className="flex min-w-0 items-center gap-1.5 px-2.5 py-1.5 text-left"
                 onClick={() => onSelect(tab)}
               >
@@ -87,7 +95,7 @@ export function SearchTabStrip({
               <button
                 type="button"
                 data-search-tab-id={tab.id}
-                className="flex items-center px-1.5 text-muted-foreground opacity-60 transition hover:bg-foreground/10 hover:text-foreground hover:opacity-100 group-hover:opacity-100"
+                className="flex items-center px-1.5 text-muted-foreground opacity-80 transition hover:bg-foreground/10 hover:text-foreground hover:opacity-100 focus-visible:opacity-100 group-hover:opacity-100"
                 onClick={() => onClose(tab.id)}
                 aria-label={`Close ${tab.label} tab`}
               >

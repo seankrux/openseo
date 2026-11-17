@@ -1,5 +1,5 @@
 import { AiVisibilityRepository as repo } from "../repositories/AiVisibilityRepository";
-import { getOptionalEnvValue } from "@/server/lib/runtime-env";
+import { getProxyLlmConfig, proxyModelName } from "@/server/lib/proxyLlm";
 import {
   aiEngineUsesModelApi,
   AI_ENGINE_LABELS,
@@ -16,6 +16,7 @@ import {
 } from "./aiVisibilityConfiguration";
 import { aiRunView } from "./aiVisibilityResults";
 import { reconcileAiRun } from "./aiVisibilityRuns";
+import { hasDataforseoAccess } from "@/server/lib/provider-access";
 
 const CONSUMER_NOTE =
   "One consumer-site answer. Collects in any project market country except unsupportedLocationCodes.";
@@ -26,6 +27,8 @@ const AI_ENGINE_NOTES: Record<AiEngine, string> = {
   gemini: CONSUMER_NOTE,
   google_ai_overview:
     "The AI Overview on one Google results page. A page without an AI Overview is a no-answer result, not a missing brand.",
+  google_ai_mode:
+    "One answer from Google AI Mode, the AI tab of Google Search. Collects in every project market country.",
   claude: LIVE_NOTE,
   perplexity: LIVE_NOTE,
 };
@@ -33,16 +36,21 @@ const AI_ENGINE_NOTES: Record<AiEngine, string> = {
 export async function getTracker(input: {
   projectId: string;
 }): Promise<AiTrackerState> {
-  const [config, competitors, recent, providerKey, project] = await Promise.all(
-    [
-      repo.getConfiguration(input.projectId),
-      repo.listCompetitors(input.projectId),
-      repo.listRuns(input.projectId, 10),
-      getOptionalEnvValue("DATAFORSEO_API_KEY"),
-      repo.getProject(input.projectId),
-    ],
-  );
-  // A run whose workflow stopped is failed here, so it never looks stuck.
+  const [
+    config,
+    competitors,
+    recent,
+    dataforseoConfigured,
+    proxyConfig,
+    project,
+  ] = await Promise.all([
+    repo.getConfiguration(input.projectId),
+    repo.listCompetitors(input.projectId),
+    repo.listRuns(input.projectId, 10),
+    hasDataforseoAccess(),
+    getProxyLlmConfig(),
+    repo.getProject(input.projectId),
+  ]);
   const runs = await Promise.all(recent.map((run) => reconcileAiRun(run)));
   const [observations, answered] = await Promise.all([
     repo.getObservationStatuses(runs.map((r) => r.id)),
@@ -52,15 +60,38 @@ export async function getTracker(input: {
   ]);
   const brands = project ? aiBrands(project, competitors) : [];
   const own = brands.find((b) => b.own);
-  const capabilities = aiEngineSchema.options.map((engine) => ({
-    engine,
-    label: AI_ENGINE_LABELS[engine],
-    unsupportedLocationCodes: [...AI_UNSUPPORTED_LOCATIONS[engine]],
-    maxPromptLength: 2000,
-    note: AI_ENGINE_NOTES[engine],
-    modelApi: aiEngineUsesModelApi(engine),
-  }));
-  const providerConfigured = !!providerKey;
+  const measuredProviderConfigured = dataforseoConfigured;
+  const proxy = dataforseoConfigured ? null : proxyConfig;
+  const capabilities = await Promise.all(
+    aiEngineSchema.options.map(async (engine) => {
+      const proxyModel = proxy ? await proxyModelName(engine) : null;
+      const available = measuredProviderConfigured || Boolean(proxyModel);
+      const unavailableReason = available
+        ? undefined
+        : engine === "google_ai_overview"
+          ? "Requires captured Google results through DataForSEO."
+          : engine === "perplexity" && proxy
+            ? "Requires a configured Perplexity API route or DataForSEO."
+            : "Connect an AI provider to use this engine.";
+      return {
+        engine,
+        label: AI_ENGINE_LABELS[engine],
+        unsupportedLocationCodes: [...AI_UNSUPPORTED_LOCATIONS[engine]],
+        maxPromptLength: 2000,
+        note:
+          unavailableReason ??
+          (proxy
+            ? "One API answer through the configured model provider. Search and citation evidence depend on returned provider metadata."
+            : AI_ENGINE_NOTES[engine]),
+        modelApi:
+          (Boolean(proxy) && engine !== "google_ai_overview") ||
+          aiEngineUsesModelApi(engine),
+        available,
+        unavailableReason,
+      };
+    }),
+  );
+  const providerConfigured = capabilities.some((engine) => engine.available);
   if (!config)
     return {
       configured: false,

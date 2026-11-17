@@ -30,6 +30,14 @@ type DelegatedOrganizationInput = {
 };
 
 async function upsertDelegatedOrganization(input: DelegatedOrganizationInput) {
+  // Runs on every delegated-auth server-function call; skip the write (and
+  // the SQLite writer lock) when the row already matches.
+  const [existing] = await db
+    .select({ name: organization.name, slug: organization.slug })
+    .from(organization)
+    .where(eq(organization.id, input.id))
+    .limit(1);
+  if (existing?.name === input.name && existing.slug === input.slug) return;
   await db
     .insert(organization)
     .values({
@@ -275,6 +283,11 @@ async function hasPendingInvitationForEmail(email: string) {
   return pending !== undefined;
 }
 
+async function hasAnyUser() {
+  const [first] = await db.select({ id: authUser.id }).from(authUser).limit(1);
+  return first !== undefined;
+}
+
 async function getLastActiveOrganizationId(userId: string) {
   const record = await db.query.user.findFirst({
     columns: { lastActiveOrganizationId: true },
@@ -306,6 +319,10 @@ async function isAnalyticsOptedOut(userId: string) {
 async function saveSignupCampaign(
   userId: string,
   campaign: {
+    entry: "mcp" | "app";
+    wasGuest: boolean;
+    agent: string | null;
+    utmMedium: string | null;
     utmSource: string | null;
     utmCampaign: string | null;
     utmContent: string | null;
@@ -353,6 +370,7 @@ export const AuthRepository = {
   getHostedUserNames,
   getOrganizationOwner,
   hasPendingInvitationForEmail,
+  hasAnyUser,
   isAnalyticsOptedOut,
   saveSignupCampaign,
 } as const;

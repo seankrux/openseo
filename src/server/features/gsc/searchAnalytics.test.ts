@@ -3,20 +3,34 @@ import {
   buildSearchAnalyticsRequest,
   resolveDateRange,
 } from "@/server/features/gsc/searchAnalytics";
+import { previousPeriod } from "@/server/features/gsc/searchPerformanceReport";
 
 const TODAY = new Date("2026-05-28T00:00:00Z");
 
 describe("resolveDateRange", () => {
   it.each([
-    { dateRange: "last_7_days" as const, startDate: "2026-05-19" },
-    { dateRange: "last_28_days" as const, startDate: "2026-04-28" },
+    {
+      dateRange: "last_7_days" as const,
+      days: 7,
+      startDate: "2026-05-19",
+      previous: { startDate: "2026-05-12", endDate: "2026-05-18" },
+    },
+    {
+      dateRange: "last_28_days" as const,
+      days: 28,
+      startDate: "2026-04-28",
+      previous: { startDate: "2026-03-31", endDate: "2026-04-27" },
+    },
   ])(
-    "computes an inclusive $dateRange window from the lagged end",
-    ({ dateRange, startDate }) => {
-      expect(resolveDateRange({ dateRange }, TODAY)).toEqual({
-        startDate,
-        endDate: "2026-05-25",
-      });
+    "computes exactly $days inclusive days and an equal preceding window",
+    ({ dateRange, days, startDate, previous }) => {
+      const range = resolveDateRange({ dateRange }, TODAY);
+      expect(range).toEqual({ startDate, endDate: "2026-05-25" });
+      expect(
+        (Date.parse(range.endDate) - Date.parse(range.startDate)) / 86400_000 +
+          1,
+      ).toBe(days);
+      expect(previousPeriod(range.startDate, range.endDate)).toEqual(previous);
     },
   );
 

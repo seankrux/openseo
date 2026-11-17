@@ -6,6 +6,9 @@
  * of these types by id.
  */
 
+// Relative: tests/badseo type-checks this file without the @ alias.
+import { RENDERED_CRAWL_TIME_LIMIT_HOURS } from "./audit-limits";
+
 export type IssueSeverity = "critical" | "warning" | "info";
 
 interface AuditIssueDescriptor {
@@ -47,6 +50,29 @@ export const AUDIT_ISSUE_TYPES = {
       "The site refused several pages in a row with 429 Too Many Requests, or kept the crawler waiting for too long, so we stopped requesting pages. This report is incomplete; URLs we did not fetch are not recorded as broken or rate limited.",
     howToFix:
       "Re-run the audit after the site's rate limit resets, or ask the site owner to allow the OpenSEO-Audit crawler (https://openseo.so/docs/crawler). On Shopify, use Crawler access instead (Online Store → Preferences → Crawler access) and paste the signature into OpenSEO under Settings → Crawler access.",
+  },
+  "crawl-time-limit": {
+    severity: "warning",
+    title: "Crawl stopped early: time limit",
+    explanation: `Audits that render JavaScript stop crawling after ${RENDERED_CRAWL_TIME_LIMIT_HOURS} hours, and this one reached that limit. This report is incomplete; URLs we did not fetch are not recorded as broken.`,
+    howToFix:
+      "Re-run the audit with a lower page limit, or without Render JavaScript if the site's content and links are in its HTML. Rendering is billed only for pages actually rendered.",
+  },
+  "crawl-credits-exhausted": {
+    severity: "warning",
+    title: "Crawl stopped early: cost limit reached",
+    explanation:
+      "Many pages on this site needed our advanced renderer, so the audit reached its cost limit and stopped. You were only charged for the pages we rendered.",
+    howToFix:
+      "If the site doesn't need JavaScript to show its content, re-run with Render JavaScript off.",
+  },
+  "crawl-page-limit": {
+    severity: "warning",
+    title: "Crawl stopped early: page limit",
+    explanation:
+      "The audit reached its page limit before visiting every URL it found, so this report covers part of the site. Orphan pages are not checked on a partial crawl.",
+    howToFix:
+      'Re-run the audit with a higher page limit. If it is already at the maximum, add a robots.txt group for the "OpenSEO-Audit" user agent that disallows sections you don\'t need audited, such as tag archives or filtered listings, so the limit goes to the pages that matter: https://openseo.so/docs/crawler',
   },
   "server-error": {
     severity: "critical",
@@ -248,6 +274,54 @@ export const AUDIT_ISSUE_TYPES = {
     howToFix:
       "If this page should rank on its own, set its canonical to itself. Otherwise no action is needed.",
   },
+  "malformed-tel-link": {
+    severity: "critical",
+    title: "Malformed phone link",
+    explanation:
+      'A link that should dial the business is broken: either a tel: link without a valid 10-15 digit number, or a phone number written as a plain href (e.g. "/+1-580-271-9887”") that the browser treats as a page URL and 404s. Visitors tapping it cannot call, and crawlers record a broken internal link.',
+    howToFix:
+      'Use href="tel:+15802719887" (digits only, optional leading +1). Fix it in the shared site template so every clone picks it up.',
+  },
+  "missing-click-to-call": {
+    severity: "warning",
+    title: "No click-to-call link on homepage",
+    explanation:
+      "The homepage has no tel: link. For local-service sites most leads come from mobile visitors tapping the phone number.",
+    howToFix:
+      'Wrap the displayed phone number in an <a href="tel:+1XXXXXXXXXX"> link in the header and hero.',
+  },
+  "missing-callrail": {
+    severity: "info",
+    title: "CallRail tracking script not detected",
+    explanation:
+      "No CallRail script (cdn.callrail.com / swap.js) was found in the homepage HTML, so calls from this site may not be tracked or number-swapped.",
+    howToFix:
+      "If this site should use CallRail, add the company's swap.js snippet to the site template.",
+  },
+  "missing-local-business-schema": {
+    severity: "warning",
+    title: "No LocalBusiness / Organization schema on homepage",
+    explanation:
+      "The homepage has no JSON-LD of type LocalBusiness (or a subtype such as HomeAndConstructionBusiness, Plumber, RoofingContractor) or Organization. This structured data helps Google connect the site to the business's name, phone, address and service area.",
+    howToFix:
+      "Add a JSON-LD LocalBusiness block with name, telephone, address/areaServed and url to the homepage template.",
+  },
+  "homepage-noindex": {
+    severity: "critical",
+    title: "Homepage is noindex",
+    explanation:
+      "The homepage carries a noindex directive (meta robots or X-Robots-Tag). Search engines will drop the entire site's main entry point from results.",
+    howToFix:
+      "Remove noindex from the homepage (check SEO plugin settings and 'Discourage search engines' in WordPress).",
+  },
+  "other-city-reference": {
+    severity: "warning",
+    title: "Links or URL name a different city",
+    explanation:
+      "This page's URL or internal links use city slugs (e.g. \"-boca-raton-fl\") that do not match the city in this site's domain. On cloned local sites this usually means template leakage from another city's site; on legitimate service-area pages it can be expected.",
+    howToFix:
+      "Review the listed cities. Remove or rewrite links copied from another city's site; keep genuine nearby service-area pages.",
+  },
   "deep-page": {
     severity: "info",
     title: "Page is deep in the site structure",
@@ -259,6 +333,14 @@ export const AUDIT_ISSUE_TYPES = {
 } as const satisfies Record<string, AuditIssueDescriptor>;
 
 export type AuditIssueType = keyof typeof AUDIT_ISSUE_TYPES;
+
+/** Issue types a crawl raises when it stops with URLs left unvisited. */
+export const CRAWL_STOP_ISSUE_TYPES = [
+  "crawl-rate-limited",
+  "crawl-time-limit",
+  "crawl-credits-exhausted",
+  "crawl-page-limit",
+] as const satisfies readonly AuditIssueType[];
 
 export const ISSUE_SEVERITY_ORDER: Record<IssueSeverity, number> = {
   critical: 0,

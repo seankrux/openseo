@@ -5,6 +5,7 @@ import { slugify, toHex } from "./org-slug";
 // id deliberately lacks the "delegated-" prefix so the legacy per-user pattern
 // below can be matched (and merged) without excluding it.
 export const SHARED_WORKSPACE_ORGANIZATION_ID = "shared-workspace";
+export const LOCAL_ADMIN_USER_ID = "local-admin";
 
 export async function ensureSharedWorkspaceOrganization() {
   await AuthRepository.upsertDelegatedOrganization({
@@ -16,7 +17,7 @@ export async function ensureSharedWorkspaceOrganization() {
   return SHARED_WORKSPACE_ORGANIZATION_ID;
 }
 
-function getDelegatedOrganizationId(userId: string) {
+export function getDelegatedOrganizationId(userId: string) {
   return `delegated-${userId}`;
 }
 

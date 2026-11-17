@@ -3,11 +3,11 @@ import { user } from "@/db/schema";
 import {
   ensureDelegatedOrganizationForUser,
   ensureSharedWorkspaceOrganization,
+  LOCAL_ADMIN_USER_ID,
 } from "@/server/auth/delegated-organization";
 import { eq } from "drizzle-orm";
 import type { EnsuredUserContext } from "./types";
 
-const LOCAL_ADMIN_USER_ID = "local-admin";
 const LOCAL_ADMIN_EMAIL = "admin@localhost";
 
 // Externally-authenticated users (Cloudflare Access, local_noauth) are stored
@@ -19,7 +19,7 @@ function deriveUserName(email: string) {
   return email.split("@")[0] || "OpenSEO";
 }
 
-async function ensureUserRecord(userId: string, userEmail: string) {
+export async function ensureUserRecord(userId: string, userEmail: string) {
   const existing = await db.query.user.findFirst({
     columns: { email: true },
     where: eq(user.id, userId),

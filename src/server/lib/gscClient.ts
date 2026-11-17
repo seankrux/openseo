@@ -1,4 +1,8 @@
 import { getGoogleAccessToken } from "@/server/features/google/googleOAuth";
+import { getGoogleAccessMode } from "@/server/features/google/googleAccess";
+import { getGoogleOAuthClientConfig } from "@/server/features/google/oauth-config";
+import { GoogleGrantError } from "@/server/features/google/googleOAuthErrors";
+import { getGatewayGoogleFetch } from "@/server/features/google/gatewayGoogle";
 import { GSC_OAUTH_PROVIDER_ID } from "@/shared/gsc";
 import { GscApiError, GscTokenError } from "./gscErrors";
 
@@ -6,6 +10,9 @@ export { GscApiError, GscTokenError } from "./gscErrors";
 
 const GSC_API_BASE = "https://www.googleapis.com/webmasters/v3";
 const GOOGLE_USERINFO_URL = "https://openidconnect.googleapis.com/v1/userinfo";
+// URL inspection takes ~6 s and slow searchAnalytics queries ~30 s; past this
+// Google is stuck, and the call would hold one of the Worker's 6 connections.
+const GSC_TIMEOUT_MS = 60_000;
 
 /** A GSC REST call returned a non-2xx status. `status` drives user-facing messaging. */
 export type GscSite = {
@@ -76,14 +83,20 @@ function messageForStatus(status: number, body: string): string {
   return `Search Console API error (${status}): ${body.slice(0, 300)}`;
 }
 
+export type GscRequestOptions = {
+  signal?: AbortSignal;
+};
+
 /** Free Google Search Console client. Unlike the DataForSEO client it does NOT
  *  meter credits — GSC is first-party data with no per-call cost. Access tokens
  *  come from (and are auto-refreshed against) the connector's stored
  *  google-search-console grant. */
-export function createGscClient(opts: {
-  userId: string;
-  gscAccountId?: string;
-}) {
+export function createGscClient(
+  opts: {
+    userId: string;
+    gscAccountId?: string;
+  } & GscRequestOptions,
+) {
   // One mint per client: a client lives for a single service call, and
   // concurrent requests (inspectUrls fans out) must not race the refresh.
   let tokenPromise: Promise<string> | undefined;
@@ -92,8 +105,12 @@ export function createGscClient(opts: {
       providerId: GSC_OAUTH_PROVIDER_ID,
       userId: opts.userId,
       accountId: opts.gscAccountId,
+      signal: opts.signal,
     }).catch((error: unknown) => {
       tokenPromise = undefined;
+      // A slow token endpoint is an outage, not a revoked grant: request()
+      // reports it as one rather than prompting a reconnect.
+      if (error instanceof Error && error.name === "TimeoutError") throw error;
       throw new GscTokenError(
         "Could not mint a Search Console access token (grant revoked or expired).",
         error,
@@ -102,20 +119,79 @@ export function createGscClient(opts: {
     return tokenPromise;
   }
 
+  /**
+   * The fetch and the headers that reach Google authenticated: behind the
+   * gateway, the gateway's fetch puts the member's token on the call
+   * (gatewayGoogle.ts); otherwise OpenSEO's own grant mints one.
+   */
+  async function authenticated(): Promise<{
+    fetch: typeof fetch;
+    headers: Record<string, string>;
+  }> {
+    // Prefer a stored grant (imported self-host tokens for this userId)
+    // when the original OAuth client is configured. New Every App members
+    // without a grant still go through the gateway.
+    if (await getGoogleOAuthClientConfig()) {
+      try {
+        return {
+          fetch,
+          headers: { Authorization: `Bearer ${await getToken()}` },
+        };
+      } catch (error) {
+        const noGrant =
+          error instanceof GoogleGrantError ||
+          (error instanceof GscTokenError &&
+            error.message.includes("grant revoked or expired") &&
+            error.cause instanceof GoogleGrantError &&
+            String(error.cause.message).includes("grant for this user"));
+        if (!noGrant || (await getGoogleAccessMode()) !== "gateway") {
+          throw error;
+        }
+      }
+    }
+    if ((await getGoogleAccessMode()) === "gateway") {
+      const gatewayFetch = await getGatewayGoogleFetch(opts.userId);
+      if (!gatewayFetch) {
+        throw new GscTokenError(
+          "Google isn't reachable through the Every App gateway here.",
+        );
+      }
+      return { fetch: gatewayFetch, headers: {} };
+    }
+    return {
+      fetch,
+      headers: { Authorization: `Bearer ${await getToken()}` },
+    };
+  }
+
   async function request<T>(
     url: string,
     init?: { method?: string; body?: unknown },
   ): Promise<T> {
-    const token = await getToken();
     const hasBody = init?.body !== undefined;
-    const response = await fetch(url, {
-      method: init?.method ?? "GET",
-      headers: {
-        Authorization: `Bearer ${token}`,
-        ...(hasBody ? { "Content-Type": "application/json" } : {}),
-      },
-      body: hasBody ? JSON.stringify(init?.body) : undefined,
-    });
+    let response: Response;
+    try {
+      const { fetch: send, headers } = await authenticated();
+      response = await send(url, {
+        method: init?.method ?? "GET",
+        headers: {
+          ...headers,
+          ...(hasBody ? { "Content-Type": "application/json" } : {}),
+        },
+        body: hasBody ? JSON.stringify(init?.body) : undefined,
+        signal: opts.signal
+          ? AbortSignal.any([AbortSignal.timeout(GSC_TIMEOUT_MS), opts.signal])
+          : AbortSignal.timeout(GSC_TIMEOUT_MS),
+      });
+    } catch (error) {
+      if (error instanceof Error && error.name === "TimeoutError") {
+        throw new GscApiError(
+          504,
+          "Search Console didn't respond in time. Retry shortly.",
+        );
+      }
+      throw error;
+    }
     if (!response.ok) {
       const body = await response.text().catch(() => "");
       throw new GscApiError(

@@ -38,6 +38,7 @@ function ComboboxClear({ className, ...props }: ComboboxPrimitive.Clear.Props) {
   return (
     <ComboboxPrimitive.Clear
       data-slot="combobox-clear"
+      aria-label="Clear selection"
       render={<InputGroupButton variant="ghost" size="icon-xs" />}
       className={cn(className)}
       {...props}
@@ -73,6 +74,7 @@ function ComboboxInput({
         {showTrigger && (
           <InputGroupButton
             size="icon-xs"
+            aria-label="Show options"
             variant="ghost"
             render={<ComboboxTrigger />}
             // The input opens the list, so the chevron is not a Tab stop.
@@ -276,7 +278,10 @@ function ComboboxChipsInput({
   return (
     <ComboboxPrimitive.Input
       data-slot="combobox-chip-input"
-      className={cn("min-w-16 flex-1 outline-none", className)}
+      className={cn(
+        "min-w-16 flex-1 outline-none placeholder:text-muted-foreground",
+        className,
+      )}
       {...props}
     />
   );

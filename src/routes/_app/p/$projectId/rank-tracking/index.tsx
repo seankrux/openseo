@@ -7,6 +7,7 @@ import {
 import { useQueryClient } from "@tanstack/react-query";
 import { RankTrackingDomainList } from "@/client/features/rank-tracking/RankTrackingDomainList";
 import { RankTrackingConfigModal } from "@/client/features/rank-tracking/RankTrackingConfigModal";
+import { GscRankingsCard } from "@/client/features/rank-tracking/GscRankingsCard";
 import { RankTrackingChangesAlert } from "@/client/features/rank-tracking/RankTrackingChangesAlert";
 import { rankTrackingListSearchSchema } from "@/types/schemas/rank-tracking-search";
 
@@ -39,6 +40,7 @@ function RankTrackingIndex() {
   return (
     <div className="space-y-3">
       <RankTrackingChangesAlert />
+      <GscRankingsCard projectId={projectId} />
       <RankTrackingDomainList
         projectId={projectId}
         search={search}

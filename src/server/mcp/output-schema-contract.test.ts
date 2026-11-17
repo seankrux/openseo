@@ -84,6 +84,13 @@ describe("published MCP output schemas", () => {
       await client.connect(clientTransport);
       const { tools } = await client.listTools();
       expect(tools.length).toBeGreaterThan(0);
+      expect(tools.map((tool) => tool.name)).toEqual(
+        expect.arrayContaining([
+          "generate_project_health_report",
+          "preview_project_alerts",
+          "refresh_bing_webmaster_snapshot",
+        ]),
+      );
       const failures = tools.flatMap((tool) => {
         expect(
           tool.outputSchema,

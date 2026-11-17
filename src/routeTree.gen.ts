@@ -13,6 +13,7 @@ import { Route as AppRouteRouteImport } from './routes/_app/route'
 import { Route as AuthRouteImport } from './routes/_auth'
 import { Route as AuthenticatedRouteImport } from './routes/_authenticated'
 import { Route as AuthErrorRouteImport } from './routes/auth-error'
+import { Route as ConnectRouteImport } from './routes/connect'
 import { Route as ForgotPasswordRouteImport } from './routes/forgot-password'
 import { Route as ResetPasswordRouteImport } from './routes/reset-password'
 import { Route as VerifyEmailRouteImport } from './routes/verify-email'
@@ -20,7 +21,12 @@ import { Route as Char91DotwellKnownChar93HttpMessageSignaturesDirectoryRouteImp
 import { Route as Char91DotwellKnownChar93OpenaiAppsChallengeRouteImport } from './routes/[.well-known]/openai-apps-challenge'
 import { Route as AppIndexRouteImport } from './routes/_app/index'
 import { Route as AppAiRouteImport } from './routes/_app/ai'
+import { Route as AppAllReportsRouteImport } from './routes/_app/all-reports'
 import { Route as AppBillingRouteImport } from './routes/_app/billing'
+import { Route as AppDashboardRouteImport } from './routes/_app/dashboard'
+import { Route as AppDomainHealthRouteImport } from './routes/_app/domain-health'
+import { Route as AppGa4SetupRouteImport } from './routes/_app/ga4-setup'
+import { Route as AppOverviewRouteImport } from './routes/_app/overview'
 import { Route as AppProjectsRouteImport } from './routes/_app/projects'
 import { Route as AppSettingsRouteImport } from './routes/_app/settings'
 import { Route as AppSupportRouteImport } from './routes/_app/support'
@@ -32,7 +38,9 @@ import { Route as AuthenticatedYcRouteImport } from './routes/_authenticated.yc'
 import { Route as AcceptInvitationIdRouteImport } from './routes/accept-invitation.$id'
 import { Route as ApiHealthRouteImport } from './routes/api/health'
 import { Route as ApiPrivacyRegionRouteImport } from './routes/api/privacy-region'
+import { Route as ApiSignUpStatusRouteImport } from './routes/api/sign-up-status'
 import { Route as RReportIdRouteImport } from './routes/r/$reportId'
+import { Route as StripeProjectsLoginRouteImport } from './routes/stripe-projects.login'
 import { Route as AppBillingFixPaymentRouteImport } from './routes/_app/billing_.fix-payment'
 import { Route as AppHelpDataforseoApiKeyRouteImport } from './routes/_app/help/dataforseo-api-key'
 import { Route as AppHelpOpenrouterApiKeyRouteImport } from './routes/_app/help/openrouter-api-key'
@@ -97,6 +105,11 @@ const AuthErrorRoute = AuthErrorRouteImport.update({
   path: '/auth-error',
   getParentRoute: () => rootRouteImport,
 } as any)
+const ConnectRoute = ConnectRouteImport.update({
+  id: '/connect',
+  path: '/connect',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const ForgotPasswordRoute = ForgotPasswordRouteImport.update({
   id: '/forgot-password',
   path: '/forgot-password',
@@ -134,9 +147,34 @@ const AppAiRoute = AppAiRouteImport.update({
   path: '/ai',
   getParentRoute: () => AppRouteRoute,
 } as any)
+const AppAllReportsRoute = AppAllReportsRouteImport.update({
+  id: '/all-reports',
+  path: '/all-reports',
+  getParentRoute: () => AppRouteRoute,
+} as any)
 const AppBillingRoute = AppBillingRouteImport.update({
   id: '/billing',
   path: '/billing',
+  getParentRoute: () => AppRouteRoute,
+} as any)
+const AppDashboardRoute = AppDashboardRouteImport.update({
+  id: '/dashboard',
+  path: '/dashboard',
+  getParentRoute: () => AppRouteRoute,
+} as any)
+const AppDomainHealthRoute = AppDomainHealthRouteImport.update({
+  id: '/domain-health',
+  path: '/domain-health',
+  getParentRoute: () => AppRouteRoute,
+} as any)
+const AppGa4SetupRoute = AppGa4SetupRouteImport.update({
+  id: '/ga4-setup',
+  path: '/ga4-setup',
+  getParentRoute: () => AppRouteRoute,
+} as any)
+const AppOverviewRoute = AppOverviewRouteImport.update({
+  id: '/overview',
+  path: '/overview',
   getParentRoute: () => AppRouteRoute,
 } as any)
 const AppProjectsRoute = AppProjectsRouteImport.update({
@@ -195,9 +233,19 @@ const ApiPrivacyRegionRoute = ApiPrivacyRegionRouteImport.update({
   path: '/api/privacy-region',
   getParentRoute: () => rootRouteImport,
 } as any)
+const ApiSignUpStatusRoute = ApiSignUpStatusRouteImport.update({
+  id: '/api/sign-up-status',
+  path: '/api/sign-up-status',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const RReportIdRoute = RReportIdRouteImport.update({
   id: '/r/$reportId',
   path: '/r/$reportId',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const StripeProjectsLoginRoute = StripeProjectsLoginRouteImport.update({
+  id: '/stripe-projects/login',
+  path: '/stripe-projects/login',
   getParentRoute: () => rootRouteImport,
 } as any)
 const AppBillingFixPaymentRoute = AppBillingFixPaymentRouteImport.update({
@@ -455,13 +503,19 @@ const ApiLocalSeoMapsProjectIdZXYRoute =
 export interface FileRoutesByFullPath {
   '/': typeof AppIndexRoute
   '/auth-error': typeof AuthErrorRoute
+  '/connect': typeof ConnectRoute
   '/forgot-password': typeof ForgotPasswordRoute
   '/reset-password': typeof ResetPasswordRoute
   '/verify-email': typeof VerifyEmailRoute
   '/.well-known/http-message-signatures-directory': typeof Char91DotwellKnownChar93HttpMessageSignaturesDirectoryRoute
   '/.well-known/openai-apps-challenge': typeof Char91DotwellKnownChar93OpenaiAppsChallengeRoute
   '/ai': typeof AppAiRoute
+  '/all-reports': typeof AppAllReportsRoute
   '/billing': typeof AppBillingRoute
+  '/dashboard': typeof AppDashboardRoute
+  '/domain-health': typeof AppDomainHealthRoute
+  '/ga4-setup': typeof AppGa4SetupRoute
+  '/overview': typeof AppOverviewRoute
   '/projects': typeof AppProjectsRoute
   '/settings': typeof AppSettingsRouteWithChildren
   '/support': typeof AppSupportRoute
@@ -473,7 +527,9 @@ export interface FileRoutesByFullPath {
   '/accept-invitation/$id': typeof AcceptInvitationIdRoute
   '/api/health': typeof ApiHealthRoute
   '/api/privacy-region': typeof ApiPrivacyRegionRoute
+  '/api/sign-up-status': typeof ApiSignUpStatusRoute
   '/r/$reportId': typeof RReportIdRoute
+  '/stripe-projects/login': typeof StripeProjectsLoginRoute
   '/p/$projectId': typeof AppPProjectIdRouteRouteWithChildren
   '/billing/fix-payment': typeof AppBillingFixPaymentRoute
   '/help/dataforseo-api-key': typeof AppHelpDataforseoApiKeyRoute
@@ -524,13 +580,19 @@ export interface FileRoutesByFullPath {
 export interface FileRoutesByTo {
   '/': typeof AppIndexRoute
   '/auth-error': typeof AuthErrorRoute
+  '/connect': typeof ConnectRoute
   '/forgot-password': typeof ForgotPasswordRoute
   '/reset-password': typeof ResetPasswordRoute
   '/verify-email': typeof VerifyEmailRoute
   '/.well-known/http-message-signatures-directory': typeof Char91DotwellKnownChar93HttpMessageSignaturesDirectoryRoute
   '/.well-known/openai-apps-challenge': typeof Char91DotwellKnownChar93OpenaiAppsChallengeRoute
   '/ai': typeof AppAiRoute
+  '/all-reports': typeof AppAllReportsRoute
   '/billing': typeof AppBillingRoute
+  '/dashboard': typeof AppDashboardRoute
+  '/domain-health': typeof AppDomainHealthRoute
+  '/ga4-setup': typeof AppGa4SetupRoute
+  '/overview': typeof AppOverviewRoute
   '/projects': typeof AppProjectsRoute
   '/support': typeof AppSupportRoute
   '/sign-in': typeof AuthSignInRoute
@@ -541,7 +603,9 @@ export interface FileRoutesByTo {
   '/accept-invitation/$id': typeof AcceptInvitationIdRoute
   '/api/health': typeof ApiHealthRoute
   '/api/privacy-region': typeof ApiPrivacyRegionRoute
+  '/api/sign-up-status': typeof ApiSignUpStatusRoute
   '/r/$reportId': typeof RReportIdRoute
+  '/stripe-projects/login': typeof StripeProjectsLoginRoute
   '/billing/fix-payment': typeof AppBillingFixPaymentRoute
   '/help/dataforseo-api-key': typeof AppHelpDataforseoApiKeyRoute
   '/help/openrouter-api-key': typeof AppHelpOpenrouterApiKeyRoute
@@ -590,13 +654,19 @@ export interface FileRoutesById {
   '/_auth': typeof AuthRouteWithChildren
   '/_authenticated': typeof AuthenticatedRouteWithChildren
   '/auth-error': typeof AuthErrorRoute
+  '/connect': typeof ConnectRoute
   '/forgot-password': typeof ForgotPasswordRoute
   '/reset-password': typeof ResetPasswordRoute
   '/verify-email': typeof VerifyEmailRoute
   '/.well-known/http-message-signatures-directory': typeof Char91DotwellKnownChar93HttpMessageSignaturesDirectoryRoute
   '/.well-known/openai-apps-challenge': typeof Char91DotwellKnownChar93OpenaiAppsChallengeRoute
   '/_app/ai': typeof AppAiRoute
+  '/_app/all-reports': typeof AppAllReportsRoute
   '/_app/billing': typeof AppBillingRoute
+  '/_app/dashboard': typeof AppDashboardRoute
+  '/_app/domain-health': typeof AppDomainHealthRoute
+  '/_app/ga4-setup': typeof AppGa4SetupRoute
+  '/_app/overview': typeof AppOverviewRoute
   '/_app/projects': typeof AppProjectsRoute
   '/_app/settings': typeof AppSettingsRouteWithChildren
   '/_app/support': typeof AppSupportRoute
@@ -608,7 +678,9 @@ export interface FileRoutesById {
   '/accept-invitation/$id': typeof AcceptInvitationIdRoute
   '/api/health': typeof ApiHealthRoute
   '/api/privacy-region': typeof ApiPrivacyRegionRoute
+  '/api/sign-up-status': typeof ApiSignUpStatusRoute
   '/r/$reportId': typeof RReportIdRoute
+  '/stripe-projects/login': typeof StripeProjectsLoginRoute
   '/_app/': typeof AppIndexRoute
   '/_app/p/$projectId': typeof AppPProjectIdRouteRouteWithChildren
   '/_app/billing_/fix-payment': typeof AppBillingFixPaymentRoute
@@ -662,13 +734,19 @@ export interface FileRouteTypes {
   fullPaths:
     | '/'
     | '/auth-error'
+    | '/connect'
     | '/forgot-password'
     | '/reset-password'
     | '/verify-email'
     | '/.well-known/http-message-signatures-directory'
     | '/.well-known/openai-apps-challenge'
     | '/ai'
+    | '/all-reports'
     | '/billing'
+    | '/dashboard'
+    | '/domain-health'
+    | '/ga4-setup'
+    | '/overview'
     | '/projects'
     | '/settings'
     | '/support'
@@ -680,7 +758,9 @@ export interface FileRouteTypes {
     | '/accept-invitation/$id'
     | '/api/health'
     | '/api/privacy-region'
+    | '/api/sign-up-status'
     | '/r/$reportId'
+    | '/stripe-projects/login'
     | '/p/$projectId'
     | '/billing/fix-payment'
     | '/help/dataforseo-api-key'
@@ -731,13 +811,19 @@ export interface FileRouteTypes {
   to:
     | '/'
     | '/auth-error'
+    | '/connect'
     | '/forgot-password'
     | '/reset-password'
     | '/verify-email'
     | '/.well-known/http-message-signatures-directory'
     | '/.well-known/openai-apps-challenge'
     | '/ai'
+    | '/all-reports'
     | '/billing'
+    | '/dashboard'
+    | '/domain-health'
+    | '/ga4-setup'
+    | '/overview'
     | '/projects'
     | '/support'
     | '/sign-in'
@@ -748,7 +834,9 @@ export interface FileRouteTypes {
     | '/accept-invitation/$id'
     | '/api/health'
     | '/api/privacy-region'
+    | '/api/sign-up-status'
     | '/r/$reportId'
+    | '/stripe-projects/login'
     | '/billing/fix-payment'
     | '/help/dataforseo-api-key'
     | '/help/openrouter-api-key'
@@ -796,13 +884,19 @@ export interface FileRouteTypes {
     | '/_auth'
     | '/_authenticated'
     | '/auth-error'
+    | '/connect'
     | '/forgot-password'
     | '/reset-password'
     | '/verify-email'
     | '/.well-known/http-message-signatures-directory'
     | '/.well-known/openai-apps-challenge'
     | '/_app/ai'
+    | '/_app/all-reports'
     | '/_app/billing'
+    | '/_app/dashboard'
+    | '/_app/domain-health'
+    | '/_app/ga4-setup'
+    | '/_app/overview'
     | '/_app/projects'
     | '/_app/settings'
     | '/_app/support'
@@ -814,7 +908,9 @@ export interface FileRouteTypes {
     | '/accept-invitation/$id'
     | '/api/health'
     | '/api/privacy-region'
+    | '/api/sign-up-status'
     | '/r/$reportId'
+    | '/stripe-projects/login'
     | '/_app/'
     | '/_app/p/$projectId'
     | '/_app/billing_/fix-payment'
@@ -869,6 +965,7 @@ export interface RootRouteChildren {
   AuthRoute: typeof AuthRouteWithChildren
   AuthenticatedRoute: typeof AuthenticatedRouteWithChildren
   AuthErrorRoute: typeof AuthErrorRoute
+  ConnectRoute: typeof ConnectRoute
   ForgotPasswordRoute: typeof ForgotPasswordRoute
   ResetPasswordRoute: typeof ResetPasswordRoute
   VerifyEmailRoute: typeof VerifyEmailRoute
@@ -877,7 +974,9 @@ export interface RootRouteChildren {
   AcceptInvitationIdRoute: typeof AcceptInvitationIdRoute
   ApiHealthRoute: typeof ApiHealthRoute
   ApiPrivacyRegionRoute: typeof ApiPrivacyRegionRoute
+  ApiSignUpStatusRoute: typeof ApiSignUpStatusRoute
   RReportIdRoute: typeof RReportIdRoute
+  StripeProjectsLoginRoute: typeof StripeProjectsLoginRoute
   ApiAuthSplatRoute: typeof ApiAuthSplatRoute
   ApiAutumnSplatRoute: typeof ApiAutumnSplatRoute
   ReportMapGrantCopyrightRoute: typeof ReportMapGrantCopyrightRoute
@@ -918,6 +1017,13 @@ declare module '@tanstack/react-router' {
       path: '/auth-error'
       fullPath: '/auth-error'
       preLoaderRoute: typeof AuthErrorRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/connect': {
+      id: '/connect'
+      path: '/connect'
+      fullPath: '/connect'
+      preLoaderRoute: typeof ConnectRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/forgot-password': {
@@ -969,11 +1075,46 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AppAiRouteImport
       parentRoute: typeof AppRouteRoute
     }
+    '/_app/all-reports': {
+      id: '/_app/all-reports'
+      path: '/all-reports'
+      fullPath: '/all-reports'
+      preLoaderRoute: typeof AppAllReportsRouteImport
+      parentRoute: typeof AppRouteRoute
+    }
     '/_app/billing': {
       id: '/_app/billing'
       path: '/billing'
       fullPath: '/billing'
       preLoaderRoute: typeof AppBillingRouteImport
+      parentRoute: typeof AppRouteRoute
+    }
+    '/_app/dashboard': {
+      id: '/_app/dashboard'
+      path: '/dashboard'
+      fullPath: '/dashboard'
+      preLoaderRoute: typeof AppDashboardRouteImport
+      parentRoute: typeof AppRouteRoute
+    }
+    '/_app/domain-health': {
+      id: '/_app/domain-health'
+      path: '/domain-health'
+      fullPath: '/domain-health'
+      preLoaderRoute: typeof AppDomainHealthRouteImport
+      parentRoute: typeof AppRouteRoute
+    }
+    '/_app/ga4-setup': {
+      id: '/_app/ga4-setup'
+      path: '/ga4-setup'
+      fullPath: '/ga4-setup'
+      preLoaderRoute: typeof AppGa4SetupRouteImport
+      parentRoute: typeof AppRouteRoute
+    }
+    '/_app/overview': {
+      id: '/_app/overview'
+      path: '/overview'
+      fullPath: '/overview'
+      preLoaderRoute: typeof AppOverviewRouteImport
       parentRoute: typeof AppRouteRoute
     }
     '/_app/projects': {
@@ -1053,11 +1194,25 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ApiPrivacyRegionRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/api/sign-up-status': {
+      id: '/api/sign-up-status'
+      path: '/api/sign-up-status'
+      fullPath: '/api/sign-up-status'
+      preLoaderRoute: typeof ApiSignUpStatusRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/r/$reportId': {
       id: '/r/$reportId'
       path: '/r/$reportId'
       fullPath: '/r/$reportId'
       preLoaderRoute: typeof RReportIdRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/stripe-projects/login': {
+      id: '/stripe-projects/login'
+      path: '/stripe-projects/login'
+      fullPath: '/stripe-projects/login'
+      preLoaderRoute: typeof StripeProjectsLoginRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/_app/billing_/fix-payment': {
@@ -1518,7 +1673,12 @@ const AppPProjectIdRouteRouteWithChildren =
 
 interface AppRouteRouteChildren {
   AppAiRoute: typeof AppAiRoute
+  AppAllReportsRoute: typeof AppAllReportsRoute
   AppBillingRoute: typeof AppBillingRoute
+  AppDashboardRoute: typeof AppDashboardRoute
+  AppDomainHealthRoute: typeof AppDomainHealthRoute
+  AppGa4SetupRoute: typeof AppGa4SetupRoute
+  AppOverviewRoute: typeof AppOverviewRoute
   AppProjectsRoute: typeof AppProjectsRoute
   AppSettingsRoute: typeof AppSettingsRouteWithChildren
   AppSupportRoute: typeof AppSupportRoute
@@ -1531,7 +1691,12 @@ interface AppRouteRouteChildren {
 
 const AppRouteRouteChildren: AppRouteRouteChildren = {
   AppAiRoute: AppAiRoute,
+  AppAllReportsRoute: AppAllReportsRoute,
   AppBillingRoute: AppBillingRoute,
+  AppDashboardRoute: AppDashboardRoute,
+  AppDomainHealthRoute: AppDomainHealthRoute,
+  AppGa4SetupRoute: AppGa4SetupRoute,
+  AppOverviewRoute: AppOverviewRoute,
   AppProjectsRoute: AppProjectsRoute,
   AppSettingsRoute: AppSettingsRouteWithChildren,
   AppSupportRoute: AppSupportRoute,
@@ -1581,6 +1746,7 @@ const rootRouteChildren: RootRouteChildren = {
   AuthRoute: AuthRouteWithChildren,
   AuthenticatedRoute: AuthenticatedRouteWithChildren,
   AuthErrorRoute: AuthErrorRoute,
+  ConnectRoute: ConnectRoute,
   ForgotPasswordRoute: ForgotPasswordRoute,
   ResetPasswordRoute: ResetPasswordRoute,
   VerifyEmailRoute: VerifyEmailRoute,
@@ -1591,7 +1757,9 @@ const rootRouteChildren: RootRouteChildren = {
   AcceptInvitationIdRoute: AcceptInvitationIdRoute,
   ApiHealthRoute: ApiHealthRoute,
   ApiPrivacyRegionRoute: ApiPrivacyRegionRoute,
+  ApiSignUpStatusRoute: ApiSignUpStatusRoute,
   RReportIdRoute: RReportIdRoute,
+  StripeProjectsLoginRoute: StripeProjectsLoginRoute,
   ApiAuthSplatRoute: ApiAuthSplatRoute,
   ApiAutumnSplatRoute: ApiAutumnSplatRoute,
   ReportMapGrantCopyrightRoute: ReportMapGrantCopyrightRoute,

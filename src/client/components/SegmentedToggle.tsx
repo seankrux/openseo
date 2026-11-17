@@ -42,7 +42,7 @@ export function SegmentedToggle<T extends string>({
           value={item.value}
           aria-label={showLabels ? undefined : item.label}
           title={item.label}
-          className="h-[22px] text-muted-foreground aria-pressed:bg-primary/15 aria-pressed:text-primary"
+          className="h-6 text-muted-foreground aria-pressed:bg-primary/15 aria-pressed:text-primary"
         >
           {item.icon}
           {showLabels && (

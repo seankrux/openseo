@@ -1,7 +1,9 @@
+import { useState } from "react";
 import { Link } from "@tanstack/react-router";
 import type { UseQueryResult } from "@tanstack/react-query";
 import { ScanSearch, Trash2 } from "lucide-react";
 import type { getAuditHistory } from "@/serverFunctions/audit";
+import { ConfirmDialog } from "@/client/components/ConfirmDialog";
 import { EmptyState } from "@/client/components/EmptyState";
 import { QueryState } from "@/client/components/QueryState";
 import { RowActionsMenu } from "@/client/components/RowActionsMenu";
@@ -31,19 +33,36 @@ export function AuditHistorySection({
   historyQuery: UseQueryResult<AuditHistory>;
   onDelete: (auditId: string) => void;
 }) {
+  const [pendingDeleteId, setPendingDeleteId] = useState<string | null>(null);
   return (
-    <QueryState
-      query={historyQuery}
-      errorFallback="Failed to load audit history"
-    >
-      {(history) => (
-        <AuditHistoryTable
-          projectId={projectId}
-          history={history}
-          onDelete={onDelete}
-        />
-      )}
-    </QueryState>
+    <>
+      <QueryState
+        query={historyQuery}
+        errorFallback="Failed to load audit history"
+      >
+        {(history) => (
+          <AuditHistoryTable
+            projectId={projectId}
+            history={history}
+            onDelete={setPendingDeleteId}
+          />
+        )}
+      </QueryState>
+      {pendingDeleteId ? (
+        <ConfirmDialog
+          title="Delete this audit?"
+          confirmLabel="Delete"
+          destructive
+          onClose={() => setPendingDeleteId(null)}
+          onConfirm={() => {
+            onDelete(pendingDeleteId);
+            setPendingDeleteId(null);
+          }}
+        >
+          The audit and all of its results will be permanently deleted.
+        </ConfirmDialog>
+      ) : null}
+    </>
   );
 }
 
@@ -71,9 +90,11 @@ function AuditHistoryTable({
             <TableHead>Date</TableHead>
             <TableHead>URL</TableHead>
             <TableHead>Status</TableHead>
-            <TableHead>Pages</TableHead>
+            <TableHead className="text-right">Pages</TableHead>
             <TableHead>Lighthouse</TableHead>
-            <TableHead />
+            <TableHead>
+              <span className="sr-only">Actions</span>
+            </TableHead>
           </TableRow>
         </TableHeader>
         <TableBody>
@@ -88,7 +109,9 @@ function AuditHistoryTable({
               <TableCell>
                 <StatusBadge status={audit.status} />
               </TableCell>
-              <TableCell>{audit.pagesTotal || audit.pagesCrawled}</TableCell>
+              <TableCell className="text-right tabular-nums">
+                {audit.pagesTotal || audit.pagesCrawled}
+              </TableCell>
               <TableCell>
                 {audit.ranLighthouse ? (
                   <Badge variant="outline" size="sm">

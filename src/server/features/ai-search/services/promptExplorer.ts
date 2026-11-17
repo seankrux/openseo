@@ -4,6 +4,14 @@ import { createDataforseoClient } from "@/server/lib/dataforseo";
 import { resolveLatestLlmModelName } from "@/server/lib/dataforseo/llm-models";
 import type { LlmResponseResult } from "@/server/lib/dataforseoLlmSchemas";
 import { AppError } from "@/server/lib/errors";
+import { hasDataforseoAccess } from "@/server/lib/provider-access";
+import {
+  getProxyLlmConfig,
+  proxyLlmResponse,
+  proxyModelName,
+  ProxyModelUnavailableError,
+  type ProxyLlmConfig,
+} from "@/server/lib/proxyLlm";
 import { assertPaidAiSearchPlan } from "./access";
 import {
   AI_SEARCH_PROMPT_CACHE_NAMESPACE,
@@ -15,7 +23,10 @@ import {
   formatCountryLabel,
   formatModelLabel,
 } from "@/shared/prompt-explorer-labels";
-import { supportsWebSearchCountry } from "@/shared/prompt-search-countries";
+import {
+  ignoresWebSearchCountry,
+  supportsWebSearchCountry,
+} from "@/shared/prompt-search-countries";
 import { safeHostname, safeHttpUrl } from "@/shared/safe-url";
 import {
   promptExplorerModelResultSchema,
@@ -42,7 +53,7 @@ const PROMPT_RESPONSE_TTL_SECONDS = 7 * 24 * 60 * 60;
 
 /**
  * Hard cap on response length. Set to the DataForSEO per-call maximum because
- * reasoning models (gpt-5, gemini-2.5-pro) count hidden chain-of-thought
+ * reasoning models (gpt-5, gemini) count hidden chain-of-thought
  * tokens against this budget — at 1024 ChatGPT regularly burns the whole
  * budget on reasoning and returns a near-empty visible message.
  */
@@ -59,6 +70,10 @@ export async function explorePrompt(
     "Prompt Explorer",
   );
   const dataforseo = createDataforseoClient(billingCustomer);
+  // CityThrive fork: no DataForSEO key, so models answer via the proxy.
+  const proxy = (await hasDataforseoAccess())
+    ? null
+    : await getProxyLlmConfig();
   const highlightBrand = input.highlightBrand?.trim() || null;
 
   // Dedupe models so a request like ["claude","claude"] doesn't fan out to two
@@ -73,6 +88,7 @@ export async function explorePrompt(
         highlightBrand,
         billingCustomer,
         dataforseo,
+        proxy,
       }),
     ),
   );
@@ -99,25 +115,24 @@ type RunModelArgs = {
   highlightBrand: string | null;
   billingCustomer: BillingCustomerContext;
   dataforseo: DataforseoClient;
+  proxy: ProxyLlmConfig | null;
 };
 
 async function runModel(
   args: RunModelArgs,
 ): Promise<PromptExplorerModelResult> {
-  const country = args.input.webSearch
-    ? args.input.webSearchCountryCode
-    : undefined;
+  if (args.proxy) return runProxyModel(args, args.proxy);
+  const country =
+    args.input.webSearch && !ignoresWebSearchCountry(args.model)
+      ? args.input.webSearchCountryCode
+      : undefined;
   if (country && !supportsWebSearchCountry(args.model, country)) {
     const modelLabel = formatModelLabel(args.model);
-    const limitation =
-      args.model === "gemini"
-        ? `${modelLabel} doesn’t support country selection.`
-        : `${modelLabel} doesn’t support ${formatCountryLabel(country)} as a search country.`;
     return {
       status: "error",
       model: args.model,
       errorCode: "UNSUPPORTED_COUNTRY",
-      message: `${limitation} Select “No country preference” above, then run again to include ${modelLabel}.`,
+      message: `${modelLabel} doesn’t support ${formatCountryLabel(country)} as a search country. Select “No country preference” above, then run again to include ${modelLabel}.`,
     };
   }
   // Part of the cache key so a model upgrade refetches rather than serving
@@ -147,7 +162,7 @@ async function runModel(
     return reapplyHighlightBrand(cached.data, args.highlightBrand);
   }
 
-  let rawResponse = await fetchModelResponse(args, modelName);
+  let rawResponse = await fetchModelResponse(args, modelName, country);
   // `web_search: true` only permits searching; models the upstream can't
   // force (Claude is the only one that accepts `force_web_search` — see
   // dataforseo/ai.ts) regularly answer from memory and return zero citations
@@ -156,13 +171,15 @@ async function runModel(
   // odds of a cited answer; keep the retry only if it actually searched.
   // A failed retry keeps the first answer, which is already paid for.
   if (args.input.webSearch && !rawResponse.web_search) {
-    const retried = await fetchModelResponse(args, modelName).catch((err) => {
-      console.error(
-        `ai-search.prompt-response.${args.model}.retry failed:`,
-        err,
-      );
-      return null;
-    });
+    const retried = await fetchModelResponse(args, modelName, country).catch(
+      (err) => {
+        console.error(
+          `ai-search.prompt-response.${args.model}.retry failed:`,
+          err,
+        );
+        return null;
+      },
+    );
     if (retried?.web_search) rawResponse = retried;
   }
   const shaped = {
@@ -181,16 +198,78 @@ async function runModel(
   return reapplyHighlightBrand(shaped, args.highlightBrand);
 }
 
+// Proxy answers retain only provider-supplied search and citation metadata.
+// Model-generated links stay in the answer text, without becoming citations.
+async function runProxyModel(
+  args: RunModelArgs,
+  proxy: ProxyLlmConfig,
+): Promise<PromptExplorerModelResult> {
+  const modelName = await proxyModelName(args.model);
+  if (!modelName) {
+    return {
+      status: "error",
+      model: args.model,
+      errorCode: "UPSTREAM_ERROR",
+      message: `${formatModelLabel(args.model)} needs a matching model route or DataForSEO. Configure an explicit Perplexity/Sonar route for Perplexity; ChatGPT, Claude and Gemini have proxy defaults.`,
+    };
+  }
+  const cacheKey = await buildCacheKey(AI_SEARCH_PROMPT_CACHE_NAMESPACE, {
+    organizationId: args.billingCustomer.organizationId,
+    projectId: args.input.projectId,
+    model: args.model,
+    modelName: `proxy:${modelName}`,
+    prompt: normalizePromptForCache(args.input.prompt),
+    webSearch: false,
+    webSearchCountryCode: null,
+    // Retire proxy entries with inferred citations/search or substitute models.
+    systemPromptV: 8,
+  });
+  const cached = promptExplorerModelResultSchema.safeParse(
+    await getCached(cacheKey),
+  );
+  if (cached.success && cached.data.status === "success") {
+    return reapplyHighlightBrand(cached.data, args.highlightBrand);
+  }
+  try {
+    const raw = await proxyLlmResponse(proxy, {
+      modelSlug: args.model,
+      userPrompt: args.input.prompt,
+      maxOutputTokens: PROMPT_RESPONSE_MAX_TOKENS,
+    });
+    const shaped = {
+      ...shapeSuccess(args.model, raw),
+      webSearchCountryCode: null,
+    };
+    waitUntil(
+      setCached(cacheKey, shaped, PROMPT_RESPONSE_TTL_SECONDS, {
+        organizationId: args.billingCustomer.organizationId,
+      }).catch(() => undefined),
+    );
+    return reapplyHighlightBrand(shaped, args.highlightBrand);
+  } catch (error) {
+    if (error instanceof ProxyModelUnavailableError) {
+      return {
+        status: "error",
+        model: args.model,
+        errorCode: "UPSTREAM_ERROR",
+        message: error.message,
+      };
+    }
+    throw error;
+  }
+}
+
 function fetchModelResponse(
   args: RunModelArgs,
   modelName: string,
+  country: string | undefined,
 ): Promise<LlmResponseResult> {
   return args.dataforseo.aiSearch.llmResponse({
     modelSlug: args.model,
     modelName,
     userPrompt: args.input.prompt,
     webSearch: args.input.webSearch,
-    webSearchCountryCode: args.input.webSearchCountryCode,
+    webSearchCountryCode: country,
     maxOutputTokens: PROMPT_RESPONSE_MAX_TOKENS,
   });
 }
@@ -338,10 +417,13 @@ function mapErrorToResult(
   if (
     reason instanceof AppError &&
     (reason.code === "INSUFFICIENT_CREDITS" ||
-      reason.code === "AI_SEARCH_BILLING_ISSUE")
+      reason.code === "AI_SEARCH_BILLING_ISSUE" ||
+      reason.code === "DATAFORSEO_AUTH_FAILED" ||
+      reason.code === "AUTH_CONFIG_MISSING")
   ) {
     // These account-level failures apply to every model, so surface one clear
-    // error instead of silently degrading to per-model failures.
+    // error instead of silently degrading to per-model failures. A gateway
+    // without a DataForSEO key is one: "try again" could never succeed.
     throw reason;
   }
 

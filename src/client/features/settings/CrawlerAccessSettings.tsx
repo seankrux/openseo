@@ -104,7 +104,9 @@ export function CrawlerAccessSettings({ projectId }: { projectId: string }) {
                     <TableHead>Type</TableHead>
                     <TableHead>Added</TableHead>
                     <TableHead>Expires</TableHead>
-                    <TableHead className="w-10" />
+                    <TableHead className="w-10">
+                      <span className="sr-only">Actions</span>
+                    </TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>

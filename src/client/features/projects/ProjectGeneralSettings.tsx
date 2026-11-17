@@ -1,13 +1,23 @@
-import { projectsQueryOptions } from "@/client/features/projects/projectQueries";
+import { useState } from "react";
+import {
+  projectsQueryOptions,
+  useMissingProjectCheck,
+} from "@/client/features/projects/projectQueries";
 import { useNavigate } from "@tanstack/react-router";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { z } from "zod";
 import { revalidateLogic } from "@tanstack/react-form";
 import { useAppForm } from "@/client/components/form/useAppForm";
+import { Button } from "@/client/components/ui/button";
 import { InlineConfirm } from "@/client/components/InlineConfirm";
+import { SkeletonPageContent } from "@/client/components/SkeletonPresets";
 import { SectionHeader } from "@/client/components/PageHeader";
 import { QueryError, QueryState } from "@/client/components/QueryState";
+import {
+  aiTrackerQueryOptions,
+  aiVisibilityKey,
+} from "@/client/features/ai-visibility/shared";
 import { ProjectMarketFields } from "@/client/features/projects/ProjectMarketFields";
 import {
   clearLastProjectId,
@@ -15,10 +25,13 @@ import {
 } from "@/client/lib/active-project";
 import { toastInitialAudit } from "@/client/features/projects/initialAuditToast";
 import { archiveProject, updateProject } from "@/serverFunctions/projects";
+import { isEveryAppClientAuthMode } from "@/lib/auth-mode";
+import { isDefaultProjectName } from "@/shared/ai-visibility";
 import type { ProjectSummary } from "./types";
 
 export function ProjectGeneralSettings({ projectId }: { projectId: string }) {
   const projectsQuery = useQuery(projectsQueryOptions());
+  const checkingMissing = useMissingProjectCheck(projectsQuery, projectId);
 
   return (
     <QueryState
@@ -27,6 +40,7 @@ export function ProjectGeneralSettings({ projectId }: { projectId: string }) {
     >
       {(projects) => {
         const project = projects.find((entry) => entry.id === projectId);
+        if (!project && checkingMissing) return <SkeletonPageContent />;
         if (!project) {
           return <QueryError fallback="This project was not found." />;
         }
@@ -50,6 +64,7 @@ const generalSchema = z.object({
 
 function GeneralSection({ project }: { project: ProjectSummary }) {
   const queryClient = useQueryClient();
+  const [keepBrand, setKeepBrand] = useState(false);
 
   const updateMutation = useMutation({
     mutationFn: (values: z.infer<typeof generalSchema>) =>
@@ -57,6 +72,11 @@ function GeneralSection({ project }: { project: ProjectSummary }) {
         data: {
           projectId: project.id,
           name: values.name.trim(),
+          // Keep tracking saves the old name as the brand, with the rename.
+          brandName:
+            keepBrand && values.name.trim() !== project.name
+              ? project.name
+              : undefined,
           domain: values.domain.trim() || undefined,
           ...values.market,
         },
@@ -71,6 +91,10 @@ function GeneralSection({ project }: { project: ProjectSummary }) {
       await queryClient.invalidateQueries({
         queryKey: ["dashboardOverview", project.id],
       });
+      await queryClient.invalidateQueries({
+        queryKey: aiVisibilityKey(project.id),
+      });
+      setKeepBrand(false);
       toast.success("Project updated");
       toastInitialAudit(saved.initialAudit);
     },
@@ -107,10 +131,17 @@ function GeneralSection({ project }: { project: ProjectSummary }) {
             )}
           </form.AppField>
 
-          <p className="text-sm text-muted-foreground">
-            Adding your website starts a 50-page scan with JavaScript rendering.
-            Rendering uses your credits.
-          </p>
+          <form.Subscribe selector={(state) => state.values.name}>
+            {(name) => (
+              <BrandChangeNote
+                project={project}
+                name={name}
+                keeping={keepBrand}
+                onKeep={() => setKeepBrand(true)}
+              />
+            )}
+          </form.Subscribe>
+
           <form.AppField name="domain">
             {(field) => (
               <field.TextField
@@ -121,6 +152,11 @@ function GeneralSection({ project }: { project: ProjectSummary }) {
                       (optional)
                     </span>
                   </>
+                }
+                description={
+                  isEveryAppClientAuthMode()
+                    ? "Adding your website starts a 50-page site audit."
+                    : "Adding your website starts a 50-page scan with JavaScript rendering. Rendering uses your credits."
                 }
                 placeholder="example.com"
                 maxLength={255}
@@ -158,6 +194,54 @@ function GeneralSection({ project }: { project: ProjectSummary }) {
   );
 }
 
+/**
+ * With no brand name saved, Prompt Tracking follows the project name. This says
+ * so before a rename saves, for projects it would affect.
+ */
+function BrandChangeNote({
+  project,
+  name,
+  keeping,
+  onKeep,
+}: {
+  project: ProjectSummary;
+  name: string;
+  keeping: boolean;
+  onKeep: () => void;
+}) {
+  const renamed = name.trim();
+  const changing =
+    !project.brandName &&
+    !!renamed &&
+    renamed !== project.name &&
+    !isDefaultProjectName(project.name) &&
+    !isDefaultProjectName(renamed);
+  const tracker = useQuery({
+    ...aiTrackerQueryOptions(project.id),
+    enabled: changing,
+  });
+  if (!changing || !tracker.data?.configured) return null;
+  if (keeping)
+    return (
+      <p className="text-sm text-muted-foreground">
+        We’ll keep tracking “{project.name}”.
+      </p>
+    );
+  return (
+    <p className="text-sm text-muted-foreground">
+      We’ll start checking for “{renamed}” in AI search.{" "}
+      <Button
+        type="button"
+        variant="link"
+        className="h-auto p-0"
+        onClick={onKeep}
+      >
+        Keep tracking “{project.name}”
+      </Button>
+    </p>
+  );
+}
+
 function DangerSection({
   project,
   canArchive,
@@ -183,13 +267,13 @@ function DangerSection({
   return (
     <section className="space-y-3 border-t border-border pt-8">
       <SectionHeader title="Archive project" />
-      <div className="flex items-center justify-between gap-4">
-        <p className="text-sm text-muted-foreground">
+      <div className="flex flex-col items-start gap-4 sm:flex-row sm:items-center sm:justify-between">
+        <p className="min-w-0 text-sm text-muted-foreground">
           {canArchive
             ? "Archiving removes the project from your workspace and stops its scheduled rank tracking. You can restore it later from the Projects page."
             : "You can't archive your only project."}
         </p>
-        <div className="flex shrink-0 gap-2">
+        <div className="flex shrink-0 flex-wrap gap-2">
           <InlineConfirm
             label={`Archive ${project.name}`}
             triggerLabel="Archive project"

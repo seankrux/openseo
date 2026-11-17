@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { Check, ChevronRight, RotateCcw } from "lucide-react";
-import { isHostedClientAuthMode } from "@/lib/auth-mode";
+import { usesBetterAuthClient } from "@/lib/auth-mode";
 import { captureClientEvent } from "@/client/lib/posthog";
 import { setDashboardStepDismissed } from "@/serverFunctions/dashboard";
 import type { DashboardActivation } from "@/server/features/dashboard/services/DashboardService";
@@ -24,9 +24,12 @@ import {
 export function DashboardOnboarding({
   projectId,
   activation,
+  hiddenSteps = [],
 }: {
   projectId: string;
   activation: DashboardActivation;
+  /** Steps this install cannot complete (for example without a DataForSEO key). */
+  hiddenSteps?: DashboardSetupStep[];
 }) {
   const queryClient = useQueryClient();
   const [selected, setSelected] = useState<DashboardSetupStep | null>(null);
@@ -47,7 +50,9 @@ export function DashboardOnboarding({
     },
   });
   const steps = setupSteps.filter(
-    (step) => step.id !== "team" || isHostedClientAuthMode(),
+    (step) =>
+      (step.id !== "team" || usesBetterAuthClient()) &&
+      !hiddenSteps.includes(step.id),
   );
   const remaining = steps.filter(
     (step) => getStepStatus(activation, step.id) === "todo",
@@ -113,9 +118,7 @@ export function DashboardOnboarding({
                       dismiss.mutate({ step: item.id, dismissed: true })
                     }
                   >
-                    {item.id === "project"
-                      ? "I only need one project"
-                      : "Skip for now"}
+                    {item.skipLabel}
                   </Button>
                 </div>
               </AccordionContent>

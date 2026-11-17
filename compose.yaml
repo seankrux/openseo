@@ -9,7 +9,7 @@ services:
     # `cp .env.example .env` creates it.
     env_file:
       - .env
-    # Anonymous usage heartbeat controls: docs/SELF_HOSTING_DOCKER.md#telemetry
+    # Anonymous usage heartbeat controls: docs/SELF_HOSTING_DOCKER_LEGACY.md#telemetry
     environment:
       # Required for local Docker self-hosting: exposes Compose env vars to cloudflare:workers bindings.
       - CLOUDFLARE_INCLUDE_PROCESS_ENV=true
@@ -27,7 +27,8 @@ services:
       - GOOGLE_CLIENT_ID=${GOOGLE_CLIENT_ID:-}
       - GOOGLE_CLIENT_SECRET=${GOOGLE_CLIENT_SECRET:-}
       - BETTER_AUTH_SECRET=${BETTER_AUTH_SECRET:-}
-      # Optional: model override for SAM
+      # Optional: model override and an OpenAI-compatible base URL for SAM
+      - OPENROUTER_BASE_URL=${OPENROUTER_BASE_URL:-}
       - OPENROUTER_MODEL=${OPENROUTER_MODEL:-}
       - VITE_SHOW_DEVTOOLS=false
     ports:
