@@ -204,7 +204,7 @@ describe("GscService.listSitesForUserWithGrantStatus", () => {
       accounts: [
         {
           accountId: "sub-a",
-            ownerUserId: "u1",
+          ownerUserId: "u1",
           email: null,
           requiresReconnect: false,
           propertiesUnavailable: false,

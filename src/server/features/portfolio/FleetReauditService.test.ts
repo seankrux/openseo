@@ -95,22 +95,20 @@ beforeEach(async () => {
   mocks.objects.clear();
   mocks.startAudit.mockReset();
   // Like the real startAudit, a started audit is a "running" row.
-  mocks.startAudit.mockImplementation(
-    async (input) => {
-      const auditId = crypto.randomUUID();
-      await client.execute({
-        sql: "INSERT INTO audits (id, project_id, started_by_user_id, start_url, status, config, started_at) VALUES (?, ?, ?, ?, 'running', '{}', ?)",
-        args: [
-          auditId,
-          input.projectId,
-          "local-admin",
-          input.startUrl,
-          new Date().toISOString(),
-        ],
-      });
-      return { auditId };
-    },
-  );
+  mocks.startAudit.mockImplementation(async (input) => {
+    const auditId = crypto.randomUUID();
+    await client.execute({
+      sql: "INSERT INTO audits (id, project_id, started_by_user_id, start_url, status, config, started_at) VALUES (?, ?, ?, ?, 'running', '{}', ?)",
+      args: [
+        auditId,
+        input.projectId,
+        "local-admin",
+        input.startUrl,
+        new Date().toISOString(),
+      ],
+    });
+    return { auditId };
+  });
   for (const table of tables)
     await client.execute(`DELETE FROM "${getTableName(table)}"`);
 });
@@ -251,7 +249,11 @@ describe("fleet re-audit", () => {
     ]);
 
     expect(
-      await queueFleetReaudit(org, ["fresh-b", "fresh-a", "busy", "unknown"], actor),
+      await queueFleetReaudit(
+        org,
+        ["fresh-b", "fresh-a", "busy", "unknown"],
+        actor,
+      ),
     ).toEqual({ queued: 3 });
     expect(await getFleetReauditStatus(org)).toMatchObject({
       mode: "off",

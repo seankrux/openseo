@@ -16,7 +16,12 @@ export type GscRankingRow = {
 export type GscRankings = {
   connected: boolean;
   siteUrl?: string;
-  window?: { curStart: string; end: string; prevStart: string; prevEnd: string };
+  window?: {
+    curStart: string;
+    end: string;
+    prevStart: string;
+    prevEnd: string;
+  };
   rows: GscRankingRow[];
   fetchedAt: string;
   error?: string;
@@ -35,7 +40,10 @@ async function byQuery(projectId: string, startDate: string, endDate: string) {
   return res;
 }
 
-export async function getGscRankings(projectId: string, refresh = false): Promise<GscRankings> {
+export async function getGscRankings(
+  projectId: string,
+  refresh = false,
+): Promise<GscRankings> {
   const w = windows();
   const key = `gsc-rankings:v1:${projectId}:${w.end}`;
   if (!refresh) {
@@ -46,7 +54,9 @@ export async function getGscRankings(projectId: string, refresh = false): Promis
   try {
     const cur = await byQuery(projectId, w.curStart, w.end);
     const prev = await byQuery(projectId, w.prevStart, w.prevEnd);
-    const prevPos = new Map(prev.rows.map((r) => [r.keys?.[0] ?? "", r.position]));
+    const prevPos = new Map(
+      prev.rows.map((r) => [r.keys?.[0] ?? "", r.position]),
+    );
     const rows = cur.rows
       .map((r) => {
         const q = r.keys?.[0] ?? "";
@@ -59,12 +69,25 @@ export async function getGscRankings(projectId: string, refresh = false): Promis
         };
       })
       .filter((r) => r.query);
-    const out: GscRankings = { connected: true, siteUrl: cur.siteUrl, window: w, rows, fetchedAt };
+    const out: GscRankings = {
+      connected: true,
+      siteUrl: cur.siteUrl,
+      window: w,
+      rows,
+      fetchedAt,
+    };
     await setCached(key, out, TTL);
     return out;
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
-    const notConnected = /not connected|NotConnected/i.test(message) || (error as { name?: string })?.name === "GscNotConnectedError";
-    return { connected: !notConnected, rows: [], fetchedAt, error: message.slice(0, 200) };
+    const notConnected =
+      /not connected|NotConnected/i.test(message) ||
+      (error as { name?: string })?.name === "GscNotConnectedError";
+    return {
+      connected: !notConnected,
+      rows: [],
+      fetchedAt,
+      error: message.slice(0, 200),
+    };
   }
 }

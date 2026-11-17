@@ -44,14 +44,10 @@ describe("listGoogleGrantsForUser", () => {
   });
 
   it("returns only the caller's stored grants outside gateway mode", async () => {
-    mocks.state.rows = [
-      { id: "g1", accountId: "sub-a", ownerUserId: "u1" },
-    ];
+    mocks.state.rows = [{ id: "g1", accountId: "sub-a", ownerUserId: "u1" }];
     await expect(
       listGoogleGrantsForUser("u1", "google-search-console"),
-    ).resolves.toEqual([
-      { id: "g1", accountId: "sub-a", ownerUserId: "u1" },
-    ]);
+    ).resolves.toEqual([{ id: "g1", accountId: "sub-a", ownerUserId: "u1" }]);
   });
 
   it("unions the gateway connection with local-admin imported grants", async () => {

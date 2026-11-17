@@ -55,7 +55,10 @@ describe("reconcileRunningAudit stale ceiling", () => {
     expect(mocks.failAudit).toHaveBeenCalledWith(
       "a1",
       "a1",
-      expect.objectContaining({ errorCode: "stalled", failedPhase: "discovery" }),
+      expect.objectContaining({
+        errorCode: "stalled",
+        failedPhase: "discovery",
+      }),
     );
   });
 

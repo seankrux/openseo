@@ -43,14 +43,21 @@ const stateSchema = z.object({
 type Actor = z.infer<typeof actorSchema>;
 type TickResult = z.infer<typeof tickSchema>;
 type State = z.infer<typeof stateSchema>;
-const EMPTY_STATE: State = { mode: "off", actor: null, queue: [], lastTick: null };
+const EMPTY_STATE: State = {
+  mode: "off",
+  actor: null,
+  queue: [],
+  lastTick: null,
+};
 
 const STATE_TTL_SECONDS = 10 * 365 * 24 * 3600;
 const stateKey = (organizationId: string) =>
   `fleet-reaudit:v1:${organizationId}`;
 
 async function readState(organizationId: string): Promise<State> {
-  const parsed = stateSchema.safeParse(await getCached(stateKey(organizationId)));
+  const parsed = stateSchema.safeParse(
+    await getCached(stateKey(organizationId)),
+  );
   return parsed.success ? parsed.data : EMPTY_STATE;
 }
 
@@ -68,7 +75,9 @@ type Site = {
 
 /** SQLite's current_timestamp has no zone marker; it is UTC. */
 function parseStartedAt(value: string): number {
-  return Date.parse(value.includes("T") ? value : `${value.replace(" ", "T")}Z`);
+  return Date.parse(
+    value.includes("T") ? value : `${value.replace(" ", "T")}Z`,
+  );
 }
 
 async function listSites(organizationId: string): Promise<Site[]> {
@@ -140,7 +149,9 @@ export async function queueFleetReaudit(
   projectIds: string[],
   actor: Actor,
 ) {
-  const fleet = new Set((await listSites(organizationId)).map((s) => s.projectId));
+  const fleet = new Set(
+    (await listSites(organizationId)).map((s) => s.projectId),
+  );
   const state = await readState(organizationId);
   const queue = [...new Set([...state.queue, ...projectIds])].filter((id) =>
     fleet.has(id),

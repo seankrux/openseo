@@ -16,9 +16,18 @@ vi.mock("@/db", () => ({
     delete: () => ({ where: async () => undefined }),
   },
 }));
-vi.mock("@/db/schema", () => ({ domainHealthCurrent: {}, domainHealthChecks: {}, projects: {} }));
-vi.mock("@/server/features/domain-health/repositories/DomainHealthRepository", () => ({ DomainHealthRepository: {} }));
-vi.mock("@/server/lib/runtime-env", () => ({ getOptionalEnvValue: vi.fn(async () => undefined) }));
+vi.mock("@/db/schema", () => ({
+  domainHealthCurrent: {},
+  domainHealthChecks: {},
+  projects: {},
+}));
+vi.mock(
+  "@/server/features/domain-health/repositories/DomainHealthRepository",
+  () => ({ DomainHealthRepository: {} }),
+);
+vi.mock("@/server/lib/runtime-env", () => ({
+  getOptionalEnvValue: vi.fn(async () => undefined),
+}));
 
 import { runDomainHealthTick } from "./domainHealthTick";
 

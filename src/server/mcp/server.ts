@@ -133,7 +133,11 @@ import {
   linkGscPropertyTool,
   listGooglePropertiesTool,
 } from "@/server/mcp/tools/google-linking-tools";
-import { ga4SetupBulkTool, ga4SetupSiteTool, ga4SetupStatusTool } from "@/server/mcp/tools/ga4-setup-tool";
+import {
+  ga4SetupBulkTool,
+  ga4SetupSiteTool,
+  ga4SetupStatusTool,
+} from "@/server/mcp/tools/ga4-setup-tool";
 import {
   domainHealthTool,
   recheckDomainTool,

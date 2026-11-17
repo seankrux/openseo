@@ -32,7 +32,12 @@ export async function checkDomainHealth(
   const fetchImpl = options.fetch ?? globalThis.fetch;
 
   if (!domain || !/^[a-z0-9.-]+\.[a-z]{2,}$/i.test(domain)) {
-    return emptyFail(domain || domainInput, "dns_fail", "Invalid domain", checkedAt);
+    return emptyFail(
+      domain || domainInput,
+      "dns_fail",
+      "Invalid domain",
+      checkedAt,
+    );
   }
 
   const dns = await resolveDomainDns(domain, {
@@ -75,7 +80,12 @@ export async function checkDomainHealth(
   const addrs = [...dns.a, ...dns.aaaa];
   if (addrs.some(isPrivateAddress)) {
     return {
-      ...emptyFail(domain, "dns_fail", "Resolves to a private or reserved address", checkedAt),
+      ...emptyFail(
+        domain,
+        "dns_fail",
+        "Resolves to a private or reserved address",
+        checkedAt,
+      ),
       dnsOk: true,
       aRecords: dns.a,
       aaaaRecords: dns.aaaa,
@@ -92,7 +102,11 @@ export async function checkDomainHealth(
     userAgent: options.userAgent,
   });
 
-  const { class: healthClass, parked, defaultHostPage } = classifyDomainHealth({
+  const {
+    class: healthClass,
+    parked,
+    defaultHostPage,
+  } = classifyDomainHealth({
     dns,
     https,
   });

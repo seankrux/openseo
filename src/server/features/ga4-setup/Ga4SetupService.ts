@@ -28,7 +28,16 @@ const MAX_ATTEMPTS = 6;
 export type SiteStatus = {
   domain: string;
   projectId: string;
-  status: "pending" | "preview" | "created" | "tagged" | "live" | "linked" | "blocked" | "waiting" | "error";
+  status:
+    | "pending"
+    | "preview"
+    | "created"
+    | "tagged"
+    | "live"
+    | "linked"
+    | "blocked"
+    | "waiting"
+    | "error";
   step?: string;
   propertyId?: string;
   measurementId?: string;
@@ -49,13 +58,27 @@ export async function readState(): Promise<State> {
   return ((await k.get(STATE_KEY, { type: "json" })) as State | null) ?? {};
 }
 let stateLock: Promise<unknown> = Promise.resolve();
-async function patchState(domain: string, patch: Partial<SiteStatus> & { projectId: string }) {
+async function patchState(
+  domain: string,
+  patch: Partial<SiteStatus> & { projectId: string },
+) {
   const run = stateLock.then(async () => {
     const k = kv();
     if (!k) return;
     const s = await readState();
-    const prev = s[domain] ?? { domain, projectId: patch.projectId, status: "pending", attempts: 0, updatedAt: "" };
-    s[domain] = { ...prev, ...patch, domain, updatedAt: new Date().toISOString() } as SiteStatus;
+    const prev = s[domain] ?? {
+      domain,
+      projectId: patch.projectId,
+      status: "pending",
+      attempts: 0,
+      updatedAt: "",
+    };
+    s[domain] = {
+      ...prev,
+      ...patch,
+      domain,
+      updatedAt: new Date().toISOString(),
+    } as SiteStatus;
     await k.put(STATE_KEY, JSON.stringify(s));
   });
   stateLock = run.catch(() => undefined);
@@ -69,9 +92,17 @@ async function migrateScopeErrorsToWaiting() {
     const s = await readState();
     let n = 0;
     for (const v of Object.values(s)) {
-      if (v.status === "error" && /analytics\.edit|GA4_OAUTH_MANAGE_SCOPES|insufficient.*scope/i.test(v.detail ?? "")) {
-        v.status = "waiting"; v.detail = "waiting for Google Analytics reconnect with analytics.edit"; v.attempts = 0;
-        v.nextTryAt = new Date(Date.now() + 6 * 60 * 60_000).toISOString(); n++;
+      if (
+        v.status === "error" &&
+        /analytics\.edit|GA4_OAUTH_MANAGE_SCOPES|insufficient.*scope/i.test(
+          v.detail ?? "",
+        )
+      ) {
+        v.status = "waiting";
+        v.detail = "waiting for Google Analytics reconnect with analytics.edit";
+        v.attempts = 0;
+        v.nextTryAt = new Date(Date.now() + 6 * 60 * 60_000).toISOString();
+        n++;
       }
     }
     if (n) await k.put(STATE_KEY, JSON.stringify(s));
@@ -82,38 +113,66 @@ async function migrateScopeErrorsToWaiting() {
 async function appendLog(line: string) {
   const k = kv();
   if (!k) return;
-  const log = ((await k.get(LOG_KEY, { type: "json" })) as string[] | null) ?? [];
+  const log =
+    ((await k.get(LOG_KEY, { type: "json" })) as string[] | null) ?? [];
   log.unshift(`${new Date().toISOString()} ${line}`);
   await k.put(LOG_KEY, JSON.stringify(log.slice(0, 500)));
 }
 export async function readLog(): Promise<string[]> {
   const k = kv();
-  return k ? (((await k.get(LOG_KEY, { type: "json" })) as string[] | null) ?? []) : [];
+  return k
+    ? (((await k.get(LOG_KEY, { type: "json" })) as string[] | null) ?? [])
+    : [];
 }
 
 /** The GA4 login to act as: GA4_SETUP_GOOGLE_EMAIL (default seantechworks@gmail.com). */
 async function pickGa4Login(userId: string) {
-  const want = ((await getOptionalEnvValue("GA4_SETUP_GOOGLE_EMAIL")) ?? "seantechworks@gmail.com").toLowerCase();
-  const { accounts } = await Ga4Service.listPropertiesForUserWithGrantStatus(userId);
+  const want = (
+    (await getOptionalEnvValue("GA4_SETUP_GOOGLE_EMAIL")) ??
+    "seantechworks@gmail.com"
+  ).toLowerCase();
+  const { accounts } =
+    await Ga4Service.listPropertiesForUserWithGrantStatus(userId);
   const hit = accounts.find((a) => (a.email ?? "").toLowerCase() === want);
-  if (!hit) throw new Error(`No connected Google Analytics login for ${want}. Connect it under Integrations.`);
-  if (hit.email?.toLowerCase().startsWith("seanguillermo@")) throw new Error("Refusing to use seanguillermo@gmail.com for GA4 setup.");
+  if (!hit)
+    throw new Error(
+      `No connected Google Analytics login for ${want}. Connect it under Integrations.`,
+    );
+  if (hit.email?.toLowerCase().startsWith("seanguillermo@"))
+    throw new Error("Refusing to use seanguillermo@gmail.com for GA4 setup.");
   return hit;
 }
 
-async function admin(token: string, method: string, path: string, body?: unknown) {
+async function admin(
+  token: string,
+  method: string,
+  path: string,
+  body?: unknown,
+) {
   const r = await fetch(ADMIN + path, {
     method,
-    headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+    headers: {
+      Authorization: `Bearer ${token}`,
+      "Content-Type": "application/json",
+    },
     body: body === undefined ? undefined : JSON.stringify(body),
   });
   const text = await r.text();
   let json: any = {};
-  try { json = text ? JSON.parse(text) : {}; } catch { json = { raw: text.slice(0, 200) }; }
+  try {
+    json = text ? JSON.parse(text) : {};
+  } catch {
+    json = { raw: text.slice(0, 200) };
+  }
   if (!r.ok) {
     const msg = json?.error?.message ?? JSON.stringify(json).slice(0, 200);
-    const scopeHint = r.status === 403 && /scope/i.test(msg) ? " (reconnect Google Analytics with GA4_OAUTH_MANAGE_SCOPES=1 so the login grants analytics.edit)" : "";
-    throw new Error(`Admin API ${method} ${path.split("?")[0]} ${r.status}: ${msg}${scopeHint}`);
+    const scopeHint =
+      r.status === 403 && /scope/i.test(msg)
+        ? " (reconnect Google Analytics with GA4_OAUTH_MANAGE_SCOPES=1 so the login grants analytics.edit)"
+        : "";
+    throw new Error(
+      `Admin API ${method} ${path.split("?")[0]} ${r.status}: ${msg}${scopeHint}`,
+    );
   }
   return json;
 }
@@ -134,12 +193,23 @@ export async function setupSite(input: {
   apply: boolean;
   skipVerifyWait?: boolean;
 }): Promise<SetupResult> {
-  const [proj] = await db.select().from(projects).where(eq(projects.id, input.projectId)).limit(1);
+  const [proj] = await db
+    .select()
+    .from(projects)
+    .where(eq(projects.id, input.projectId))
+    .limit(1);
   if (!proj?.domain) throw new Error("Project has no domain.");
   const domain = bareHost(proj.domain)!;
   const steps: SetupResult["steps"] = [];
-  const res: SetupResult = { domain, projectId: proj.id, apply: input.apply, steps, final: "preview" };
-  const note = (step: string, status: string, detail?: string) => steps.push({ step, status, detail });
+  const res: SetupResult = {
+    domain,
+    projectId: proj.id,
+    apply: input.apply,
+    steps,
+    final: "preview",
+  };
+  const note = (step: string, status: string, detail?: string) =>
+    steps.push({ step, status, detail });
   try {
     const login = await pickGa4Login(input.userId);
     // 1. property
@@ -147,59 +217,125 @@ export async function setupSite(input: {
     let propertyId = existingLink?.propertyId;
     if (propertyId) note("property", "linked", propertyId);
     if (!propertyId) {
-      const hit = login.properties.find((p) => bareHost(p.displayName) === domain);
-      if (hit) { propertyId = hit.propertyId; note("property", "exists", propertyId); }
+      const hit = login.properties.find(
+        (p) => bareHost(p.displayName) === domain,
+      );
+      if (hit) {
+        propertyId = hit.propertyId;
+        note("property", "exists", propertyId);
+      }
     }
-    const token = input.apply || propertyId
-      ? await getGoogleAccessToken({ userId: input.userId, providerId: GA4_OAUTH_PROVIDER_ID, accountId: login.accountId })
-      : null;
+    const token =
+      input.apply || propertyId
+        ? await getGoogleAccessToken({
+            userId: input.userId,
+            providerId: GA4_OAUTH_PROVIDER_ID,
+            accountId: login.accountId,
+          })
+        : null;
     if (!propertyId) {
-      const parent = (await getOptionalEnvValue("GA4_SETUP_PARENT_ACCOUNT"))?.trim();
-      if (!parent) throw new Error("GA4_SETUP_PARENT_ACCOUNT (accounts/<id>) is not set.");
-      if (!input.apply) { note("property", "would_create", `${parent} displayName=${domain}`); }
-      else {
-        const tz = (await getOptionalEnvValue("GA4_SETUP_TIMEZONE")) ?? "America/Chicago";
-        const p = await admin(token!, "POST", "/properties", { parent, displayName: domain, timeZone: tz, currencyCode: "USD", industryCategory: "HOME_AND_GARDEN" });
+      const parent = (
+        await getOptionalEnvValue("GA4_SETUP_PARENT_ACCOUNT")
+      )?.trim();
+      if (!parent)
+        throw new Error("GA4_SETUP_PARENT_ACCOUNT (accounts/<id>) is not set.");
+      if (!input.apply) {
+        note("property", "would_create", `${parent} displayName=${domain}`);
+      } else {
+        const tz =
+          (await getOptionalEnvValue("GA4_SETUP_TIMEZONE")) ??
+          "America/Chicago";
+        const p = await admin(token!, "POST", "/properties", {
+          parent,
+          displayName: domain,
+          timeZone: tz,
+          currencyCode: "USD",
+          industryCategory: "HOME_AND_GARDEN",
+        });
         propertyId = p.name as string;
         note("property", "created", propertyId);
-        await patchState(domain, { projectId: proj.id, status: "created", propertyId });
+        await patchState(domain, {
+          projectId: proj.id,
+          status: "created",
+          propertyId,
+        });
       }
     }
     // 2. web stream / measurement id
     let measurementId: string | undefined;
     if (propertyId && token) {
       const ds = await admin(token, "GET", `/${propertyId}/dataStreams`);
-      const web = (ds.dataStreams ?? []).find((s: any) => s.type === "WEB_DATA_STREAM");
+      const web = (ds.dataStreams ?? []).find(
+        (s: any) => s.type === "WEB_DATA_STREAM",
+      );
       measurementId = web?.webStreamData?.measurementId;
       if (measurementId) note("stream", "exists", measurementId);
-      else if (!input.apply) note("stream", "would_create", `https://${domain}`);
+      else if (!input.apply)
+        note("stream", "would_create", `https://${domain}`);
       else {
-        const s = await admin(token, "POST", `/${propertyId}/dataStreams`, { type: "WEB_DATA_STREAM", displayName: domain, webStreamData: { defaultUri: `https://${domain}` } });
+        const s = await admin(token, "POST", `/${propertyId}/dataStreams`, {
+          type: "WEB_DATA_STREAM",
+          displayName: domain,
+          webStreamData: { defaultUri: `https://${domain}` },
+        });
         measurementId = s.webStreamData?.measurementId;
         note("stream", "created", measurementId);
       }
     } else note("stream", "would_create", `https://${domain}`);
-    res.propertyId = propertyId; res.measurementId = measurementId;
+    res.propertyId = propertyId;
+    res.measurementId = measurementId;
     // 3. tag via Cloudflare
     const cfc = await getCloudflareConfig();
-    if (!cfc) throw new Error("Cloudflare token/account not configured (GA4_SETUP_CLOUDFLARE_TOKEN / _ACCOUNT_ID).");
-    const live0 = measurementId ? await verifyTagLive(domain, measurementId) : null;
+    if (!cfc)
+      throw new Error(
+        "Cloudflare token/account not configured (GA4_SETUP_CLOUDFLARE_TOKEN / _ACCOUNT_ID).",
+      );
+    const live0 = measurementId
+      ? await verifyTagLive(domain, measurementId)
+      : null;
     if (live0?.live) note("tag", "already_live", live0.url);
     else {
-      const plan = await planOrApplyRoutes(cfc, domain, input.apply && !!measurementId);
+      const plan = await planOrApplyRoutes(
+        cfc,
+        domain,
+        input.apply && !!measurementId,
+      );
       if (plan.status === "blocked") {
-        note("tag", "blocked", `zone catch-all owned by another Worker (${plan.blockedBy}); add the tag in that Worker or the site header`);
+        note(
+          "tag",
+          "blocked",
+          `zone catch-all owned by another Worker (${plan.blockedBy}); add the tag in that Worker or the site header`,
+        );
         res.final = "blocked";
-        if (input.apply) await patchState(domain, { projectId: proj.id, status: "blocked", step: "tag", detail: plan.blockedBy, propertyId, measurementId });
+        if (input.apply)
+          await patchState(domain, {
+            projectId: proj.id,
+            status: "blocked",
+            step: "tag",
+            detail: plan.blockedBy,
+            propertyId,
+            measurementId,
+          });
       } else if (plan.status === "no_zone" || plan.status === "error") {
         throw new Error(`Cloudflare: ${plan.status} ${plan.error ?? ""}`);
       } else if (!input.apply || !measurementId) {
-        const map = await readTagMap(cfc).catch(() => ({} as Record<string, string>));
-        note("tag", "would_install", `KV map ${map[domain] ? "has " + map[domain] : "add " + domain}; routes ${plan.create.length ? "+" + plan.create.length : "ok"}`);
+        const map = await readTagMap(cfc).catch(
+          () => ({}) as Record<string, string>,
+        );
+        note(
+          "tag",
+          "would_install",
+          `KV map ${map[domain] ? "has " + map[domain] : "add " + domain}; routes ${plan.create.length ? "+" + plan.create.length : "ok"}`,
+        );
       } else {
         await setHostsInTagMap(cfc, { [domain]: measurementId });
         note("tag", "installed", `routes +${plan.create.length}`);
-        await patchState(domain, { projectId: proj.id, status: "tagged", propertyId, measurementId });
+        await patchState(domain, {
+          projectId: proj.id,
+          status: "tagged",
+          propertyId,
+          measurementId,
+        });
       }
     }
     // 4. verify
@@ -207,7 +343,10 @@ export async function setupSite(input: {
       let v = live0?.live ? live0 : await verifyTagLive(domain, measurementId);
       if (!v.live && !input.skipVerifyWait) {
         // Worker caches the KV map up to 5 min per isolate.
-        for (let i = 0; i < 4 && !v.live; i++) { await new Promise((r) => setTimeout(r, 20_000)); v = await verifyTagLive(domain, measurementId); }
+        for (let i = 0; i < 4 && !v.live; i++) {
+          await new Promise((r) => setTimeout(r, 20_000));
+          v = await verifyTagLive(domain, measurementId);
+        }
       }
       note("verify", v.live ? "live" : "not_yet", v.live ? v.url : v.reason);
       if (v.live) res.final = "live";
@@ -216,16 +355,37 @@ export async function setupSite(input: {
     if (propertyId && !existingLink) {
       if (!input.apply) note("link", "would_link", propertyId);
       else {
-        await Ga4Service.setProperty({ projectId: proj.id, organizationId: proj.organizationId, propertyId, accountId: login.accountId, userId: input.userId });
+        await Ga4Service.setProperty({
+          projectId: proj.id,
+          organizationId: proj.organizationId,
+          propertyId,
+          accountId: login.accountId,
+          userId: input.userId,
+        });
         note("link", "linked", propertyId);
       }
     }
     if (input.apply) {
       const done = res.final === "live" && (existingLink || propertyId);
-      const status: SiteStatus["status"] = res.final === "blocked" ? "blocked" : done ? "linked" : "tagged";
+      const status: SiteStatus["status"] =
+        res.final === "blocked" ? "blocked" : done ? "linked" : "tagged";
       res.final = status;
-      await patchState(domain, { projectId: proj.id, status, propertyId, measurementId, step: status === "tagged" ? "verify" : undefined, detail: status === "tagged" ? "tag not live yet; will re-verify" : undefined, nextTryAt: status === "tagged" ? new Date(Date.now() + 10 * 60_000).toISOString() : undefined });
-      await appendLog(`${domain} ${status} ${propertyId ?? ""} ${measurementId ?? ""}`);
+      await patchState(domain, {
+        projectId: proj.id,
+        status,
+        propertyId,
+        measurementId,
+        step: status === "tagged" ? "verify" : undefined,
+        detail:
+          status === "tagged" ? "tag not live yet; will re-verify" : undefined,
+        nextTryAt:
+          status === "tagged"
+            ? new Date(Date.now() + 10 * 60_000).toISOString()
+            : undefined,
+      });
+      await appendLog(
+        `${domain} ${status} ${propertyId ?? ""} ${measurementId ?? ""}`,
+      );
     }
   } catch (e) {
     const msg = e instanceof Error ? e.message : String(e);
@@ -234,14 +394,37 @@ export async function setupSite(input: {
     if (input.apply) {
       const prev = (await readState())[domain];
       // Missing analytics.edit (login not reconnected yet) is a wait state, not a failed attempt.
-      const waiting = /analytics\.edit|GA4_OAUTH_MANAGE_SCOPES|insufficient.*scope/i.test(msg);
+      const waiting =
+        /analytics\.edit|GA4_OAUTH_MANAGE_SCOPES|insufficient.*scope/i.test(
+          msg,
+        );
       const attempts = (prev?.attempts ?? 0) + (waiting ? 0 : 1);
       // Scope-blocked sites park in "waiting" (6h backoff); the autopilot skips creation entirely
       // until the GA4 login grants analytics.edit, then retries them at once.
-      await patchState(domain, waiting
-        ? { projectId: proj.id, status: "waiting", detail: "waiting for Google Analytics reconnect with analytics.edit", attempts, nextTryAt: new Date(Date.now() + 6 * 60 * 60_000).toISOString() }
-        : { projectId: proj.id, status: "error", detail: msg.slice(0, 300), attempts, nextTryAt: new Date(Date.now() + Math.min(24 * 60, 15 * 2 ** attempts) * 60_000).toISOString() });
-      await appendLog(`${domain} error (attempt ${attempts}): ${msg.slice(0, 200)}`);
+      await patchState(
+        domain,
+        waiting
+          ? {
+              projectId: proj.id,
+              status: "waiting",
+              detail:
+                "waiting for Google Analytics reconnect with analytics.edit",
+              attempts,
+              nextTryAt: new Date(Date.now() + 6 * 60 * 60_000).toISOString(),
+            }
+          : {
+              projectId: proj.id,
+              status: "error",
+              detail: msg.slice(0, 300),
+              attempts,
+              nextTryAt: new Date(
+                Date.now() + Math.min(24 * 60, 15 * 2 ** attempts) * 60_000,
+              ).toISOString(),
+            },
+      );
+      await appendLog(
+        `${domain} error (attempt ${attempts}): ${msg.slice(0, 200)}`,
+      );
     }
   }
   return res;
@@ -250,16 +433,42 @@ export async function setupSite(input: {
 /** Projects with a domain and no GA4 link (not archived), across orgs. */
 export async function listMissingGa4(organizationId?: string) {
   const rows = await db
-    .select({ id: projects.id, domain: projects.domain, organizationId: projects.organizationId, linked: ga4Connections.id })
+    .select({
+      id: projects.id,
+      domain: projects.domain,
+      organizationId: projects.organizationId,
+      linked: ga4Connections.id,
+    })
     .from(projects)
     .leftJoin(ga4Connections, eq(ga4Connections.projectId, projects.id))
-    .where(and(isNull(projects.archivedAt), organizationId ? eq(projects.organizationId, organizationId) : undefined));
-  return rows.filter((r) => r.domain && !r.linked).map((r) => ({ projectId: r.id, domain: bareHost(r.domain)!, organizationId: r.organizationId }));
+    .where(
+      and(
+        isNull(projects.archivedAt),
+        organizationId
+          ? eq(projects.organizationId, organizationId)
+          : undefined,
+      ),
+    );
+  return rows
+    .filter((r) => r.domain && !r.linked)
+    .map((r) => ({
+      projectId: r.id,
+      domain: bareHost(r.domain)!,
+      organizationId: r.organizationId,
+    }));
 }
 
-export async function runBulk(input: { userId: string; organizationId?: string; apply: boolean; limit: number; projectIds?: string[]; editReady?: boolean }) {
+export async function runBulk(input: {
+  userId: string;
+  organizationId?: string;
+  apply: boolean;
+  limit: number;
+  projectIds?: string[];
+  editReady?: boolean;
+}) {
   let todo = await listMissingGa4(input.organizationId);
-  if (input.projectIds?.length) todo = todo.filter((t) => input.projectIds!.includes(t.projectId));
+  if (input.projectIds?.length)
+    todo = todo.filter((t) => input.projectIds!.includes(t.projectId));
   const state = await readState();
   const now = Date.now();
   todo = todo.filter((t) => {
@@ -272,9 +481,20 @@ export async function runBulk(input: { userId: string; organizationId?: string; 
   });
   const out: SetupResult[] = [];
   for (const t of todo.slice(0, input.limit)) {
-    out.push(await setupSite({ userId: input.userId, projectId: t.projectId, apply: input.apply, skipVerifyWait: true }));
+    out.push(
+      await setupSite({
+        userId: input.userId,
+        projectId: t.projectId,
+        apply: input.apply,
+        skipVerifyWait: true,
+      }),
+    );
   }
-  return { missingTotal: (await listMissingGa4(input.organizationId)).length, processed: out.length, results: out };
+  return {
+    missingTotal: (await listMissingGa4(input.organizationId)).length,
+    processed: out.length,
+    results: out,
+  };
 }
 
 /** Scheduled autopilot (GA4_AUTOSETUP=1): a small batch every cron tick, as the owner of the GA4 grant. */
@@ -284,36 +504,83 @@ export async function runScheduledGa4Setup() {
   const k = kv();
   if (k) {
     const last = Number((await k.get("ga4setup:lastTick")) ?? 0);
-    const every = Number((await getOptionalEnvValue("GA4_AUTOSETUP_EVERY_MIN")) ?? 10) * 60_000;
+    const every =
+      Number((await getOptionalEnvValue("GA4_AUTOSETUP_EVERY_MIN")) ?? 10) *
+      60_000;
     if (Date.now() - last < every) return;
     await k.put("ga4setup:lastTick", String(Date.now()));
   }
-  const [grant] = await db.select({ userId: account.userId, scope: account.scope }).from(account).where(eq(account.providerId, GA4_OAUTH_PROVIDER_ID)).limit(1);
+  const [grant] = await db
+    .select({ userId: account.userId, scope: account.scope })
+    .from(account)
+    .where(eq(account.providerId, GA4_OAUTH_PROVIDER_ID))
+    .limit(1);
   if (!grant) return;
   const editReady = /analytics\.edit/.test(grant.scope ?? "");
   await migrateScopeErrorsToWaiting();
   const limit = Number((await getOptionalEnvValue("GA4_AUTOSETUP_BATCH")) ?? 5);
   // Re-verify sites whose tag was installed but not yet seen live.
   const st = await readState();
-  for (const s of Object.values(st).filter((x) => x.status === "tagged" && x.measurementId && (!x.nextTryAt || Date.parse(x.nextTryAt) <= Date.now())).slice(0, 20)) {
+  for (const s of Object.values(st)
+    .filter(
+      (x) =>
+        x.status === "tagged" &&
+        x.measurementId &&
+        (!x.nextTryAt || Date.parse(x.nextTryAt) <= Date.now()),
+    )
+    .slice(0, 20)) {
     const v = await verifyTagLive(s.domain, s.measurementId!);
-    await patchState(s.domain, v.live
-      ? { projectId: s.projectId, status: "linked", step: undefined, detail: `live ${v.url}`, nextTryAt: undefined }
-      : { projectId: s.projectId, status: "tagged", attempts: s.attempts + 1, detail: v.reason, nextTryAt: new Date(Date.now() + 30 * 60_000).toISOString() });
+    await patchState(
+      s.domain,
+      v.live
+        ? {
+            projectId: s.projectId,
+            status: "linked",
+            step: undefined,
+            detail: `live ${v.url}`,
+            nextTryAt: undefined,
+          }
+        : {
+            projectId: s.projectId,
+            status: "tagged",
+            attempts: s.attempts + 1,
+            detail: v.reason,
+            nextTryAt: new Date(Date.now() + 30 * 60_000).toISOString(),
+          },
+    );
   }
   // Re-run sites previously blocked on Cloudflare (e.g. before fleet-static-worker read GA4_MAP).
-  for (const s of Object.values(await readState()).filter((x) => x.status === "blocked").slice(0, Number((await getOptionalEnvValue("GA4_AUTOSETUP_RETAG_BATCH")) ?? 25))) {
-    await setupSite({ userId: grant.userId, projectId: s.projectId, apply: true, skipVerifyWait: true });
+  for (const s of Object.values(await readState())
+    .filter((x) => x.status === "blocked")
+    .slice(
+      0,
+      Number((await getOptionalEnvValue("GA4_AUTOSETUP_RETAG_BATCH")) ?? 25),
+    )) {
+    await setupSite({
+      userId: grant.userId,
+      projectId: s.projectId,
+      apply: true,
+      skipVerifyWait: true,
+    });
   }
   if (!editReady) {
     // No Admin API write calls until Google is reconnected with analytics.edit.
     const lastNote = Number((k && (await k.get("ga4setup:waitNote"))) ?? 0);
     if (Date.now() - lastNote > 6 * 60 * 60_000) {
-      await appendLog("[autopilot] waiting: GA4 login lacks analytics.edit; property creation paused until reconnect");
+      await appendLog(
+        "[autopilot] waiting: GA4 login lacks analytics.edit; property creation paused until reconnect",
+      );
       if (k) await k.put("ga4setup:waitNote", String(Date.now()));
     }
     return;
   }
-  const r = await runBulk({ userId: grant.userId, apply: true, limit, editReady });
-  await appendLog(`[autopilot] processed ${r.processed}, missing ${r.missingTotal}`);
+  const r = await runBulk({
+    userId: grant.userId,
+    apply: true,
+    limit,
+    editReady,
+  });
+  await appendLog(
+    `[autopilot] processed ${r.processed}, missing ${r.missingTotal}`,
+  );
 }

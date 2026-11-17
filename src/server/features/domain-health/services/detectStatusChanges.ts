@@ -58,7 +58,8 @@ export function detectStatusChanges(
   }
 
   const sslWasOk =
-    prev.sslDaysRemaining == null || prev.sslDaysRemaining > SSL_EXPIRING_SOON_DAYS;
+    prev.sslDaysRemaining == null ||
+    prev.sslDaysRemaining > SSL_EXPIRING_SOON_DAYS;
   const sslNowSoon =
     next.sslDaysRemaining != null &&
     next.sslDaysRemaining >= 0 &&

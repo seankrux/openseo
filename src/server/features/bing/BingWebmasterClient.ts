@@ -365,7 +365,11 @@ async function read<T>(
       noteThrottled(admittedAt);
       throw error;
     }
-    if (error instanceof Error && error.message !== "BING_STATUS" && error.message !== "BING_PARSE") {
+    if (
+      error instanceof Error &&
+      error.message !== "BING_STATUS" &&
+      error.message !== "BING_PARSE"
+    ) {
       // Never log message/cause: fetch errors can contain the key-bearing URL.
       console.warn("[bing] webmaster request failed", {
         method,

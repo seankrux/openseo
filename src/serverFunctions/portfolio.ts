@@ -73,7 +73,11 @@ export const queueFleetReaudit = createServerFn({ method: "POST" })
   .middleware(requireAuthenticatedContext)
   .validator(z.object({ projectIds: z.array(z.string()).min(1).max(5_000) }))
   .handler(async ({ context, data }) => {
-    await queueReaudit(context.organizationId, data.projectIds, actorOf(context));
+    await queueReaudit(
+      context.organizationId,
+      data.projectIds,
+      actorOf(context),
+    );
     return loadReauditStatus(context.organizationId);
   });
 

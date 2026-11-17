@@ -20,4 +20,3 @@ export function gscCandidatesFor(domain: string): string[] {
     `http://www.${domain}/`,
   ];
 }
-

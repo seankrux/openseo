@@ -36,15 +36,21 @@ const AI_ENGINE_NOTES: Record<AiEngine, string> = {
 export async function getTracker(input: {
   projectId: string;
 }): Promise<AiTrackerState> {
-  const [config, competitors, recent, dataforseoConfigured, proxyConfig, project] =
-    await Promise.all([
-      repo.getConfiguration(input.projectId),
-      repo.listCompetitors(input.projectId),
-      repo.listRuns(input.projectId, 10),
-      hasDataforseoAccess(),
-      getProxyLlmConfig(),
-      repo.getProject(input.projectId),
-    ]);
+  const [
+    config,
+    competitors,
+    recent,
+    dataforseoConfigured,
+    proxyConfig,
+    project,
+  ] = await Promise.all([
+    repo.getConfiguration(input.projectId),
+    repo.listCompetitors(input.projectId),
+    repo.listRuns(input.projectId, 10),
+    hasDataforseoAccess(),
+    getProxyLlmConfig(),
+    repo.getProject(input.projectId),
+  ]);
   const runs = await Promise.all(recent.map((run) => reconcileAiRun(run)));
   const [observations, answered] = await Promise.all([
     repo.getObservationStatuses(runs.map((r) => r.id)),

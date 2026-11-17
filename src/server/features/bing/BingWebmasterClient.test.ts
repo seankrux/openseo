@@ -168,7 +168,10 @@ describe("Bing Webmaster read-only client", () => {
 
   it("maps Bing ThrottleIP (ErrorCode 17) to UPSTREAM_UNAVAILABLE without treating it as a key quota", async () => {
     fetchMock.mockResolvedValue(
-      Response.json({ ErrorCode: 17, Message: "ERROR!!! ThrottleIP" }, { status: 400 }),
+      Response.json(
+        { ErrorCode: 17, Message: "ERROR!!! ThrottleIP" },
+        { status: 400 },
+      ),
     );
     const result = await BingWebmasterClient.getUserSites().catch(
       (error: unknown) => error,
@@ -177,9 +180,9 @@ describe("Bing Webmaster read-only client", () => {
       code: "UPSTREAM_UNAVAILABLE",
       message: "UPSTREAM_UNAVAILABLE",
     });
-    expect(JSON.stringify(result, Object.getOwnPropertyNames(result as object))).not.toContain(
-      "ThrottleIP",
-    );
+    expect(
+      JSON.stringify(result, Object.getOwnPropertyNames(result as object)),
+    ).not.toContain("ThrottleIP");
     // Breaker stays closed: ThrottleIP is shared-egress, not ThrottleUser.
     expect(BingWebmasterClient.guardStatus().consecutiveThrottles).toBe(0);
     expect(BingWebmasterClient.guardStatus().pausedUntil).toBeNull();

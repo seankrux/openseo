@@ -92,7 +92,10 @@ export async function resolveDomainDns(
  * fetches an internal address on behalf of a caller.
  */
 export function isPrivateAddress(ip: string): boolean {
-  const v = ip.trim().toLowerCase().replace(/^\[|\]$/g, "");
+  const v = ip
+    .trim()
+    .toLowerCase()
+    .replace(/^\[|\]$/g, "");
   const m = v.match(/^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/);
   if (m) {
     const [a, b] = [Number(m[1]), Number(m[2])];
@@ -119,6 +122,12 @@ export function isPrivateAddress(ip: string): boolean {
 /** True when a URL host is an IP literal in a private range or a local name. */
 export function isPrivateHost(hostname: string): boolean {
   const h = hostname.toLowerCase().replace(/\.$/, "");
-  if (h === "localhost" || h.endsWith(".localhost") || h.endsWith(".internal") || h.endsWith(".ts.net")) return true;
+  if (
+    h === "localhost" ||
+    h.endsWith(".localhost") ||
+    h.endsWith(".internal") ||
+    h.endsWith(".ts.net")
+  )
+    return true;
   return isPrivateAddress(h);
 }

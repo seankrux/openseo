@@ -47,9 +47,7 @@ async function readBoundedText(
 function isSslFailure(err: unknown): boolean {
   const msg = err instanceof Error ? err.message : String(err);
   const cause =
-    err instanceof Error && err.cause instanceof Error
-      ? err.cause.message
-      : "";
+    err instanceof Error && err.cause instanceof Error ? err.cause.message : "";
   const hay = `${msg} ${cause}`.toLowerCase();
   return (
     hay.includes("cert") ||
@@ -181,7 +179,12 @@ export async function fetchHttpsRoot(
     // workerd reports TLS handshake and certificate failures as an opaque
     // "internal error; reference = ...". If the first HTTPS request failed that
     // way but plain HTTP answers, the server is up and TLS is the problem.
-    if (!timedOut && !sslError && hops === 0 && (await answersOverHttp(domain, fetchImpl, userAgent, timeoutMs))) {
+    if (
+      !timedOut &&
+      !sslError &&
+      hops === 0 &&
+      (await answersOverHttp(domain, fetchImpl, userAgent, timeoutMs))
+    ) {
       sslError = true;
       error = `HTTPS failed but HTTP answers (certificate or TLS problem): ${message}`;
     }

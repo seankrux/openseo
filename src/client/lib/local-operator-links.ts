@@ -17,6 +17,9 @@ export function googleCidConverterToolUrl(): string {
 }
 
 /** Prefer domain; fall back to project display name for Maps search. */
-export function mapsSearchQuery(domain: string | null | undefined, name: string): string {
+export function mapsSearchQuery(
+  domain: string | null | undefined,
+  name: string,
+): string {
   return (domain?.trim() || name.trim() || "").replace(/^https?:\/\//, "");
 }

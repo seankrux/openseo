@@ -33,7 +33,8 @@ function runLocalReporters(
   if (!local) return;
   const badTel = local.telHrefs.filter(isMalformedTel);
   const malformed = [...badTel, ...local.phoneLikeHrefs];
-  if (malformed.length) report("malformed-tel-link", { hrefs: malformed.slice(0, 10) });
+  if (malformed.length)
+    report("malformed-tel-link", { hrefs: malformed.slice(0, 10) });
   let host = "";
   try {
     host = new URL(page.url).hostname;
@@ -48,15 +49,24 @@ function runLocalReporters(
       ownPath = "/";
     }
     // Links on the homepage (nav/footer repeat site-wide); own URL on every page.
-    const cities = otherCityRefs(isHomepage(page) ? [ownPath, ...local.linkPaths] : [ownPath], host);
+    const cities = otherCityRefs(
+      isHomepage(page) ? [ownPath, ...local.linkPaths] : [ownPath],
+      host,
+    );
     if (cities.length) report("other-city-reference", { cities });
   }
   if (isHomepage(page)) {
-    if (!page.isIndexable) report("homepage-noindex", { robotsMeta: page.robotsMeta, xRobotsTag: page.xRobotsTag });
+    if (!page.isIndexable)
+      report("homepage-noindex", {
+        robotsMeta: page.robotsMeta,
+        xRobotsTag: page.xRobotsTag,
+      });
     if (local.telHrefs.length === 0) report("missing-click-to-call");
     if (!local.callrail) report("missing-callrail");
     if (!hasLocalBusinessSchema(local.schemaTypes)) {
-      report("missing-local-business-schema", { schemaTypes: local.schemaTypes.slice(0, 20) });
+      report("missing-local-business-schema", {
+        schemaTypes: local.schemaTypes.slice(0, 20),
+      });
     }
   }
 }

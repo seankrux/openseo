@@ -54,13 +54,10 @@ function classify(sdo) {
     sdo === "local_rank_tracker"
   )
     return "scrape_or_paid";
-  if (
-    sdo.includes("link") ||
-    sdo === "cid_converter" ||
-    sdo === "bookmarklets"
-  )
+  if (sdo.includes("link") || sdo === "cid_converter" || sdo === "bookmarklets")
     return "utility_a";
-  if (sdo.includes("categor") || sdo === "category_helper") return "reference_b";
+  if (sdo.includes("categor") || sdo === "category_helper")
+    return "reference_b";
   return "other";
 }
 
@@ -73,14 +70,9 @@ const sdos = extractSdos(homeHtml);
 if (sdos.length === 0) throw new Error("No sdo= tools found on homepage");
 
 const rows = [
-  [
-    "sdo",
-    "url",
-    "page_title",
-    "form_fields",
-    "openseo_class",
-    "notes",
-  ].join(","),
+  ["sdo", "url", "page_title", "form_fields", "openseo_class", "notes"].join(
+    ",",
+  ),
 ];
 
 for (const sdo of sdos) {
@@ -105,18 +97,7 @@ for (const sdo of sdos) {
         : klass === "scrape_or_paid"
           ? "Prefer DataForSEO MCP; avoid direct scrape"
           : "";
-  rows.push(
-    [
-      sdo,
-      url,
-      title,
-      fields,
-      klass,
-      notes,
-    ]
-      .map(csvEscape)
-      .join(","),
-  );
+  rows.push([sdo, url, title, fields, klass, notes].map(csvEscape).join(","));
   await new Promise((r) => setTimeout(r, 400));
 }
 

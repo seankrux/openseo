@@ -8,7 +8,10 @@ import { ga4Connections, gscConnections } from "@/db/schema";
 import { AppError } from "@/server/lib/errors";
 import { GscService } from "@/server/features/gsc/services/GscService";
 import { Ga4Service } from "@/server/features/ga4/services/Ga4Service";
-import { createGa4AdminClient, createGa4DataClient } from "@/server/lib/ga4Client";
+import {
+  createGa4AdminClient,
+  createGa4DataClient,
+} from "@/server/lib/ga4Client";
 import { listProjects } from "@/server/features/projects/services/projects";
 import { bareHost, gscCandidatesFor } from "./domain";
 
@@ -16,7 +19,12 @@ export { bareHost, gscCandidatesFor };
 
 export type LinkKind = "gsc" | "ga4" | "both";
 
-type GscSiteRow = { accountId: string; email: string | null; siteUrl: string; permissionLevel: string };
+type GscSiteRow = {
+  accountId: string;
+  email: string | null;
+  siteUrl: string;
+  permissionLevel: string;
+};
 type Ga4PropRow = {
   accountId: string;
   email: string | null;
@@ -32,7 +40,12 @@ async function listGscSites(userId: string) {
   const sites: GscSiteRow[] = [];
   for (const a of accounts) {
     for (const s of a.sites) {
-      sites.push({ accountId: a.accountId, email: a.email, siteUrl: s.siteUrl, permissionLevel: s.permissionLevel });
+      sites.push({
+        accountId: a.accountId,
+        email: a.email,
+        siteUrl: s.siteUrl,
+        permissionLevel: s.permissionLevel,
+      });
     }
   }
   return {
@@ -46,7 +59,11 @@ async function listGscSites(userId: string) {
   };
 }
 
-async function mapLimit<T, R>(items: T[], limit: number, fn: (t: T) => Promise<R>): Promise<R[]> {
+async function mapLimit<T, R>(
+  items: T[],
+  limit: number,
+  fn: (t: T) => Promise<R>,
+): Promise<R[]> {
   const out: R[] = new Array(items.length);
   let i = 0;
   await Promise.all(
@@ -61,7 +78,8 @@ async function mapLimit<T, R>(items: T[], limit: number, fn: (t: T) => Promise<R
 }
 
 async function listGa4Properties(userId: string, includeStreams: boolean) {
-  const { accounts } = await Ga4Service.listPropertiesForUserWithGrantStatus(userId);
+  const { accounts } =
+    await Ga4Service.listPropertiesForUserWithGrantStatus(userId);
   const props: Ga4PropRow[] = [];
   for (const a of accounts) {
     for (const p of a.properties) {
@@ -71,7 +89,10 @@ async function listGa4Properties(userId: string, includeStreams: boolean) {
   if (includeStreams) {
     await mapLimit(props, 6, async (p) => {
       try {
-        const client = createGa4AdminClient({ userId, ga4AccountId: p.accountId });
+        const client = createGa4AdminClient({
+          userId,
+          ga4AccountId: p.accountId,
+        });
         const streams = await client.listDataStreams(p.propertyId);
         p.streamHosts = streams
           .map((s) => bareHost(s.webStreamData?.defaultUri))
@@ -95,10 +116,16 @@ async function listGa4Properties(userId: string, includeStreams: boolean) {
   };
 }
 
-async function listGoogleProperties(input: { userId: string; kind: LinkKind; includeStreams: boolean }) {
+async function listGoogleProperties(input: {
+  userId: string;
+  kind: LinkKind;
+  includeStreams: boolean;
+}) {
   const [gsc, ga4] = await Promise.all([
     input.kind === "ga4" ? null : listGscSites(input.userId),
-    input.kind === "gsc" ? null : listGa4Properties(input.userId, input.includeStreams),
+    input.kind === "gsc"
+      ? null
+      : listGa4Properties(input.userId, input.includeStreams),
   ]);
   return { gsc, ga4 };
 }
@@ -106,7 +133,8 @@ async function listGoogleProperties(input: { userId: string; kind: LinkKind; inc
 async function projectOrgOrThrow(projectId: string, organizationId: string) {
   const projects = await listProjects(organizationId);
   const project = projects.find((p) => p.id === projectId);
-  if (!project) throw new AppError("NOT_FOUND", "Project not found in this organization.");
+  if (!project)
+    throw new AppError("NOT_FOUND", "Project not found in this organization.");
   return project;
 }
 
@@ -121,8 +149,16 @@ async function linkGsc(input: {
   let accountId = input.accountId;
   if (!accountId) {
     const { sites } = await listGscSites(input.userId);
-    const hit = sites.find((s) => s.siteUrl === input.siteUrl && s.permissionLevel !== "siteUnverifiedUser");
-    if (!hit) throw new AppError("NOT_FOUND", `No connected Google login has verified access to ${input.siteUrl}.`);
+    const hit = sites.find(
+      (s) =>
+        s.siteUrl === input.siteUrl &&
+        s.permissionLevel !== "siteUnverifiedUser",
+    );
+    if (!hit)
+      throw new AppError(
+        "NOT_FOUND",
+        `No connected Google login has verified access to ${input.siteUrl}.`,
+      );
     accountId = hit.accountId;
   }
   return GscService.setSite({
@@ -152,7 +188,11 @@ async function linkGa4(input: {
   if (!accountId) {
     const { properties } = await listGa4Properties(input.userId, false);
     const hit = properties.find((p) => p.propertyId === propertyId);
-    if (!hit) throw new AppError("NOT_FOUND", `No connected Google login can see ${propertyId}.`);
+    if (!hit)
+      throw new AppError(
+        "NOT_FOUND",
+        `No connected Google login can see ${propertyId}.`,
+      );
     accountId = hit.accountId;
   }
   return Ga4Service.setProperty({
@@ -166,7 +206,11 @@ async function linkGa4(input: {
 
 async function ga4Sessions28d(userId: string, p: Ga4PropRow): Promise<number> {
   try {
-    const client = createGa4DataClient({ userId, ga4AccountId: p.accountId, propertyId: p.propertyId });
+    const client = createGa4DataClient({
+      userId,
+      ga4AccountId: p.accountId,
+      propertyId: p.propertyId,
+    });
     const r = await client.runReport({
       dateRanges: [{ startDate: "28daysAgo", endDate: "yesterday" }],
       metrics: [{ name: "sessions" }],
@@ -181,7 +225,13 @@ export type AutoLinkRow = {
   projectId: string;
   domain: string;
   kind: "gsc" | "ga4";
-  action: "linked" | "would_link" | "already_linked" | "no_match" | "ambiguous" | "error";
+  action:
+    | "linked"
+    | "would_link"
+    | "already_linked"
+    | "no_match"
+    | "ambiguous"
+    | "error";
   target?: string;
   accountId?: string;
   email?: string | null;
@@ -199,7 +249,9 @@ async function autoLink(input: {
   limit?: number;
   ga4OnTie: "skip" | "most_sessions";
 }) {
-  let projects = (await listProjects(input.organizationId)).filter((p) => !!p.domain);
+  let projects = (await listProjects(input.organizationId)).filter(
+    (p) => !!p.domain,
+  );
   if (input.projectIds?.length) {
     const want = new Set(input.projectIds);
     projects = projects.filter((p) => want.has(p.id));
@@ -210,10 +262,22 @@ async function autoLink(input: {
 
   const [gscLinked, ga4Linked] = await Promise.all([
     doGsc
-      ? db.select({ projectId: gscConnections.projectId, siteUrl: gscConnections.siteUrl }).from(gscConnections).where(eq(gscConnections.organizationId, input.organizationId))
+      ? db
+          .select({
+            projectId: gscConnections.projectId,
+            siteUrl: gscConnections.siteUrl,
+          })
+          .from(gscConnections)
+          .where(eq(gscConnections.organizationId, input.organizationId))
       : [],
     doGa4
-      ? db.select({ projectId: ga4Connections.projectId, propertyId: ga4Connections.propertyId }).from(ga4Connections).where(eq(ga4Connections.organizationId, input.organizationId))
+      ? db
+          .select({
+            projectId: ga4Connections.projectId,
+            propertyId: ga4Connections.propertyId,
+          })
+          .from(ga4Connections)
+          .where(eq(ga4Connections.organizationId, input.organizationId))
       : [],
   ]);
   const gscBy = new Map(gscLinked.map((r) => [r.projectId, r.siteUrl]));
@@ -232,20 +296,42 @@ async function autoLink(input: {
       const domain = bareHost(p.domain)!;
       const existing = gscBy.get(p.id);
       if (existing && !input.overwrite) {
-        rows.push({ projectId: p.id, domain, kind: "gsc", action: "already_linked", target: existing });
+        rows.push({
+          projectId: p.id,
+          domain,
+          kind: "gsc",
+          action: "already_linked",
+          target: existing,
+        });
         continue;
       }
-      const hit = gscCandidatesFor(domain).map((c) => bySite.get(c)).find(Boolean);
+      const hit = gscCandidatesFor(domain)
+        .map((c) => bySite.get(c))
+        .find(Boolean);
       if (!hit) {
         rows.push({ projectId: p.id, domain, kind: "gsc", action: "no_match" });
         continue;
       }
       if (existing === hit.siteUrl) {
-        rows.push({ projectId: p.id, domain, kind: "gsc", action: "already_linked", target: existing });
+        rows.push({
+          projectId: p.id,
+          domain,
+          kind: "gsc",
+          action: "already_linked",
+          target: existing,
+        });
         continue;
       }
       if (input.dryRun || budget <= 0) {
-        rows.push({ projectId: p.id, domain, kind: "gsc", action: "would_link", target: hit.siteUrl, accountId: hit.accountId, email: hit.email });
+        rows.push({
+          projectId: p.id,
+          domain,
+          kind: "gsc",
+          action: "would_link",
+          target: hit.siteUrl,
+          accountId: hit.accountId,
+          email: hit.email,
+        });
         continue;
       }
       try {
@@ -257,9 +343,24 @@ async function autoLink(input: {
           userId: input.userId,
         });
         budget--;
-        rows.push({ projectId: p.id, domain, kind: "gsc", action: "linked", target: hit.siteUrl, accountId: hit.accountId, email: hit.email });
+        rows.push({
+          projectId: p.id,
+          domain,
+          kind: "gsc",
+          action: "linked",
+          target: hit.siteUrl,
+          accountId: hit.accountId,
+          email: hit.email,
+        });
       } catch (e) {
-        rows.push({ projectId: p.id, domain, kind: "gsc", action: "error", target: hit.siteUrl, error: e instanceof Error ? e.message : String(e) });
+        rows.push({
+          projectId: p.id,
+          domain,
+          kind: "gsc",
+          action: "error",
+          target: hit.siteUrl,
+          error: e instanceof Error ? e.message : String(e),
+        });
       }
     }
   }
@@ -268,7 +369,13 @@ async function autoLink(input: {
     const needs = projects.filter((p) => input.overwrite || !ga4By.has(p.id));
     for (const p of projects) {
       if (!input.overwrite && ga4By.has(p.id)) {
-        rows.push({ projectId: p.id, domain: bareHost(p.domain)!, kind: "ga4", action: "already_linked", target: ga4By.get(p.id) });
+        rows.push({
+          projectId: p.id,
+          domain: bareHost(p.domain)!,
+          kind: "ga4",
+          action: "already_linked",
+          target: ga4By.get(p.id),
+        });
       }
     }
     if (needs.length) {
@@ -280,7 +387,8 @@ async function autoLink(input: {
         if (dn && dn.includes(".")) hosts.add(dn);
         for (const h of hosts) {
           const list = byHost.get(h) ?? [];
-          if (!list.some((x) => x.propertyId === prop.propertyId)) list.push(prop);
+          if (!list.some((x) => x.propertyId === prop.propertyId))
+            list.push(prop);
           byHost.set(h, list);
         }
       }
@@ -288,29 +396,65 @@ async function autoLink(input: {
         const domain = bareHost(p.domain)!;
         let cands = byHost.get(domain) ?? [];
         if (!cands.length) {
-          rows.push({ projectId: p.id, domain, kind: "ga4", action: "no_match" });
+          rows.push({
+            projectId: p.id,
+            domain,
+            kind: "ga4",
+            action: "no_match",
+          });
           continue;
         }
         if (cands.length > 1) {
           if (input.ga4OnTie === "skip") {
-            rows.push({ projectId: p.id, domain, kind: "ga4", action: "ambiguous", candidates: cands.map((c) => c.propertyId) });
+            rows.push({
+              projectId: p.id,
+              domain,
+              kind: "ga4",
+              action: "ambiguous",
+              candidates: cands.map((c) => c.propertyId),
+            });
             continue;
           }
-          const scored = await Promise.all(cands.map(async (c) => ({ c, s: await ga4Sessions28d(input.userId, c) })));
+          const scored = await Promise.all(
+            cands.map(async (c) => ({
+              c,
+              s: await ga4Sessions28d(input.userId, c),
+            })),
+          );
           scored.sort((a, b) => b.s - a.s);
           if (scored[0]!.s <= 0 || scored[0]!.s === scored[1]!.s) {
-            rows.push({ projectId: p.id, domain, kind: "ga4", action: "ambiguous", candidates: scored.map((x) => `${x.c.propertyId}(${x.s})`) });
+            rows.push({
+              projectId: p.id,
+              domain,
+              kind: "ga4",
+              action: "ambiguous",
+              candidates: scored.map((x) => `${x.c.propertyId}(${x.s})`),
+            });
             continue;
           }
           cands = [scored[0]!.c];
         }
         const hit = cands[0]!;
         if (ga4By.get(p.id) === hit.propertyId) {
-          rows.push({ projectId: p.id, domain, kind: "ga4", action: "already_linked", target: hit.propertyId });
+          rows.push({
+            projectId: p.id,
+            domain,
+            kind: "ga4",
+            action: "already_linked",
+            target: hit.propertyId,
+          });
           continue;
         }
         if (input.dryRun || budget <= 0) {
-          rows.push({ projectId: p.id, domain, kind: "ga4", action: "would_link", target: hit.propertyId, accountId: hit.accountId, email: hit.email });
+          rows.push({
+            projectId: p.id,
+            domain,
+            kind: "ga4",
+            action: "would_link",
+            target: hit.propertyId,
+            accountId: hit.accountId,
+            email: hit.email,
+          });
           continue;
         }
         try {
@@ -322,17 +466,39 @@ async function autoLink(input: {
             userId: input.userId,
           });
           budget--;
-          rows.push({ projectId: p.id, domain, kind: "ga4", action: "linked", target: linked.propertyId, accountId: hit.accountId, email: hit.email });
+          rows.push({
+            projectId: p.id,
+            domain,
+            kind: "ga4",
+            action: "linked",
+            target: linked.propertyId,
+            accountId: hit.accountId,
+            email: hit.email,
+          });
         } catch (e) {
-          rows.push({ projectId: p.id, domain, kind: "ga4", action: "error", target: hit.propertyId, error: e instanceof Error ? e.message : String(e) });
+          rows.push({
+            projectId: p.id,
+            domain,
+            kind: "ga4",
+            action: "error",
+            target: hit.propertyId,
+            error: e instanceof Error ? e.message : String(e),
+          });
         }
       }
     }
   }
 
   const summary: Record<string, number> = {};
-  for (const r of rows) summary[`${r.kind}.${r.action}`] = (summary[`${r.kind}.${r.action}`] ?? 0) + 1;
+  for (const r of rows)
+    summary[`${r.kind}.${r.action}`] =
+      (summary[`${r.kind}.${r.action}`] ?? 0) + 1;
   return { summary, rows };
 }
 
-export const GoogleLinkingService = { listGoogleProperties, linkGsc, linkGa4, autoLink };
+export const GoogleLinkingService = {
+  listGoogleProperties,
+  linkGsc,
+  linkGa4,
+  autoLink,
+};

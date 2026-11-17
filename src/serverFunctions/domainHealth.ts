@@ -14,8 +14,12 @@ export const getDomainHealth = createServerFn({ method: "POST" })
   .middleware(requireAuthenticatedContext)
   .handler(async ({ context }) => {
     const [rows, changes, progress] = await Promise.all([
-      DomainHealthRepository.listCurrent(context.organizationId, { limit: 5000 }),
-      DomainHealthRepository.listChanges(context.organizationId, { limit: 100 }),
+      DomainHealthRepository.listCurrent(context.organizationId, {
+        limit: 5000,
+      }),
+      DomainHealthRepository.listChanges(context.organizationId, {
+        limit: 100,
+      }),
       domainHealthProgress(context.organizationId),
     ]);
     return {
@@ -51,7 +55,11 @@ export const triggerDomainHealthRun = createServerFn({ method: "POST" })
   .handler(async ({ context }) => {
     const res = await queueDomainHealthRunNow(context.organizationId);
     // Start the first chunk right away; later ticks continue at the usual pace.
-    waitUntil(runDomainHealthTick().catch((e) => console.error("[domain-health] run now", e)));
+    waitUntil(
+      runDomainHealthTick().catch((e) =>
+        console.error("[domain-health] run now", e),
+      ),
+    );
     return res;
   });
 

@@ -131,7 +131,7 @@ export async function proxyLlmResponse(
   if (!model)
     throw new ProxyModelUnavailableError(
       input.modelSlug === "google_ai_overview" ||
-      input.modelSlug === "google_ai_mode"
+        input.modelSlug === "google_ai_mode"
         ? "Google AI results require captured Google SERP evidence through DataForSEO, not a model completion."
         : "Configure a matching model route or DataForSEO. Perplexity requires an explicit Perplexity/Sonar route.",
     );

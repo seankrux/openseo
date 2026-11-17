@@ -106,8 +106,14 @@ describe("resolveStartUrlRedirects", () => {
 
 describe("isCrawlableUrl /cdn-cgi/ (CityThrive)", () => {
   it("skips Cloudflare-injected paths", () => {
-    expect(isCrawlableUrl("https://example.com/cdn-cgi/l/email-protection#abc")).toBe(false);
-    expect(isCrawlableUrl("https://example.com/CDN-CGI/challenge-platform/x")).toBe(false);
-    expect(isCrawlableUrl("https://example.com/services/cdn-cgi-guide")).toBe(true);
+    expect(
+      isCrawlableUrl("https://example.com/cdn-cgi/l/email-protection#abc"),
+    ).toBe(false);
+    expect(
+      isCrawlableUrl("https://example.com/CDN-CGI/challenge-platform/x"),
+    ).toBe(false);
+    expect(isCrawlableUrl("https://example.com/services/cdn-cgi-guide")).toBe(
+      true,
+    );
   });
 });

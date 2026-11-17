@@ -5,5 +5,9 @@ import { requireProjectContext } from "@/serverFunctions/middleware";
 
 export const getProjectGscRankings = createServerFn({ method: "POST" })
   .middleware(requireProjectContext)
-  .validator(z.object({ projectId: z.string().uuid(), refresh: z.boolean().optional() }))
-  .handler(async ({ data, context }) => getGscRankings(context.projectId, !!data.refresh));
+  .validator(
+    z.object({ projectId: z.string().uuid(), refresh: z.boolean().optional() }),
+  )
+  .handler(async ({ data, context }) =>
+    getGscRankings(context.projectId, !!data.refresh),
+  );

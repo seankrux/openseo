@@ -52,9 +52,14 @@ const DEFAULT_STALE_FAIL_AFTER_HOURS = 6;
 export async function getStaleFailAfterMs(): Promise<number> {
   const raw = await getOptionalEnvValue("AUDIT_STALE_FAIL_AFTER_HOURS");
   const hours = raw === undefined ? NaN : Number(raw);
-  return (Number.isFinite(hours) && hours > 0
-    ? hours
-    : DEFAULT_STALE_FAIL_AFTER_HOURS) * 60 * 60 * 1000;
+  return (
+    (Number.isFinite(hours) && hours > 0
+      ? hours
+      : DEFAULT_STALE_FAIL_AFTER_HOURS) *
+    60 *
+    60 *
+    1000
+  );
 }
 
 const NON_TERMINAL_STATUSES = new Set([
@@ -79,10 +84,11 @@ async function failStale(
 ): Promise<AuditErrorInfo> {
   const errorInfo: AuditErrorInfo = {
     errorCode: "stalled",
-    errorDetail: `${detail}; no progress since start ${audit.startedAt} (stale ceiling reached)`.slice(
-      0,
-      500,
-    ),
+    errorDetail:
+      `${detail}; no progress since start ${audit.startedAt} (stale ceiling reached)`.slice(
+        0,
+        500,
+      ),
   };
   await AuditRepository.failAudit(audit.id, audit.workflowInstanceId!, {
     ...errorInfo,

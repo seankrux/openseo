@@ -287,9 +287,17 @@ export function analyzeHtml(
             // one, and the tokenizer has no tree correction, so mirror that.
             closeAnchor();
             const href = attribs["href"];
-            if (href && /^\s*tel:/i.test(href) && telHrefs.length < MAX_LOCAL_ITEMS) {
+            if (
+              href &&
+              /^\s*tel:/i.test(href) &&
+              telHrefs.length < MAX_LOCAL_ITEMS
+            ) {
               telHrefs.push(href.trim());
-            } else if (href && phoneLikeHrefs.length < MAX_LOCAL_ITEMS && isPhoneLikeHref(href)) {
+            } else if (
+              href &&
+              phoneLikeHrefs.length < MAX_LOCAL_ITEMS &&
+              isPhoneLikeHref(href)
+            ) {
               phoneLikeHrefs.push(href.trim());
             }
             if (href && !SKIPPED_LINK_PROTOCOLS.test(href)) {

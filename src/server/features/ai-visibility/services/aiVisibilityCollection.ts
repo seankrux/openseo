@@ -81,8 +81,7 @@ export async function prepareAiRun(
   const pending = (await repo.getObservations([runId])).filter(
     (row) => row.status === "pending",
   );
-  const live =
-    Boolean(await llmProxy()) || run.trigger !== "scheduled";
+  const live = Boolean(await llmProxy()) || run.trigger !== "scheduled";
   const market = {
     locationCode: run.locationCode,
     languageCode: run.languageCode,
