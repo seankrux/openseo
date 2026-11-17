@@ -9,6 +9,8 @@ const { settings, fetchMock } = vi.hoisted(() => ({
     BING_WEBMASTER_ENABLED: string;
     BING_WEBMASTER_API_KEY: string;
     BING_WEBMASTER_DAILY_CALL_BUDGET?: string;
+    BING_WEBMASTER_RELAY_URL?: string;
+    BING_WEBMASTER_RELAY_SECRET?: string;
   },
   fetchMock: vi.fn<typeof fetch>(),
 }));
@@ -19,8 +21,12 @@ beforeEach(() => {
   vi.useRealTimers();
   settings.BING_WEBMASTER_ENABLED = "true";
   settings.BING_WEBMASTER_API_KEY = "mock-bing-key";
+  delete settings.BING_WEBMASTER_RELAY_URL;
+  delete settings.BING_WEBMASTER_RELAY_SECRET;
   vi.stubEnv("BING_WEBMASTER_ENABLED", "");
   vi.stubEnv("BING_WEBMASTER_API_KEY", "");
+  vi.stubEnv("BING_WEBMASTER_RELAY_URL", "");
+  vi.stubEnv("BING_WEBMASTER_RELAY_SECRET", "");
   vi.stubGlobal("fetch", fetchMock);
   fetchMock.mockResolvedValue(Response.json({ d: [] }));
 });
@@ -124,6 +130,59 @@ describe("Bing Webmaster read-only client", () => {
     expect(options?.method).toBe("GET");
     expect(options?.redirect).toBe("manual");
     expect(options?.signal).toBeInstanceOf(AbortSignal);
+  });
+
+  it("posts method and siteUrl to the relay without putting the API key on the wire", async () => {
+    settings.BING_WEBMASTER_RELAY_URL = "https://relay.example/api";
+    settings.BING_WEBMASTER_RELAY_SECRET = "mock-relay-secret";
+    fetchMock.mockResolvedValue(Response.json({ d: [] }));
+    await expect(BingWebmasterClient.getUserSites()).resolves.toEqual([]);
+    const [input, options] = fetchMock.mock.calls[0];
+    expect(input).toBe("https://relay.example/api");
+    expect(options?.method).toBe("POST");
+    expect(options?.redirect).toBe("manual");
+    expect(options?.signal).toBeInstanceOf(AbortSignal);
+    const headers = new Headers(options?.headers);
+    expect(headers.get("Authorization")).toBe("Bearer mock-relay-secret");
+    expect(JSON.parse(String(options?.body))).toEqual({
+      method: "GetUserSites",
+      params: {},
+    });
+    const exposed = JSON.stringify(options);
+    expect(exposed).not.toContain("mock-bing-key");
+  });
+
+  it("is available through the relay when the Worker does not hold the API key", async () => {
+    settings.BING_WEBMASTER_API_KEY = "";
+    settings.BING_WEBMASTER_RELAY_URL = "https://relay.example/api";
+    settings.BING_WEBMASTER_RELAY_SECRET = "mock-relay-secret";
+    fetchMock.mockResolvedValue(
+      Response.json({ d: [{ Url: "https://example.com/", IsVerified: true }] }),
+    );
+    await expect(BingWebmasterClient.getUserSites()).resolves.toEqual([
+      { url: "https://example.com/", isVerified: true },
+    ]);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(fetchMock.mock.calls[0][0]).toBe("https://relay.example/api");
+  });
+
+  it("maps Bing ThrottleIP (ErrorCode 17) to UPSTREAM_UNAVAILABLE without treating it as a key quota", async () => {
+    fetchMock.mockResolvedValue(
+      Response.json({ ErrorCode: 17, Message: "ERROR!!! ThrottleIP" }, { status: 400 }),
+    );
+    const result = await BingWebmasterClient.getUserSites().catch(
+      (error: unknown) => error,
+    );
+    expect(result).toMatchObject({
+      code: "UPSTREAM_UNAVAILABLE",
+      message: "UPSTREAM_UNAVAILABLE",
+    });
+    expect(JSON.stringify(result, Object.getOwnPropertyNames(result as object))).not.toContain(
+      "ThrottleIP",
+    );
+    // Breaker stays closed: ThrottleIP is shared-egress, not ThrottleUser.
+    expect(BingWebmasterClient.guardStatus().consecutiveThrottles).toBe(0);
+    expect(BingWebmasterClient.guardStatus().pausedUntil).toBeNull();
   });
 
   it.each([301, 302, 303, 307, 308])(

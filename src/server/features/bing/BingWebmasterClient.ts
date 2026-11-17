@@ -99,8 +99,24 @@ function getConfiguredKey(): string | null {
     : null;
 }
 
+function relayConfig(): { url: string; secret: string } | null {
+  const url = getEnvValueSync(env, "BING_WEBMASTER_RELAY_URL")?.trim();
+  const secret = getEnvValueSync(env, "BING_WEBMASTER_RELAY_SECRET")?.trim();
+  if (!url || !secret) return null;
+  try {
+    const parsed = new URL(url);
+    if (parsed.protocol !== "https:") return null;
+  } catch {
+    return null;
+  }
+  return { url, secret };
+}
+
 function isAvailable(): boolean {
-  return getConfiguredKey() !== null;
+  return (
+    getEnvValueSync(env, "BING_WEBMASTER_ENABLED") === "true" &&
+    (getConfiguredKey() !== null || relayConfig() !== null)
+  );
 }
 
 async function readBoundedText(response: Response): Promise<string> {
@@ -261,36 +277,87 @@ async function read<T>(
   siteUrl?: string,
 ): Promise<T> {
   const apiKey = getConfiguredKey();
-  if (!apiKey) throw new AppError("FORBIDDEN");
+  const relay = relayConfig();
+  if (!apiKey && !relay) throw new AppError("FORBIDDEN");
   const admittedAt = admitCall();
   try {
     // Official JSON/HTTP protocol: learn.microsoft.com/en-us/bingwebmaster/api-protocols
-    const url = new URL(
-      `https://ssl.bing.com/webmaster/api.svc/json/${method}`,
-    );
-    url.searchParams.set("apikey", apiKey);
-    if (siteUrl) url.searchParams.set("siteUrl", siteUrl);
-    const response = await fetch(url, {
-      method: "GET",
-      // Workers rejects "error"; "manual" avoids forwarding the key on redirects.
-      redirect: "manual",
-      signal: AbortSignal.timeout(10_000),
-    });
+    // Direct Worker fetch to ssl.bing.com returns ErrorCode 17 ThrottleIP
+    // (shared Cloudflare egress). When a relay is configured, the Worker
+    // posts method + params (never the API key) to that HTTPS endpoint.
+    let response: Response;
+    if (relay) {
+      response = await fetch(relay.url, {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${relay.secret}`,
+          Accept: "application/json",
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          method,
+          params: siteUrl ? { siteUrl } : {},
+        }),
+        // Workers rejects "error"; "manual" avoids forwarding the secret on redirects.
+        redirect: "manual",
+        signal: AbortSignal.timeout(15_000),
+      });
+    } else {
+      const url = new URL(
+        `https://ssl.bing.com/webmaster/api.svc/json/${method}`,
+      );
+      url.searchParams.set("apikey", apiKey!);
+      if (siteUrl) url.searchParams.set("siteUrl", siteUrl);
+      response = await fetch(url, {
+        method: "GET",
+        // Workers rejects "error"; "manual" avoids forwarding the key on redirects.
+        redirect: "manual",
+        signal: AbortSignal.timeout(10_000),
+      });
+    }
     if (!response.ok) {
       if (response.status === 429) {
         await response.body?.cancel().catch(() => undefined);
         throw new AppError("RATE_LIMITED");
       }
+      let kind: string | undefined;
       if (response.status === 400) {
         const errText = await readBoundedText(response).catch(() => "");
         if (isThrottleError(response.status, errText)) {
           throw new AppError("RATE_LIMITED");
         }
+        try {
+          const parsed = providerErrorSchema.safeParse(JSON.parse(errText));
+          if (
+            parsed.success &&
+            (parsed.data.ErrorCode === 17 ||
+              (typeof parsed.data.Message === "string" &&
+                parsed.data.Message.includes("ThrottleIP")))
+          ) {
+            kind = "ThrottleIP";
+          }
+        } catch {
+          /* ignore unparseable 400 bodies */
+        }
       }
-      throw new Error();
+      console.warn("[bing] webmaster request failed", {
+        method,
+        status: response.status,
+        ...(kind ? { kind } : {}),
+      });
+      throw new Error("BING_STATUS");
     }
     const text = await readBoundedText(response);
-    const parsed = schema.parse(JSON.parse(text));
+    let parsed: T;
+    try {
+      parsed = schema.parse(JSON.parse(text));
+    } catch {
+      console.warn("[bing] webmaster response failed schema or JSON parse", {
+        method,
+        bytes: text.length,
+      });
+      throw new Error("BING_PARSE");
+    }
     noteSucceeded();
     return parsed;
   } catch (error) {
@@ -298,7 +365,13 @@ async function read<T>(
       noteThrottled(admittedAt);
       throw error;
     }
-    // Never retain a cause: fetch/JSON errors can contain the key-bearing URL or body.
+    if (error instanceof Error && error.message !== "BING_STATUS" && error.message !== "BING_PARSE") {
+      // Never log message/cause: fetch errors can contain the key-bearing URL.
+      console.warn("[bing] webmaster request failed", {
+        method,
+        name: error.name,
+      });
+    }
     throw new AppError("UPSTREAM_UNAVAILABLE");
   }
 }

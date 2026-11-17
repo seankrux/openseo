@@ -1,0 +1,30 @@
+name: Deploy to EveryApp Gateway
+
+# Deploys this app to the Sean Gateway (apps.seanguillermo.com) with
+# everyapp 0.4.1. Does not change the app.seanguillermo.com path router
+# and does not run everyapp release.
+on:
+  push:
+    branches: [everyapp-port]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: pnpm
+      - name: Deploy with everyapp 0.4.1
+        env:
+          EVERYAPP_TOKEN: ${{ secrets.EVERYAPP_TOKEN }}
+          EVERYAPP_GATEWAY_URL: ${{ secrets.EVERYAPP_GATEWAY_URL }}
+        run: npx --yes everyapp@0.4.1 deploy

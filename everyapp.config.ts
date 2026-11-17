@@ -24,6 +24,8 @@ export default {
   resources: {
     d1: ["DB"],
     kv: ["KV"],
+    // Bound on the app's Workers; the audit helper uses it for "Render JavaScript".
+    browser: ["BROWSER"],
     durableObjects: [
       { name: "SAM_CHAT", className: "SamChatAgent" },
       // Each audit's crawl state, private to the audit Worker.
@@ -116,6 +118,12 @@ export default {
         "Create a Context account and copy its API key: https://www.context.dev",
       ],
       capabilities: ["context"],
+      secrets: [
+        {
+          name: "AUDIT_BROWSER_RENDERING",
+          how: "Set true when Browser Rendering (resources.browser) is bound so the audit form can offer Render JavaScript. Context remains an optional fallback.",
+        },
+      ],
     },
     // Without a Google client the Google cards say so.
     google: {
@@ -181,6 +189,14 @@ export default {
         {
           name: "BING_WEBMASTER_API_KEY",
           how: "Bing Webmaster API key from https://www.bing.com/webmasters/apikey. It must be allowed to read every site in the fleet.",
+        },
+        {
+          name: "BING_WEBMASTER_RELAY_URL",
+          how: "HTTPS URL of the authenticated Bing Webmaster relay (Workers egress is ThrottleIP). The relay holds the API key.",
+        },
+        {
+          name: "BING_WEBMASTER_RELAY_SECRET",
+          how: "Bearer secret the Worker and the Bing Webmaster relay share. Never a Cloudflare Workers URL.",
         },
       ],
     },
