@@ -38,4 +38,5 @@ fi
 
 # The local preview runtime exposes scheduled handlers but does not emit cron
 # events by itself. The supervisor runs preview and the loopback scheduler together.
+node scripts/selfhost-runtime-bindings.mjs
 exec node scripts/selfhost-scheduler.mjs

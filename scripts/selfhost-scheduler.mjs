@@ -3,7 +3,7 @@ import { pathToFileURL } from "node:url";
 import { setTimeout as delay } from "node:timers/promises";
 
 const INTERVAL_MS = 5 * 60_000;
-const REQUEST_TIMEOUT_MS = 150_000;
+const REQUEST_TIMEOUT_MS = Number(process.env.SCHEDULED_REQUEST_TIMEOUT_MS) || 360_000;
 
 /** @param {string | number} port */
 export function scheduledUrl(port) {

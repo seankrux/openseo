@@ -1,4 +1,5 @@
 import { useMemo, useState } from "react";
+import type { SortingState } from "@tanstack/react-table";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { Copy, Loader2, Save } from "lucide-react";
 import { toast } from "sonner";
@@ -35,6 +36,9 @@ import { exportRows } from "@/client/lib/exportRows";
 import { captureClientEvent } from "@/client/lib/posthog";
 import {
   SEARCH_PERFORMANCE_PAGE_SIZES,
+  SEARCH_PERFORMANCE_SORT_FIELDS,
+  type SearchPerformanceSort,
+  type SearchPerformanceSortOrder,
   type SearchPerformanceTableDimension,
 } from "@/types/schemas/search-performance";
 import { saveKeywords } from "@/serverFunctions/keywords";
@@ -150,8 +154,11 @@ export function TotalsTable({ report }: { report: Report }) {
     },
     {
       label: "Average position",
-      value: formatPosition(totals.position),
-      delta: positionDelta(totals.position, prevTotals.position),
+      value: totals.impressions > 0 ? formatPosition(totals.position) : "—",
+      delta:
+        totals.impressions > 0 && prevTotals.impressions > 0
+          ? positionDelta(totals.position, prevTotals.position)
+          : null,
     },
   ];
   return (
@@ -188,6 +195,10 @@ export function TotalsTable({ report }: { report: Report }) {
 export function DimensionTable({
   rows,
   keyLabel,
+  sort,
+  order,
+  onSortChange,
+  isLoading,
   isFiltered,
   isPastEnd,
   onClearFilters,
@@ -195,21 +206,39 @@ export function DimensionTable({
 }: {
   rows: SearchPerformanceTableRow[];
   keyLabel: string;
+  sort: SearchPerformanceSort;
+  order: SearchPerformanceSortOrder;
+  onSortChange: (
+    sort: SearchPerformanceSort,
+    order: SearchPerformanceSortOrder,
+  ) => void;
+  isLoading: boolean;
   isFiltered: boolean;
   isPastEnd: boolean;
   onClearFilters: () => void;
   onFirstPage: () => void;
 }) {
   const columns = useMemo(() => buildDimensionColumns(keyLabel), [keyLabel]);
+  const sorting: SortingState = [{ id: sort, desc: order === "desc" }];
   const table = useDataTable({
     data: rows,
     columns,
-    withSorting: true,
-    initialState: { sorting: [{ id: "clicks", desc: true }] },
+    manualSorting: true,
+    state: { sorting },
+    enableSortingRemoval: false,
+    enableMultiSort: false,
+    onSortingChange: (update) => {
+      const next = (typeof update === "function" ? update(sorting) : update)[0];
+      const field = SEARCH_PERFORMANCE_SORT_FIELDS.find(
+        (value) => value === next?.id,
+      );
+      if (field && next) onSortChange(field, next.desc ? "desc" : "asc");
+    },
   });
   return (
     <DataTable
       table={table}
+      isLoading={isLoading}
       isFiltered={isFiltered && !isPastEnd}
       onClearFilters={onClearFilters}
       empty={

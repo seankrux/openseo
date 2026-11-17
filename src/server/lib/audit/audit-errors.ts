@@ -25,6 +25,11 @@ const AUDIT_ERROR_CODES = [
   // The workflow instance no longer exists (expired from retention or never
   // created) while the audit row still said "running".
   "instance_lost",
+  // The workflow instance still reports a non-terminal status (running,
+  // queued, waiting) long after any legitimate audit would have finished —
+  // e.g. the local workerd/miniflare runtime died mid-step and never resumed
+  // the engine on restart.
+  "stalled",
   // Anything we could not classify.
   "unknown",
 ] as const;

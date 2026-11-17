@@ -15,6 +15,8 @@ import * as sqliteAuth from "./better-auth-schema";
 import * as sqliteBilling from "./billing.schema";
 import * as sqliteGa4 from "./ga4.schema";
 import * as sqliteGsc from "./gsc.schema";
+import * as sqliteBing from "./bing.schema";
+import * as pgBing from "./pg/bing.schema";
 import * as sqliteTelemetry from "./telemetry.schema";
 import * as sqliteAiVisibility from "./ai-visibility.schema";
 import * as pgApp from "./pg/app.schema";
@@ -160,6 +162,7 @@ const sqliteAppTables = tablesFrom(
   sqliteBilling,
   sqliteGa4,
   sqliteGsc,
+  sqliteBing,
   sqliteTelemetry,
   sqliteAiVisibility,
 );
@@ -173,6 +176,7 @@ const pgAppTables = tablesFrom(
   pgBilling,
   pgGa4,
   pgGsc,
+  pgBing,
   pgTelemetry,
   pgAiVisibility,
 );

@@ -3,6 +3,8 @@ import { googleConnectionOptions } from "@/client/features/integrations/googlePr
 import { createFileRoute } from "@tanstack/react-router";
 import { GoogleConnectionCard } from "@/client/features/integrations/GoogleConnectionCard";
 import { CrawlerAccessSettings } from "@/client/features/settings/CrawlerAccessSettings";
+import { BingConnectionCard } from "@/client/features/integrations/BingConnectionCard";
+import { isHostedClientAuthMode } from "@/lib/auth-mode";
 
 export const Route = createFileRoute(
   "/_app/p/$projectId/settings/integrations",
@@ -34,6 +36,12 @@ function ProjectIntegrationsRoute() {
       <section id="google-analytics" className="scroll-mt-6">
         <GoogleConnectionCard provider="ga4" projectId={projectId} />
       </section>
+
+      {!isHostedClientAuthMode() ? (
+        <section id="bing-webmaster-tools" className="scroll-mt-6">
+          <BingConnectionCard projectId={projectId} />
+        </section>
+      ) : null}
 
       <CrawlerAccessSettings projectId={projectId} />
     </div>

@@ -1,4 +1,4 @@
-import { useState, type ReactNode } from "react";
+import { useRef, useState, type ReactNode } from "react";
 import { Pencil, Plus } from "lucide-react";
 import { Button } from "@/client/components/ui/button";
 import { EmptyState } from "@/client/components/EmptyState";
@@ -35,7 +35,18 @@ export function EditableListSection<T>({
   pending: boolean;
 }) {
   const [editing, setEditing] = useState<string | null>(null);
-  const close = () => setEditing(null);
+  const triggerIdRef = useRef<string | null>(null);
+  const triggerRef = useRef<HTMLButtonElement | null>(null);
+  const open = (id: string, trigger: HTMLButtonElement) => {
+    triggerIdRef.current = id;
+    triggerRef.current = trigger;
+    setEditing(id);
+  };
+  const close = () => {
+    setEditing(null);
+    // Edit triggers remount when their row's editor closes.
+    requestAnimationFrame(() => triggerRef.current?.focus());
+  };
 
   return (
     <section className="space-y-3">
@@ -44,10 +55,13 @@ export function EditableListSection<T>({
         hint={hint}
         action={
           <Button
+            ref={(trigger) => {
+              if (triggerIdRef.current === "add") triggerRef.current = trigger;
+            }}
             variant="ghost"
             size="xs"
             disabled={pending}
-            onClick={() => setEditing("add")}
+            onClick={(event) => open("add", event.currentTarget)}
           >
             <Plus className="size-3.5" />
             {addLabel}
@@ -80,11 +94,15 @@ export function EditableListSection<T>({
                 {renderItem(item)}
                 <RowActions>
                   <Button
+                    ref={(trigger) => {
+                      if (triggerIdRef.current === id)
+                        triggerRef.current = trigger;
+                    }}
                     variant="ghost"
                     size="icon-xs"
                     disabled={pending}
                     aria-label={`Edit ${getLabel(item)}`}
-                    onClick={() => setEditing(id)}
+                    onClick={(event) => open(id, event.currentTarget)}
                   >
                     <Pencil className="size-3.5" />
                   </Button>

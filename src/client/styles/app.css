@@ -79,12 +79,12 @@
   --muted-foreground: oklch(20% 0 0 / 60%);
   --accent: oklch(97% 0 0);
   --accent-foreground: oklch(20% 0 0);
-  --destructive: oklch(65% 0.2 25);
-  --success: oklch(65% 0.18 145);
+  --destructive: oklch(51% 0.18 25);
+  --success: oklch(48% 0.13 145);
   --success-foreground: oklch(100% 0 0);
   --warning: oklch(80% 0.15 80);
   --warning-foreground: oklch(25% 0.05 80);
-  --info: oklch(70% 0.15 230);
+  --info: oklch(46% 0.11 230);
   --info-foreground: oklch(100% 0 0);
   --border: oklch(92% 0 0);
   --input: oklch(82% 0 0);
@@ -113,20 +113,20 @@
   --popover: oklch(25% 0 0);
   --popover-foreground: oklch(92% 0 0);
   --primary: oklch(66% 0.12 262);
-  --primary-foreground: oklch(100% 0 0);
+  --primary-foreground: oklch(15% 0 0);
   --secondary: oklch(28% 0 0);
   --secondary-foreground: oklch(92% 0 0);
   --muted: oklch(18% 0 0);
   --muted-foreground: oklch(92% 0 0 / 60%);
   --accent: oklch(28% 0 0);
   --accent-foreground: oklch(92% 0 0);
-  --destructive: oklch(65% 0.2 25);
+  --destructive: oklch(74% 0.16 25);
   --success: oklch(65% 0.18 145);
-  --success-foreground: oklch(100% 0 0);
+  --success-foreground: oklch(15% 0 0);
   --warning: oklch(80% 0.15 80);
   --warning-foreground: oklch(25% 0.05 80);
   --info: oklch(70% 0.15 230);
-  --info-foreground: oklch(100% 0 0);
+  --info-foreground: oklch(15% 0 0);
   --border: oklch(30% 0 0);
   --input: oklch(40% 0 0);
   --ring: oklch(66% 0.12 262);
@@ -138,7 +138,7 @@
   --sidebar: oklch(24% 0 0);
   --sidebar-foreground: oklch(92% 0 0);
   --sidebar-primary: oklch(66% 0.12 262);
-  --sidebar-primary-foreground: oklch(100% 0 0);
+  --sidebar-primary-foreground: oklch(15% 0 0);
   --sidebar-accent: oklch(100% 0 0 / 8%);
   --sidebar-accent-foreground: oklch(92% 0 0);
   --sidebar-border: oklch(31% 0 0);
@@ -193,13 +193,33 @@ select:not([data-slot]) {
   @apply opacity-0 transition-opacity group-hover:opacity-100 group-focus-within:opacity-100 pointer-coarse:opacity-100;
 }
 
-/* Touch device optimizations */
-@media (pointer: coarse) {
-  html {
-    touch-action: none;
-  }
-  body {
-    touch-action: pan-x pan-y;
+/* Keep browser pinch zoom available alongside one-finger page panning. */
+html {
+  touch-action: pan-x pan-y pinch-zoom;
+}
+
+/* Links and custom controls need the same visible keyboard focus as UI fields. */
+:focus-visible {
+  outline: 2px solid var(--ring);
+  outline-offset: 2px;
+}
+
+/* Chart utilities suppress browser outlines, including on interactive SVGs. */
+[data-slot="chart"] .recharts-surface:focus-visible,
+[data-slot="chart"] .recharts-layer:focus-visible,
+[data-slot="chart"] .recharts-sector:focus-visible {
+  outline: 2px solid var(--ring);
+  outline-offset: -2px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
   }
 }
 

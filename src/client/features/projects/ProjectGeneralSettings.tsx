@@ -183,13 +183,13 @@ function DangerSection({
   return (
     <section className="space-y-3 border-t border-border pt-8">
       <SectionHeader title="Archive project" />
-      <div className="flex items-center justify-between gap-4">
-        <p className="text-sm text-muted-foreground">
+      <div className="flex flex-col items-start gap-4 sm:flex-row sm:items-center sm:justify-between">
+        <p className="min-w-0 text-sm text-muted-foreground">
           {canArchive
             ? "Archiving removes the project from your workspace and stops its scheduled rank tracking. You can restore it later from the Projects page."
             : "You can't archive your only project."}
         </p>
-        <div className="flex shrink-0 gap-2">
+        <div className="flex shrink-0 flex-wrap gap-2">
           <InlineConfirm
             label={`Archive ${project.name}`}
             triggerLabel="Archive project"

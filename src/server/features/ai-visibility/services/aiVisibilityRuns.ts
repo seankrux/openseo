@@ -10,6 +10,7 @@ import {
   getOptionalEnvValue,
   isHostedServerAuthMode,
 } from "@/server/lib/runtime-env";
+import { getProxyLlmConfig } from "@/server/lib/proxyLlm";
 import {
   getOrCreateOrganizationCustomer,
   getUsageCreditsRemaining,
@@ -32,10 +33,6 @@ const ACTIVE_WORKFLOW_STATUSES = new Set([
 ]);
 const STARTUP_GRACE_MS = 60_000;
 
-/**
- * Why an active run's workflow is no longer collecting it, or null while it
- * is. The workflow instance id is the run id, like rank checks.
- */
 async function staleRunReason(run: RunRow): Promise<string | null> {
   if (run.status !== "queued" && run.status !== "running") return null;
   const status = await env.AI_VISIBILITY_WORKFLOW.get(run.id)
@@ -48,7 +45,6 @@ async function staleRunReason(run: RunRow): Promise<string | null> {
   return AI_ANSWER_FAILURES.stopped;
 }
 
-/** Fails a run and its unfinished answers. Safe on a finished run. */
 export async function failAiRun(runId: string, error: string) {
   const run = await repo.getRunInternal(runId);
   if (!run || (run.status !== "queued" && run.status !== "running")) return;
@@ -59,7 +55,6 @@ export async function failAiRun(runId: string, error: string) {
   });
 }
 
-/** Fails an active run whose workflow has stopped, so it never blocks the tracker. */
 export async function reconcileAiRun(run: RunRow): Promise<RunRow> {
   const reason = await staleRunReason(run);
   if (!reason) return run;
@@ -73,7 +68,11 @@ export async function startRun(
   billing: BillingCustomerContext,
   promptIds?: string[],
 ): Promise<AiRun> {
-  if (!(await getOptionalEnvValue("DATAFORSEO_API_KEY")))
+  const hasProvider = Boolean(
+    (await getOptionalEnvValue("DATAFORSEO_API_KEY")) ||
+      (await getProxyLlmConfig()),
+  );
+  if (!hasProvider)
     throw new AiVisibilityError(
       "PROVIDER_NOT_CONFIGURED",
       "An operator must configure DATAFORSEO_API_KEY before collection. Your saved tracker remains available.",
@@ -94,19 +93,14 @@ export async function startRun(
       "NO_ACTIVE_PROMPTS",
       "Add or unpause prompts before starting a check.",
     );
-  // Hosted checks need credits for every answer before they start, like rank
-  // checks. The tracker says why no check ran, whichever path started it.
   if (await isHostedServerAuthMode()) {
     const required = aiCostForAnswers(
       scope.prompts.flatMap(() => scope.engines),
       true,
       trigger === "scheduled" ? "queued" : "live",
     ).costCredits;
-    // getOrCreate: an org's first check can come before its Autumn customer.
     const { id } = await getOrCreateOrganizationCustomer(billing);
     const credits = await getUsageCreditsRemaining(id);
-    // Clamp at 0: research setup can overdraw monthly credits, and top-up
-    // credits still pay for the check.
     const available =
       Math.max(credits.monthlyRemaining, 0) +
       Math.max(credits.topupRemaining, 0);
@@ -121,7 +115,6 @@ export async function startRun(
     }
   }
   const own = { name: project.name, domain: project.domain };
-  // Two attempts: once normally, once after failing a stale blocker.
   for (let attempt = 0; attempt < 2; attempt++) {
     const id = crypto.randomUUID();
     try {
@@ -146,7 +139,6 @@ export async function startRun(
         ),
       );
     } catch (error) {
-      // The one-active-run index rejected the insert, or it truly failed.
       const blocker = await repo.getActiveRun(config.tracker.id);
       if (!blocker) throw error;
       if (attempt === 0 && (await staleRunReason(blocker))) {
@@ -162,7 +154,6 @@ export async function startRun(
     try {
       await env.AI_VISIBILITY_WORKFLOW.create({
         id,
-        // Only the billing fields: the request context is not serializable.
         params: {
           runId: id,
           customer: {
@@ -191,7 +182,6 @@ export async function runCheck(
 ): Promise<AiRun> {
   const config = await requireConfiguration(input.projectId);
   const scope = aiScope(config, input.promptIds);
-  // Price the check now and refuse it above what the user approved.
   const { costUsd } = aiCostForAnswers(
     scope.prompts.flatMap(() => scope.engines),
     await isHostedServerAuthMode(),

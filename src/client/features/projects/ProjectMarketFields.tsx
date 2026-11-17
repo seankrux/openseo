@@ -62,7 +62,9 @@ export function ProjectMarketFields({
         className={hideLanguageOnMobile ? "hidden sm:flex" : undefined}
         data-disabled={languageDisabled}
       >
-        <FieldLabel htmlFor={languageId}>Language</FieldLabel>
+        <FieldLabel id={`${languageId}-label`} htmlFor={languageId}>
+          Language
+        </FieldLabel>
         <Select
           items={languageItems}
           value={value.languageCode}
@@ -71,7 +73,11 @@ export function ProjectMarketFields({
           }}
           disabled={languageDisabled}
         >
-          <SelectTrigger id={languageId} className="w-full">
+          <SelectTrigger
+            id={languageId}
+            aria-labelledby={`${languageId}-label`}
+            className="w-full"
+          >
             <SelectValue />
           </SelectTrigger>
           <SelectContent>

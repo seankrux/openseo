@@ -8,6 +8,7 @@ import type { SerpResultItem } from "@/types/keywords";
 import { z } from "zod";
 import type { BillingCustomerContext } from "@/server/billing/subscription";
 import { createDataforseoClient } from "@/server/lib/dataforseo";
+import { requireDataforseoApiKey } from "@/server/lib/dataforseo/config";
 import { normalizeKeyword } from "./helpers";
 import { assertLocalResearchLocation } from "./local-volume";
 
@@ -18,7 +19,6 @@ type SerpAnalysisReason = "no_organic_results";
 type SerpAnalysisResult = {
   requestedKeyword: string;
   items: SerpResultItem[];
-  /** SERP depth this snapshot was crawled at — how deep the results go. */
   depth: number;
   reason?: SerpAnalysisReason;
 };
@@ -40,29 +40,30 @@ const serpResultItemSchema = z.object({
 const serpCacheSchema = z.object({
   requestedKeyword: z.string(),
   items: z.array(serpResultItemSchema),
-  // Entries written before depth was tracked don't say how deep they went, so
-  // they're treated as the shallow floor: worst case a user re-buys a deeper
-  // crawl once, rather than being shown 20 results as if they were 100.
   depth: z.number().int().default(SERP_ANALYSIS_DEPTH),
   reason: z.enum(["no_organic_results"]).optional(),
 });
 
 function mapOrganicSerpItems(items: SerpLiveItem[]): SerpResultItem[] {
-  return items
-    .filter((item) => item.type === "organic")
-    .map((item) => ({
-      rank: item.rank_group ?? item.rank_absolute ?? 0,
-      title: item.title ?? "",
-      url: item.url ?? "",
-      domain: item.domain ?? "",
-      description: item.description ?? "",
-      etv: item.etv ?? null,
-      estimatedPaidTrafficCost: item.estimated_paid_traffic_cost ?? null,
-      referringDomains: item.backlinks_info?.referring_domains ?? null,
-      backlinks: item.backlinks_info?.backlinks ?? null,
-      isNew: false,
-      rankChange: null,
-    }));
+  return items.flatMap((item) => {
+    const rank = item.rank_group ?? item.rank_absolute;
+    if (item.type !== "organic" || rank == null || !item.url) return [];
+    return [
+      {
+        rank,
+        title: item.title ?? "",
+        url: item.url,
+        domain: item.domain ?? "",
+        description: item.description ?? "",
+        etv: item.etv ?? null,
+        estimatedPaidTrafficCost: item.estimated_paid_traffic_cost ?? null,
+        referringDomains: item.backlinks_info?.referring_domains ?? null,
+        backlinks: item.backlinks_info?.backlinks ?? null,
+        isNew: false,
+        rankChange: null,
+      },
+    ];
+  });
 }
 
 async function getSerpLiveAnalysis(
@@ -82,7 +83,7 @@ async function getSerpLiveAnalysis(
     await assertLocalResearchLocation(input.locationCode, input.locationName);
   }
 
-  const cacheKey = await buildCacheKey("serp:analysis", {
+  const cacheKey = await buildCacheKey("serp:analysis:v2", {
     organizationId: billingCustomer.organizationId,
     projectId: input.projectId,
     keyword,
@@ -91,16 +92,13 @@ async function getSerpLiveAnalysis(
     locationName: input.locationName,
   });
 
-  // Depth lives in the cached value, not the key: DataForSEO has no offset, so
-  // a deeper crawl re-fetches the head too. A depth-100 snapshot therefore also
-  // answers depth-20 requests, and a deeper request replaces the entry rather
-  // than appending to it.
   const cachedRaw = await getCached(cacheKey);
   const cached = serpCacheSchema.safeParse(cachedRaw);
   if (cached.success && cached.data.depth >= depth) {
     return cached.data;
   }
 
+  await requireDataforseoApiKey();
   const liveItems = await createDataforseoClient(billingCustomer).serp.live({
     keyword,
     locationCode: input.locationCode,
@@ -119,16 +117,10 @@ async function getSerpLiveAnalysis(
     result.reason = "no_organic_results";
   }
 
-  // DataForSEO reports "no results" transiently, and a deeper crawl overwrites
-  // the same key. Without this guard one empty re-crawl would evict a good
-  // snapshot and, being the deeper entry, answer every shallower request with
-  // nothing for the rest of the TTL.
   if (items.length === 0 && cached.success && cached.data.items.length > 0) {
     return result;
   }
 
-  // waitUntil, not void: workerd cancels unregistered pending I/O once the
-  // response is sent, so a fire-and-forget put never persists the cache.
   waitUntil(
     setCached(cacheKey, result, SERP_CACHE_TTL_SECONDS).catch((error) => {
       console.error("keywords.serp.cache-write failed:", error);

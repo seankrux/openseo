@@ -1,4 +1,5 @@
 import { createServerFn } from "@tanstack/react-start";
+import { SearchPerformanceTableService } from "@/server/features/gsc/services/SearchPerformanceTableService";
 import {
   GscNotConnectedError,
   GscService,
@@ -140,9 +141,8 @@ export const getSearchPerformanceReport = createServerFn({ method: "POST" })
   });
 
 /**
- * One page of the queries or pages table, paginated server-side against GSC via
- * `startRow` so it scales to large properties. GSC returns no total count, so we
- * fetch one extra row to detect a next page. All first-party GSC data, free.
+ * Sort the bounded matching dataset before paginating. The service shares a
+ * short-lived cache across page and sort changes. All first-party GSC data, free.
  */
 export const getSearchPerformanceTable = createServerFn({ method: "POST" })
   .middleware(requireProjectContext)
@@ -152,35 +152,27 @@ export const getSearchPerformanceTable = createServerFn({ method: "POST" })
       dateRange: data.dateRange,
     });
     const { filters } = buildGscFilters(data);
-    const offset = (data.page - 1) * data.pageSize;
 
     try {
-      const result = await GscService.getPerformance({
+      const result = await SearchPerformanceTableService.getPage({
         projectId: context.projectId,
+        organizationId: context.organizationId,
         startDate,
         endDate,
-        dimensions: [data.dimension],
+        dimension: data.dimension,
         filters,
-        // One extra row tells us whether a further page exists.
-        rowLimit: data.pageSize + 1,
-        startRow: offset,
+        page: data.page,
+        pageSize: data.pageSize,
+        sort: data.sort,
+        order: data.order,
       });
-
-      const fetched = toDimensionRows(result.rows);
-      const hasNextPage = fetched.length > data.pageSize;
-      const rows = hasNextPage ? fetched.slice(0, data.pageSize) : fetched;
 
       return {
         connected: true as const,
         dimension: data.dimension,
         page: data.page,
         pageSize: data.pageSize,
-        hasNextPage,
-        totalCount:
-          !hasNextPage && (offset === 0 || rows.length > 0)
-            ? offset + rows.length
-            : null,
-        rows,
+        ...result,
       };
     } catch (error) {
       if (isExpectedConnectionFailure(error)) {
@@ -215,5 +207,7 @@ export const exportSearchPerformanceTable = createServerFn({ method: "POST" })
     return {
       dimension: data.dimension,
       rows: toDimensionRows(result.rows),
+      rowLimit: EXPORT_ROW_LIMIT,
+      limitReached: result.rows.length >= EXPORT_ROW_LIMIT,
     };
   });

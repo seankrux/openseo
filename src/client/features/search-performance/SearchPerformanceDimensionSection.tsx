@@ -6,12 +6,20 @@ import { GoogleConnectionCard } from "@/client/features/integrations/GoogleConne
 import { DimensionTable } from "@/client/features/search-performance/SearchPerformanceParts";
 import type { getSearchPerformanceTable } from "@/serverFunctions/searchPerformance";
 import { SEARCH_PERFORMANCE_PAGE_SIZES } from "@/types/schemas/search-performance";
+import type {
+  SearchPerformanceSort,
+  SearchPerformanceSortOrder,
+} from "@/types/schemas/search-performance";
+import { Freshness } from "@/client/features/dashboard/siteTabParts";
 
 /** The Queries or Pages tab body: loading, error with retry, reconnect, or the paged table. */
 export function DimensionSection({
   projectId,
   tableQuery,
   keyLabel,
+  sort,
+  order,
+  onSortChange,
   page,
   pageSize,
   onPageChange,
@@ -24,6 +32,12 @@ export function DimensionSection({
     Awaited<ReturnType<typeof getSearchPerformanceTable>>
   >;
   keyLabel: string;
+  sort: SearchPerformanceSort;
+  order: SearchPerformanceSortOrder;
+  onSortChange: (
+    sort: SearchPerformanceSort,
+    order: SearchPerformanceSortOrder,
+  ) => void;
   page: number;
   pageSize: number;
   onPageChange: (page: number) => void;
@@ -68,11 +82,22 @@ export function DimensionSection({
         <DimensionTable
           rows={tableData.rows}
           keyLabel={keyLabel}
+          sort={sort}
+          order={order}
+          onSortChange={onSortChange}
+          isLoading={tableQuery.isPlaceholderData}
           isFiltered={isFiltered}
           isPastEnd={isPastEnd}
           onClearFilters={onClearFilters}
           onFirstPage={() => onPageChange(1)}
         />
+        <p className="mt-3 text-xs text-muted-foreground">
+          Updated {new Date(tableData.fetchedAt).toLocaleString()}.
+          {tableData.limitReached
+            ? ` Showing the first ${tableData.rowLimit.toLocaleString()} ${keyLabel === "Query" ? "queries" : "pages"} returned by Search Console; more may exist.`
+            : ""}
+        </p>
+        <Freshness {...tableData} />
       </div>
       {!isPastEnd && (
         <TablePagination

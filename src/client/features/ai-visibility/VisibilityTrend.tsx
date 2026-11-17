@@ -162,7 +162,9 @@ function TrendSummary({ trend }: { trend: AiTrend }) {
     <Table>
       <TableHeader>
         <TableRow>
-          <TableHead />
+          <TableHead>
+            <span className="sr-only">Engine</span>
+          </TableHead>
           <TableHead>Brand mentions</TableHead>
           <TableHead>Owned citations</TableHead>
         </TableRow>

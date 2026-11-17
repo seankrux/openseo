@@ -204,6 +204,9 @@ export function isCrawlableUrl(url: string): boolean {
   if (parsed.protocol !== "http:" && parsed.protocol !== "https:") {
     return false;
   }
+  // Cloudflare-injected endpoints (email obfuscation, challenge, beacon)
+  // are not site content; crawling them yields bogus broken-link criticals.
+  if (parsed.pathname.toLowerCase().startsWith("/cdn-cgi/")) return false;
   return !isBlockedHost(parsed.hostname);
 }
 

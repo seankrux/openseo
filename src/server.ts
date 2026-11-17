@@ -241,9 +241,29 @@ export default {
     }
     // Scope a per-request Postgres client for the cron run (no-op in D1 mode).
     const checks = await Promise.allSettled([
+      // CityThrive fork: GA4 setup autopilot (no-op unless GA4_AUTOSETUP=1), alongside the other jobs.
+      withPgClient(async () => {
+        const { runScheduledGa4Setup } = await import("@/server/features/ga4-setup/Ga4SetupService");
+        await runScheduledGa4Setup();
+      }).catch((err) => console.error("[cron] GA4 setup autopilot failed:", err)),
       SCHEDULED_RANK_CHECKS_PAUSED && isHostedAuthMode(env.AUTH_MODE)
         ? Promise.resolve()
         : withPgClient(() => runScheduledRankChecks(env)),
+      withPgClient(async () => {
+        const { runDomainHealthTick } =
+          await import("@/server/features/domain-health/services/domainHealthTick");
+        await runDomainHealthTick();
+      }).catch((err) => console.error("[cron] domain health failed:", err)),
+      withPgClient(async () => {
+        const { runScheduledFleetDashboard } =
+          await import("@/server/features/portfolio/FleetDashboardService");
+        await runScheduledFleetDashboard();
+      }).catch((err) => console.error("[cron] fleet dashboard failed:", err)),
+      withPgClient(async () => {
+        const { runScheduledFleetReaudit } =
+          await import("@/server/features/portfolio/FleetReauditService");
+        await runScheduledFleetReaudit();
+      }).catch((err) => console.error("[cron] fleet re-audit failed:", err)),
       withPgClient(async () => {
         const { runScheduledAiVisibility } =
           await import("@/server/features/ai-visibility/services/scheduledAiVisibility");

@@ -9,6 +9,9 @@ const {
   getCached,
   getTracker,
   listResearchKeywords,
+  key,
+  buildCacheKey,
+  setCached,
 } = vi.hoisted(() => ({
   assertPaidPlan: vi.fn(),
   mentionsSearch: vi.fn(),
@@ -16,7 +19,12 @@ const {
   getCached: vi.fn(),
   getTracker: vi.fn(),
   listResearchKeywords: vi.fn(),
+  key: vi.fn(),
+  buildCacheKey: vi.fn(),
+  setCached: vi.fn(),
 }));
+
+vi.mock("@/server/lib/runtime-env", () => ({ getRequiredEnvValue: key }));
 
 vi.mock("@/server/lib/dataforseo", () => ({
   CHATGPT_LANGUAGE_CODE: "en",
@@ -27,9 +35,9 @@ vi.mock("@/server/lib/dataforseo", () => ({
   }),
 }));
 vi.mock("@/server/lib/r2-cache", () => ({
-  buildCacheKey: async () => "key",
+  buildCacheKey,
   getCached,
-  setCached: async () => undefined,
+  setCached,
 }));
 vi.mock("./aiVisibilityState", () => ({ getTracker }));
 vi.mock("@/server/features/ai-search/services/access", () => ({
@@ -47,6 +55,9 @@ const input = { projectId: "project", keyword: "seo tool" } as const;
 
 describe("researchAiPrompts", () => {
   beforeEach(() => {
+    key.mockResolvedValue("configured-key");
+    buildCacheKey.mockResolvedValue("key");
+    setCached.mockResolvedValue(undefined);
     assertPaidPlan.mockResolvedValue(undefined);
     getCached.mockResolvedValue(null);
     getTracker.mockResolvedValue({
@@ -160,6 +171,24 @@ describe("researchAiPrompts", () => {
     expect(mentionsSearch).not.toHaveBeenCalled();
     expect(serpLive).not.toHaveBeenCalled();
     expect(result.prompts[0].text).toBe("Which seo tool is free?");
+  });
+
+  it("does not invent citations or brand observations when measured research is unavailable", async () => {
+    key.mockRejectedValue(
+      new Error("Missing required environment variable: DATAFORSEO_API_KEY"),
+    );
+
+    await expect(researchAiPrompts(input, customer)).rejects.toMatchObject({
+      code: "DATAFORSEO_NOT_CONFIGURED",
+    });
+
+    expect(buildCacheKey).toHaveBeenCalledWith(
+      "ai-visibility:prompt-research:v2",
+      expect.any(Object),
+    );
+    expect(mentionsSearch).not.toHaveBeenCalled();
+    expect(serpLive).not.toHaveBeenCalled();
+    expect(setCached).not.toHaveBeenCalled();
   });
 });
 

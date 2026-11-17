@@ -9,6 +9,7 @@ import {
   FileText,
   Globe,
   HeartPulse,
+  KeyRound,
   LayoutList,
   LayoutDashboard,
   Link2,
@@ -142,40 +143,60 @@ function getProjectNavItems(projectId: string) {
   );
 }
 
+// CityThrive fork: on an install without a DataForSEO key, the paid research
+// tools cannot return anything. One row in "Reports & setup" keeps them
+// discoverable instead of eight dead links.
+const dataforseoNavItem = linkOptions({
+  to: "/help/dataforseo-api-key" as const,
+  label: "More tools need DataForSEO",
+  icon: KeyRound,
+});
+
 // Grouped by scope: "My Site" is the project's own domain (tracked data),
 // "Research" is point-at-anything lookup tools.
-export function getProjectNavGroups(projectId: string) {
+export function getProjectNavGroups(
+  projectId: string,
+  options: {
+    /** `false` hides DataForSEO-backed tools; `null` means not known yet. */
+    dataforseoConfigured?: boolean | null;
+  } = {},
+) {
   const all = getProjectNavItems(projectId);
   const byPath = (path: (typeof projectNavItems)[number]["to"]) =>
     all.find((i) => i.to === path)!;
+  const measured = options.dataforseoConfigured !== false;
 
   return [
     {
       label: "This project",
       items: [byPath("/p/$projectId")],
     },
-    {
-      label: "Research",
-      items: [
-        byPath("/p/$projectId/keywords"),
-        byPath("/p/$projectId/domain"),
-        byPath("/p/$projectId/backlinks"),
-      ],
-    },
-    {
-      label: "AI Visibility",
-      items: [
-        byPath("/p/$projectId/ai-visibility"),
-        byPath("/p/$projectId/ai-visibility/research"),
-        byPath("/p/$projectId/prompt-explorer"),
-      ],
-    },
+    ...(measured
+      ? [
+          {
+            label: "Research",
+            items: [
+              byPath("/p/$projectId/keywords"),
+              byPath("/p/$projectId/domain"),
+              byPath("/p/$projectId/backlinks"),
+            ],
+          },
+          {
+            label: "AI Visibility",
+            items: [
+              byPath("/p/$projectId/ai-visibility"),
+              byPath("/p/$projectId/ai-visibility/research"),
+              byPath("/p/$projectId/prompt-explorer"),
+            ],
+          },
+        ]
+      : []),
     {
       label: "My Site",
       items: [
         byPath("/p/$projectId/search-performance"),
         byPath("/p/$projectId/rank-tracking"),
-        byPath("/p/$projectId/saved"),
+        ...(measured ? [byPath("/p/$projectId/saved")] : []),
         byPath("/p/$projectId/audit"),
       ],
     },
@@ -185,6 +206,7 @@ export function getProjectNavGroups(projectId: string) {
         byPath("/p/$projectId/reports"),
         byPath("/p/$projectId/context"),
         aiNavItem,
+        ...(measured ? [] : [dataforseoNavItem]),
       ],
     },
   ];

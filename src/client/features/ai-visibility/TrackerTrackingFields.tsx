@@ -93,7 +93,11 @@ export function TrackerTrackingFields({
           >
             <Checkbox
               checked={value.engines.includes(capability.engine)}
-              disabled={disabled}
+              disabled={
+                disabled ||
+                (capability.available === false &&
+                  !value.engines.includes(capability.engine))
+              }
               onCheckedChange={(checked) => {
                 const engines = checked
                   ? [...value.engines, capability.engine]
@@ -114,11 +118,18 @@ export function TrackerTrackingFields({
                 });
               }}
             />
-            <span className="text-sm font-medium">
-              <EngineLabel
-                engine={capability.engine}
-                label={capability.label}
-              />
+            <span className="space-y-1 text-sm font-medium">
+              <span className="block">
+                <EngineLabel
+                  engine={capability.engine}
+                  label={capability.label}
+                />
+              </span>
+              {capability.unavailableReason ? (
+                <span className="block text-xs font-normal text-muted-foreground">
+                  {capability.unavailableReason}
+                </span>
+              ) : null}
             </span>
           </label>
         ))}
@@ -134,7 +145,7 @@ export function TrackerTrackingFields({
       )}
       {engineGroup(
         "API responses",
-        "Answers from each model's API, with web search.",
+        "Answers from each model's API. Search and sources depend on the provider's returned evidence.",
         state.capabilities.filter((capability) => capability.modelApi),
       )}
       <ProjectMarketFields

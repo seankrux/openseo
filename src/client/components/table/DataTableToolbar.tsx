@@ -3,7 +3,7 @@ import type { ComponentProps, ReactNode } from "react";
 import { Badge } from "@/client/components/ui/badge";
 import { Button } from "@/client/components/ui/button";
 import { Input } from "@/client/components/ui/input";
-import { Tabs, TabsList } from "@/client/components/ui/tabs";
+import { Tabs, TabsList, TabsContent } from "@/client/components/ui/tabs";
 
 // The parts above a `DataTable`: a tab row, a toolbar row and a collapsible
 // filter panel. The page owns the filter values and the open state.
@@ -17,6 +17,7 @@ export function DataTableTabs({
   onValueChange,
   actions,
   description,
+  panel,
   children,
 }: {
   value: string;
@@ -24,25 +25,33 @@ export function DataTableTabs({
   actions?: ReactNode;
   /** A short note about the active tab, under the tabs. */
   description?: ReactNode;
+  /** Related content, when these controls switch a tab panel. */
+  panel?: ReactNode;
   children: ReactNode;
 }) {
   return (
-    <div className="space-y-3 border-b border-border px-4 pt-3 pb-4">
-      <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
-        <Tabs value={value} onValueChange={onValueChange}>
+    <Tabs value={value} onValueChange={onValueChange} className="gap-0">
+      <div className="space-y-3 border-b border-border px-4 pt-3 pb-4">
+        <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
           <TabsList
+            aria-label="Table views"
             variant="line"
             className="h-auto! flex-wrap justify-start *:flex-none"
           >
             {children}
           </TabsList>
-        </Tabs>
-        {actions}
+          {actions}
+        </div>
+        {description ? (
+          <div className="text-sm text-muted-foreground">{description}</div>
+        ) : null}
       </div>
-      {description ? (
-        <div className="text-sm text-muted-foreground">{description}</div>
+      {panel !== undefined ? (
+        <TabsContent key={value} value={value}>
+          {panel}
+        </TabsContent>
       ) : null}
-    </div>
+    </Tabs>
   );
 }
 

@@ -1,5 +1,6 @@
 import { AiVisibilityRepository as repo } from "../repositories/AiVisibilityRepository";
 import { getOptionalEnvValue } from "@/server/lib/runtime-env";
+import { getProxyLlmConfig, proxyModelName } from "@/server/lib/proxyLlm";
 import {
   aiEngineUsesModelApi,
   AI_ENGINE_LABELS,
@@ -33,16 +34,15 @@ const AI_ENGINE_NOTES: Record<AiEngine, string> = {
 export async function getTracker(input: {
   projectId: string;
 }): Promise<AiTrackerState> {
-  const [config, competitors, recent, providerKey, project] = await Promise.all(
-    [
+  const [config, competitors, recent, providerKey, proxyConfig, project] =
+    await Promise.all([
       repo.getConfiguration(input.projectId),
       repo.listCompetitors(input.projectId),
       repo.listRuns(input.projectId, 10),
       getOptionalEnvValue("DATAFORSEO_API_KEY"),
+      getProxyLlmConfig(),
       repo.getProject(input.projectId),
-    ],
-  );
-  // A run whose workflow stopped is failed here, so it never looks stuck.
+    ]);
   const runs = await Promise.all(recent.map((run) => reconcileAiRun(run)));
   const [observations, answered] = await Promise.all([
     repo.getObservationStatuses(runs.map((r) => r.id)),
@@ -52,15 +52,37 @@ export async function getTracker(input: {
   ]);
   const brands = project ? aiBrands(project, competitors) : [];
   const own = brands.find((b) => b.own);
-  const capabilities = aiEngineSchema.options.map((engine) => ({
-    engine,
-    label: AI_ENGINE_LABELS[engine],
-    unsupportedLocationCodes: [...AI_UNSUPPORTED_LOCATIONS[engine]],
-    maxPromptLength: 2000,
-    note: AI_ENGINE_NOTES[engine],
-    modelApi: aiEngineUsesModelApi(engine),
-  }));
-  const providerConfigured = !!providerKey;
+  const measuredProviderConfigured = Boolean(providerKey?.trim());
+  const capabilities = await Promise.all(
+    aiEngineSchema.options.map(async (engine) => {
+      const proxyModel = proxyConfig ? await proxyModelName(engine) : null;
+      const available = measuredProviderConfigured || Boolean(proxyModel);
+      const unavailableReason = available
+        ? undefined
+        : engine === "google_ai_overview"
+          ? "Requires captured Google results through DataForSEO."
+          : engine === "perplexity" && proxyConfig
+            ? "Requires a configured Perplexity API route or DataForSEO."
+            : "Connect an AI provider to use this engine.";
+      return {
+        engine,
+        label: AI_ENGINE_LABELS[engine],
+        unsupportedLocationCodes: [...AI_UNSUPPORTED_LOCATIONS[engine]],
+        maxPromptLength: 2000,
+        note:
+          unavailableReason ??
+          (proxyConfig
+            ? "One API answer through the configured model provider. Search and citation evidence depend on returned provider metadata."
+            : AI_ENGINE_NOTES[engine]),
+        modelApi:
+          (Boolean(proxyConfig) && engine !== "google_ai_overview") ||
+          aiEngineUsesModelApi(engine),
+        available,
+        unavailableReason,
+      };
+    }),
+  );
+  const providerConfigured = capabilities.some((engine) => engine.available);
   if (!config)
     return {
       configured: false,

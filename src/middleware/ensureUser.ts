@@ -23,7 +23,7 @@ export const ensureUserMiddleware = createMiddleware({
 
   const projectId = extractProjectId(data);
 
-  let project: EnsuredProject | undefined;
+  let project: EnsuredProject | null | undefined;
 
   if (projectId) {
     // ADR 0001 intentionally keeps project authorization here so every

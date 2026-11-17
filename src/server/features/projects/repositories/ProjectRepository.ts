@@ -1,4 +1,4 @@
-import { and, count, desc, eq, isNotNull, isNull, sql } from "drizzle-orm";
+import { and, asc, count, desc, eq, isNotNull, isNull, sql } from "drizzle-orm";
 import { db } from "@/db";
 import { projects } from "@/db/schema";
 import { AppError } from "@/server/lib/errors";
@@ -9,7 +9,12 @@ async function listProjects(organizationId: string) {
       eq(projects.organizationId, organizationId),
       isNull(projects.archivedAt),
     ),
-    orderBy: [desc(projects.createdAt), desc(projects.id)],
+    orderBy: [
+      sql`CASE WHEN ${projects.domain} IS NOT NULL THEN 0 ELSE 1 END`,
+      asc(projects.name),
+      desc(projects.createdAt),
+      desc(projects.id),
+    ],
   });
 }
 
@@ -29,7 +34,7 @@ async function countProjects(organizationId: string) {
 async function getProjectForOrganization(
   projectId: string,
   organizationId: string,
-) {
+): Promise<typeof projects.$inferSelect | null> {
   const [project] = await db
     .select()
     .from(projects)
@@ -44,9 +49,6 @@ async function getProjectForOrganization(
   return project ?? null;
 }
 
-// The archived counterpart of getProjectForOrganization, for the surfaces that
-// owe the reader "this project is archived" instead of a bare not-found. Still
-// org-scoped, so it adds no cross-org existence oracle.
 async function getArchivedProjectForOrganization(
   projectId: string,
   organizationId: string,
@@ -65,10 +67,6 @@ async function getArchivedProjectForOrganization(
   return project ?? null;
 }
 
-// Look up a project by id alone (no org scoping). Only for trusted server
-// contexts that have already authorized access another way — e.g. the
-// SAM chat Durable Object, whose connections are authorized in the Worker
-// before they reach the DO, and which derives its org from the project.
 async function getProjectById(projectId: string) {
   const [project] = await db
     .select()
@@ -82,7 +80,6 @@ async function createProject(
   organizationId: string,
   name: string,
   domain?: string,
-  // Omitted keeps the column defaults.
   market?: { locationCode: number; languageCode: string },
 ) {
   const id = crypto.randomUUID();
@@ -99,7 +96,6 @@ async function updateProject(
   input: {
     name: string;
     domain?: string;
-    // Omitted leaves the market columns untouched.
     market?: { locationCode: number; languageCode: string };
   },
 ) {
@@ -122,7 +118,6 @@ async function updateProject(
   return row;
 }
 
-// Save website setup atomically without rewriting the project name.
 async function updateProjectWebsite(
   projectId: string,
   organizationId: string,

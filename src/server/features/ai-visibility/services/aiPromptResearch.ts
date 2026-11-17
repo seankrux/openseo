@@ -10,6 +10,7 @@ import {
   createDataforseoClient,
 } from "@/server/lib/dataforseo";
 import { AppError } from "@/server/lib/errors";
+import { requireDataforseoApiKey } from "@/server/lib/dataforseo/config";
 import { buildCacheKey, getCached, setCached } from "@/server/lib/r2-cache";
 import { normalizeAiSuggestion } from "@/shared/ai-prompt-suggestions";
 import {
@@ -22,16 +23,10 @@ import { aiPromptIsBranded, ownedAiDomain } from "./aiVisibilityMatching";
 import { AiVisibilityRepository as repo } from "../repositories/AiVisibilityRepository";
 import { getTracker } from "./aiVisibilityState";
 
-/** The provider refreshes prompt data monthly; one paid call per day is enough. */
 const RESEARCH_TTL_SECONDS = 24 * 60 * 60;
-/** Research filtered without the SERP is weaker; buy the full set again soon. */
 const RESEARCH_WITHOUT_SERP_TTL_SECONDS = 60 * 60;
 const RESEARCH_LIMIT = 100;
-// Results for niche keywords shift between calls; at 20 the on-topic sites
-// left after generic ones could swing from a dozen to none. 50 holds steady.
 const RESEARCH_SERP_DEPTH = 50;
-// Sites that rank and get cited for almost any topic say nothing about which
-// meaning of a keyword a prompt is about.
 const GENERIC_DOMAINS = new Set([
   "amazon.com",
   "dev.to",
@@ -53,14 +48,10 @@ const GENERIC_DOMAINS = new Set([
   "youtube.com",
 ]);
 
-// Only the fields research reads. Brand and tracked flags are derived on every
-// request, so one cached provider response serves every project in the org.
-// The provider's AI search volume is only used to order prompts: it is
-// estimated from Google "People also ask" data, not counted from AI usage.
 const cachedPromptSchema = z.object({
   question: z.string(),
   answer: z.string(),
-  volume: z.number(),
+  volume: z.number().nullable(),
   sources: z.array(
     z.object({
       domain: z.string(),
@@ -68,18 +59,15 @@ const cachedPromptSchema = z.object({
       title: z.string().nullable(),
     }),
   ),
-  // Registrable domains the answer cited or its web search returned.
   domains: z.array(z.string()),
 });
 type CachedPrompt = z.infer<typeof cachedPromptSchema>;
 const cachedResearchSchema = z.object({
   prompts: z.array(cachedPromptSchema),
-  // Registrable domains ranking on Google for the keyword: its common meaning.
   serpDomains: z.array(z.string()),
 });
 type CachedResearch = z.infer<typeof cachedResearchSchema>;
 
-/** Website setup keywords first, then tracker topics the user added. */
 export async function listAiResearchKeywords(input: {
   projectId: string;
 }): Promise<{ keywords: string[] }> {
@@ -89,7 +77,6 @@ export async function listAiResearchKeywords(input: {
   ]);
   const keywords = [
     ...researchKeywords,
-    // The default topic is a catch-all, not a keyword.
     ...state.topics.filter((topic) => topic !== AI_DEFAULT_TOPIC),
   ].map(normalizeAiSuggestion);
   return { keywords: [...new Set(keywords)] };
@@ -102,7 +89,6 @@ export async function researchAiPrompts(
   await assertPaidAiSearchPlan(customer.organizationId, "Prompt Research");
   const state = await getTracker({ projectId: input.projectId });
   const keyword = normalizeAiSuggestion(input.keyword);
-  // DataForSEO has ChatGPT prompt data only in US English.
   const loaded = await loadPrompts(
     {
       topic: keyword,
@@ -118,9 +104,6 @@ export async function researchAiPrompts(
       .filter((prompt) => !prompt.archived)
       .map((prompt) => normalizeAiSuggestion(prompt.text)),
   );
-  // Keyword words also appear in unrelated questions ("ups tracking issue" for
-  // "issue tracking"). Keep a prompt when it asks the keyword as a phrase, or
-  // its answer leans on sites that rank for the keyword or belong to the project.
   const onTopic = new Set([
     ...loaded.serpDomains,
     ...state.brands.flatMap((brand) => registrableDomain(brand.domain) ?? []),
@@ -162,16 +145,15 @@ async function loadPrompts(
   },
   customer: BillingCustomerContext,
 ): Promise<CachedResearch> {
-  const cacheKey = await buildCacheKey("ai-visibility:prompt-research", {
+  const cacheKey = await buildCacheKey("ai-visibility:prompt-research:v2", {
     organizationId: customer.organizationId,
     ...request,
   });
   const cached = cachedResearchSchema.safeParse(await getCached(cacheKey));
   if (cached.success) return cached.data;
 
+  await requireDataforseoApiKey();
   const client = createDataforseoClient(customer);
-  // Answers often use the category words when the question doesn't. Short
-  // keywords match as a phrase; longer ones rarely appear verbatim.
   const [data, serp] = await Promise.all([
     client.aiSearch.mentionsSearch({
       target: {
@@ -186,8 +168,6 @@ async function loadPrompts(
       limit: RESEARCH_LIMIT,
       orderBy: ["ai_search_volume,desc"],
     }),
-    // The SERP only sharpens the on-topic filter. When DataForSEO's search is
-    // down, keep the paid prompt data and filter by phrase and brand domains.
     client.serp
       .live({
         keyword: request.topic,
@@ -211,7 +191,7 @@ async function loadPrompts(
           {
             question: item.question.trim(),
             answer: item.answer ?? "",
-            volume: item.ai_search_volume ?? 0,
+            volume: item.ai_search_volume ?? null,
             sources: (item.sources ?? []).flatMap((source) =>
               source.domain && source.url
                 ? [
@@ -261,20 +241,16 @@ function registrableDomain(host: string | null | undefined) {
   return host ? (getDomain(host) ?? undefined) : undefined;
 }
 
-// "…most accurate?" and "…the most accurate?", or the same question with
-// different years, ask the same thing. The highest-volume wording leads.
 function mergeKey(question: string) {
   return words(question.replace(/\b(?:in\s+|for\s+)?(?:19|20)\d{2}\b/g, " "))
     .filter((word) => !["a", "an", "any", "the"].includes(word))
     .join(" ");
 }
 
-// The provider lowercases questions; tracked prompts read better as sentences.
 function capitalize(text: string) {
   return text.charAt(0).toUpperCase() + text.slice(1);
 }
 
-/** Lowercase words with a trailing plural "s" removed. */
 function words(text: string) {
   return normalizeAiSuggestion(text)
     .replace(/[^\p{L}\p{N}\s]/gu, " ")
@@ -287,8 +263,6 @@ function words(text: string) {
     );
 }
 
-// A one-word keyword is still ambiguous on its own ("sandbox" games, VR, or
-// code), so only a phrase of two or more words vouches for a prompt.
 function asksPhrase(question: string, keyword: string) {
   const phrase = words(keyword);
   return (
@@ -299,7 +273,10 @@ function asksPhrase(question: string, keyword: string) {
 
 function mergeNearDuplicates(prompts: CachedPrompt[]): CachedPrompt[][] {
   const groups = new Map<string, CachedPrompt[]>();
-  for (const prompt of sortBy(prompts, [(item) => item.volume, "desc"])) {
+  for (const prompt of sortBy(prompts, [
+    (item) => item.volume ?? -Infinity,
+    "desc",
+  ])) {
     const key = mergeKey(prompt.question);
     groups.set(key, [...(groups.get(key) ?? []), prompt]);
   }

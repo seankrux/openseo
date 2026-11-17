@@ -15,6 +15,7 @@ import {
   type DomainKeywordsSortOrder,
 } from "@/server/features/domain/services/domainKeywordFilters";
 import type { DomainKeywordsFilters } from "@/types/schemas/domain";
+import { requireDataforseoApiKey } from "@/server/lib/dataforseo/config";
 
 const DOMAIN_KEYWORDS_PAGE_TTL_SECONDS = 12 * 60 * 60;
 
@@ -63,7 +64,7 @@ export async function getKeywordsPage(
   const orderBy = buildOrderBy(input.sortMode, input.sortOrder);
   const filters = buildKeywordFilters(input.filters, input.search, scopeFilter);
 
-  const cacheKey = await buildCacheKey("domain:keywords-page", {
+  const cacheKey = await buildCacheKey("domain:keywords-page:v2", {
     organizationId: billingCustomer.organizationId,
     projectId: input.projectId,
     domain: target.hostname,
@@ -85,6 +86,7 @@ export async function getKeywordsPage(
     return cached.data;
   }
 
+  await requireDataforseoApiKey();
   const dataforseo = createDataforseoClient(billingCustomer);
   const response = await dataforseo.domain.rankedKeywords({
     target: target.hostname,
@@ -121,8 +123,6 @@ export async function getKeywordsPage(
     fetchedAt: new Date().toISOString(),
   };
 
-  // waitUntil, not void: workerd cancels unregistered pending I/O once the
-  // response is sent, so a fire-and-forget put never persists the cache.
   waitUntil(
     setCached(cacheKey, result, DOMAIN_KEYWORDS_PAGE_TTL_SECONDS).catch(
       (error) => {

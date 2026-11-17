@@ -21,6 +21,14 @@ import {
   fleetSiteTableLabel,
 } from "@/client/navigation/fleetNav";
 import { AlertTriangle } from "lucide-react";
+import { RowActionsMenu } from "@/client/components/RowActionsMenu";
+import { DropdownMenuItem } from "@/client/components/ui/dropdown-menu";
+import {
+  googleCidConverterToolUrl,
+  googleMapsSearchUrl,
+  googleReviewLinkToolUrl,
+  mapsSearchQuery,
+} from "@/client/lib/local-operator-links";
 
 export const Route = createFileRoute("/_app/overview")({
   validateSearch: portfolioOverviewSearchSchema,
@@ -512,11 +520,17 @@ function OverviewPage() {
                       {header("critical", "Audit issues (crit/warn)")}
                       {header("lastAudit", "Last audit")}
                       {header("lighthouseSeo", "Lighthouse SEO / Perf")}
+                      <th className="whitespace-nowrap px-2 py-2 text-left font-medium">
+                        Local
+                      </th>
                     </tr>
                   </thead>
                   <tbody>
                     {visibleRows.map((r) => {
                       const g = r.gsc;
+                      const mapsQuery = mapsSearchQuery(r.domain, r.name);
+                      const mapsUrl = googleMapsSearchUrl(mapsQuery);
+                      const siteLabel = r.domain ?? r.name;
                       return (
                         <tr
                           key={r.projectId}
@@ -709,13 +723,50 @@ function OverviewPage() {
                               ? `${r.audit.lighthouseSeo} / ${r.audit.lighthousePerf ?? "–"}`
                               : "–"}
                           </td>
+                          <td className="whitespace-nowrap px-2 py-1">
+                            <RowActionsMenu label={`Local actions for ${siteLabel}`}>
+                              <DropdownMenuItem
+                                render={
+                                  <a
+                                    href={mapsUrl}
+                                    target="_blank"
+                                    rel="noopener noreferrer"
+                                  />
+                                }
+                              >
+                                Search on Maps
+                              </DropdownMenuItem>
+                              <DropdownMenuItem
+                                render={
+                                  <a
+                                    href={googleReviewLinkToolUrl()}
+                                    target="_blank"
+                                    rel="noopener noreferrer"
+                                  />
+                                }
+                              >
+                                Review link tool
+                              </DropdownMenuItem>
+                              <DropdownMenuItem
+                                render={
+                                  <a
+                                    href={googleCidConverterToolUrl()}
+                                    target="_blank"
+                                    rel="noopener noreferrer"
+                                  />
+                                }
+                              >
+                                CID converter
+                              </DropdownMenuItem>
+                            </RowActionsMenu>
+                          </td>
                         </tr>
                       );
                     })}
                     {rows.length === 0 ? (
                       <tr>
                         <td
-                          colSpan={15}
+                          colSpan={16}
                           className="px-4 py-8 text-center text-muted-foreground"
                         >
                           No sites match these filters.

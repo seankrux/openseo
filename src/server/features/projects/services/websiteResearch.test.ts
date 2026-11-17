@@ -7,6 +7,7 @@ const {
   listSections,
   listCompetitors,
   listKeywords,
+  envValue,
 } = vi.hoisted(() => ({
   generateText: vi.fn(),
   readSite: vi.fn(),
@@ -14,6 +15,9 @@ const {
   listSections: vi.fn(),
   listCompetitors: vi.fn(),
   listKeywords: vi.fn(),
+  envValue: vi.fn(async (key: string) =>
+    key === "DATAFORSEO_API_KEY" ? "test-key" : undefined,
+  ),
 }));
 vi.mock("ai", () => ({
   generateText,
@@ -25,7 +29,7 @@ vi.mock("@/server/lib/scrape", () => ({ readSite }));
 vi.mock("@/server/lib/dataforseo/serp", () => ({ fetchLiveSerp: search }));
 vi.mock("@/server/lib/runtime-env", () => ({
   getRequiredEnvValue: vi.fn(),
-  getOptionalEnvValue: vi.fn(),
+  getOptionalEnvValue: envValue,
 }));
 vi.mock("@/server/lib/openrouter", () => ({ buildChatAgentModel: vi.fn() }));
 vi.mock("@/server/lib/chatAgent", () => ({
@@ -207,5 +211,19 @@ describe("researchWebsite", () => {
       researchWebsite("https://saved.com", project, customer),
     ).rejects.toThrow("Website research was incomplete");
     expect(search).toHaveBeenCalledOnce();
+  });
+
+  it("keeps the research and skips competitors when no DataForSEO key is set", async () => {
+    envValue.mockImplementation(async () => undefined);
+    listCompetitors.mockResolvedValue([]);
+    try {
+      const result = await researchWebsite("https://saved.com", project, customer);
+      expect(search).not.toHaveBeenCalled();
+      expect(result.competitors).toEqual([]);
+    } finally {
+      envValue.mockImplementation(async (key: string) =>
+        key === "DATAFORSEO_API_KEY" ? "test-key" : undefined,
+      );
+    }
   });
 });

@@ -73,7 +73,9 @@ function AuditHistoryTable({
             <TableHead>Status</TableHead>
             <TableHead>Pages</TableHead>
             <TableHead>Lighthouse</TableHead>
-            <TableHead />
+            <TableHead>
+              <span className="sr-only">Actions</span>
+            </TableHead>
           </TableRow>
         </TableHeader>
         <TableBody>

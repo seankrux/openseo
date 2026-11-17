@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { BillingCustomerContext } from "@/server/billing/subscription";
 
 const mocks = vi.hoisted(() => ({
@@ -7,9 +7,11 @@ const mocks = vi.hoisted(() => ({
   createDataforseoClient: vi.fn(),
   getCached: vi.fn(),
   setCached: vi.fn(async () => {}),
+  key: vi.fn(),
 }));
 
 vi.mock("cloudflare:workers", () => ({ waitUntil: vi.fn() }));
+vi.mock("@/server/lib/runtime-env", () => ({ getRequiredEnvValue: mocks.key }));
 
 vi.mock("@/server/lib/r2-cache", () => ({
   buildCacheKey: mocks.buildCacheKey,
@@ -27,6 +29,10 @@ vi.mock("@/server/lib/dataforseo", () => ({
 }));
 
 import { getSerpAnalysis } from "./serp";
+
+beforeEach(() => {
+  mocks.key.mockResolvedValue("configured-key");
+});
 
 const billingCustomer: BillingCustomerContext = {
   organizationId: "org_1",
@@ -147,8 +153,56 @@ describe("getSerpAnalysis cache depth", () => {
     );
     // A national snapshot must never answer a local request.
     expect(mocks.buildCacheKey).toHaveBeenCalledWith(
-      "serp:analysis",
+      "serp:analysis:v2",
       expect.objectContaining({ locationName }),
     );
+  });
+
+  it("requires measured results rather than simulating ranks and URLs", async () => {
+    mocks.getCached.mockResolvedValue(null);
+    mocks.key.mockRejectedValue(
+      new Error("Missing required environment variable: DATAFORSEO_API_KEY"),
+    );
+
+    await expect(
+      getSerpAnalysis({ ...input, depth: 20 }, billingCustomer),
+    ).rejects.toMatchObject({ code: "DATAFORSEO_NOT_CONFIGURED" });
+    expect(mocks.createDataforseoClient).not.toHaveBeenCalled();
+    expect(mocks.setCached).not.toHaveBeenCalled();
+  });
+
+  it("keeps observed zero metrics and skips results missing an observed rank or URL", async () => {
+    mocks.getCached.mockResolvedValue(null);
+    mocks.createDataforseoClient.mockReturnValue({
+      serp: {
+        live: vi.fn().mockResolvedValue([
+          {
+            type: "organic",
+            rank_group: 1,
+            url: "https://example.com/zero",
+            etv: 0,
+            estimated_paid_traffic_cost: 0,
+            backlinks_info: { referring_domains: 0, backlinks: 0 },
+          },
+          { type: "organic", url: "https://example.com/unranked" },
+          { type: "organic", rank_group: 2 },
+        ]),
+      },
+    });
+
+    const result = await getSerpAnalysis(
+      { ...input, depth: 20 },
+      billingCustomer,
+    );
+
+    expect(result.items).toHaveLength(1);
+    expect(result.items[0]).toMatchObject({
+      rank: 1,
+      url: "https://example.com/zero",
+      etv: 0,
+      estimatedPaidTrafficCost: 0,
+      referringDomains: 0,
+      backlinks: 0,
+    });
   });
 });

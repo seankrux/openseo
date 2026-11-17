@@ -4,6 +4,13 @@ import { createDataforseoClient } from "@/server/lib/dataforseo";
 import { resolveLatestLlmModelName } from "@/server/lib/dataforseo/llm-models";
 import type { LlmResponseResult } from "@/server/lib/dataforseoLlmSchemas";
 import { AppError } from "@/server/lib/errors";
+import {
+  getProxyLlmConfig,
+  proxyLlmResponse,
+  proxyModelName,
+  ProxyModelUnavailableError,
+  type ProxyLlmConfig,
+} from "@/server/lib/proxyLlm";
 import { assertPaidAiSearchPlan } from "./access";
 import {
   AI_SEARCH_PROMPT_CACHE_NAMESPACE,
@@ -59,6 +66,8 @@ export async function explorePrompt(
     "Prompt Explorer",
   );
   const dataforseo = createDataforseoClient(billingCustomer);
+  // CityThrive fork: no DataForSEO key, so models answer via the proxy.
+  const proxy = await getProxyLlmConfig();
   const highlightBrand = input.highlightBrand?.trim() || null;
 
   // Dedupe models so a request like ["claude","claude"] doesn't fan out to two
@@ -73,6 +82,7 @@ export async function explorePrompt(
         highlightBrand,
         billingCustomer,
         dataforseo,
+        proxy,
       }),
     ),
   );
@@ -99,11 +109,13 @@ type RunModelArgs = {
   highlightBrand: string | null;
   billingCustomer: BillingCustomerContext;
   dataforseo: DataforseoClient;
+  proxy: ProxyLlmConfig | null;
 };
 
 async function runModel(
   args: RunModelArgs,
 ): Promise<PromptExplorerModelResult> {
+  if (args.proxy) return runProxyModel(args, args.proxy);
   const country = args.input.webSearch
     ? args.input.webSearchCountryCode
     : undefined;
@@ -179,6 +191,67 @@ async function runModel(
   );
 
   return reapplyHighlightBrand(shaped, args.highlightBrand);
+}
+
+// Proxy answers retain only provider-supplied search and citation metadata.
+// Model-generated links stay in the answer text, without becoming citations.
+async function runProxyModel(
+  args: RunModelArgs,
+  proxy: ProxyLlmConfig,
+): Promise<PromptExplorerModelResult> {
+  const modelName = await proxyModelName(args.model);
+  if (!modelName) {
+    return {
+      status: "error",
+      model: args.model,
+      errorCode: "UPSTREAM_ERROR",
+      message: `${formatModelLabel(args.model)} needs a matching model route or DataForSEO. Configure an explicit Perplexity/Sonar route for Perplexity; ChatGPT, Claude and Gemini have proxy defaults.`,
+    };
+  }
+  const cacheKey = await buildCacheKey(AI_SEARCH_PROMPT_CACHE_NAMESPACE, {
+    organizationId: args.billingCustomer.organizationId,
+    projectId: args.input.projectId,
+    model: args.model,
+    modelName: `proxy:${modelName}`,
+    prompt: normalizePromptForCache(args.input.prompt),
+    webSearch: false,
+    webSearchCountryCode: null,
+    // Retire proxy entries with inferred citations/search or substitute models.
+    systemPromptV: 8,
+  });
+  const cached = promptExplorerModelResultSchema.safeParse(
+    await getCached(cacheKey),
+  );
+  if (cached.success && cached.data.status === "success") {
+    return reapplyHighlightBrand(cached.data, args.highlightBrand);
+  }
+  try {
+    const raw = await proxyLlmResponse(proxy, {
+      modelSlug: args.model,
+      userPrompt: args.input.prompt,
+      maxOutputTokens: PROMPT_RESPONSE_MAX_TOKENS,
+    });
+    const shaped = {
+      ...shapeSuccess(args.model, raw),
+      webSearchCountryCode: null,
+    };
+    waitUntil(
+      setCached(cacheKey, shaped, PROMPT_RESPONSE_TTL_SECONDS, {
+        organizationId: args.billingCustomer.organizationId,
+      }).catch(() => undefined),
+    );
+    return reapplyHighlightBrand(shaped, args.highlightBrand);
+  } catch (error) {
+    if (error instanceof ProxyModelUnavailableError) {
+      return {
+        status: "error",
+        model: args.model,
+        errorCode: "UPSTREAM_ERROR",
+        message: error.message,
+      };
+    }
+    throw error;
+  }
 }
 
 function fetchModelResponse(

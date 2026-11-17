@@ -69,9 +69,8 @@ const cachedResultSchema = z.object({
   usedFallback: z.boolean(),
 });
 
-// v5: auto mode blends suggestions + ideas. v4 (collapsed close variants)
-// only ran in previews; skip it so those entries are never reused.
-const CACHE_VERSION = 5;
+// v6: only measured provider data; do not reuse unverified proxy results.
+const CACHE_VERSION = 6;
 
 async function fetchRowsFromSource(
   source: KeywordSource,

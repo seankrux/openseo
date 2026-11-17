@@ -38,12 +38,18 @@ export async function buildCacheKey(
  * Callers should validate the shape with Zod before trusting it — schema
  * drift between writes and reads is otherwise silent.
  */
-export async function getCached(key: string): Promise<unknown> {
+export async function getCached(
+  key: string,
+  options: { allowExpired?: boolean } = {},
+): Promise<unknown> {
   const obj = await env.R2.get(`${CACHE_PREFIX}${key}`);
   if (!obj) return null;
 
   const expiresAt = obj.customMetadata?.expiresAt;
-  if (expiresAt && Date.parse(expiresAt) < Date.now()) return null;
+  // Inventory callers may inspect expired evidence to explain its age. Such
+  // evidence must never be included in live totals without a freshness check.
+  if (!options.allowExpired && expiresAt && Date.parse(expiresAt) < Date.now())
+    return null;
 
   try {
     return JSON.parse(await obj.text());

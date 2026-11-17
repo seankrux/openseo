@@ -24,9 +24,12 @@ import {
 export function DashboardOnboarding({
   projectId,
   activation,
+  hiddenSteps = [],
 }: {
   projectId: string;
   activation: DashboardActivation;
+  /** Steps this install cannot complete (for example without a DataForSEO key). */
+  hiddenSteps?: DashboardSetupStep[];
 }) {
   const queryClient = useQueryClient();
   const [selected, setSelected] = useState<DashboardSetupStep | null>(null);
@@ -47,7 +50,9 @@ export function DashboardOnboarding({
     },
   });
   const steps = setupSteps.filter(
-    (step) => step.id !== "team" || isHostedClientAuthMode(),
+    (step) =>
+      (step.id !== "team" || isHostedClientAuthMode()) &&
+      !hiddenSteps.includes(step.id),
   );
   const remaining = steps.filter(
     (step) => getStepStatus(activation, step.id) === "todo",

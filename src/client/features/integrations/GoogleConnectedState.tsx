@@ -6,6 +6,7 @@ export function GoogleConnectedState({
   email,
   onChange,
   onDisconnect,
+  onReconnect,
   disconnecting,
   canManage,
   canManageAccounts,
@@ -16,6 +17,7 @@ export function GoogleConnectedState({
   email?: string | null;
   onChange: () => void;
   onDisconnect: () => void;
+  onReconnect: () => void;
   disconnecting: boolean;
   canManage: boolean;
   canManageAccounts: boolean;
@@ -48,6 +50,11 @@ export function GoogleConnectedState({
               ? "Change property or account"
               : "Manage Google accounts"}
           </Button>
+          {canManage ? (
+            <Button variant="outline" size="sm" onClick={onReconnect}>
+              Reconnect Google account
+            </Button>
+          ) : null}
           {canManage ? (
             <Button variant="destructive" size="sm" onClick={onDisconnect}>
               {disconnecting ? "Disconnecting…" : "Disconnect project"}
