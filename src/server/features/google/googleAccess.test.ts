@@ -33,12 +33,15 @@ afterEach(() => {
 });
 
 describe("Google behind an Every App gateway", () => {
-  it("uses no Google client of OpenSEO's own, even when one is set", async () => {
+  it("keeps gateway mode for new connections, but still exposes an imported-grant client when one is set", async () => {
     Object.assign(workerEnv, { AUTH_MODE: "everyapp", ...GOOGLE_CLIENT });
 
     expect(await getGoogleAccessMode()).toBe("gateway");
-    expect(await getGoogleOAuthClientConfig()).toBeNull();
-    expect(await hasGoogleOAuthConfig()).toBe(false);
+    expect(await getGoogleOAuthClientConfig()).toEqual({
+      clientId: "client-id",
+      clientSecret: "client-secret",
+    });
+    expect(await hasGoogleOAuthConfig()).toBe(true);
   });
 
   it("answers OpenSEO's own Search Console and Analytics callbacks with 404", async () => {

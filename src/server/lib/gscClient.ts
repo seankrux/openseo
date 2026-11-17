@@ -1,5 +1,7 @@
 import { getGoogleAccessToken } from "@/server/features/google/googleOAuth";
 import { getGoogleAccessMode } from "@/server/features/google/googleAccess";
+import { getGoogleOAuthClientConfig } from "@/server/features/google/oauth-config";
+import { GoogleGrantError } from "@/server/features/google/googleOAuthErrors";
 import { getGatewayGoogleFetch } from "@/server/features/google/gatewayGoogle";
 import { GSC_OAUTH_PROVIDER_ID } from "@/shared/gsc";
 import { GscApiError, GscTokenError } from "./gscErrors";
@@ -126,6 +128,27 @@ export function createGscClient(
     fetch: typeof fetch;
     headers: Record<string, string>;
   }> {
+    // Prefer a stored grant (imported self-host tokens for this userId)
+    // when the original OAuth client is configured. New Every App members
+    // without a grant still go through the gateway.
+    if (await getGoogleOAuthClientConfig()) {
+      try {
+        return {
+          fetch,
+          headers: { Authorization: `Bearer ${await getToken()}` },
+        };
+      } catch (error) {
+        const noGrant =
+          error instanceof GoogleGrantError ||
+          (error instanceof GscTokenError &&
+            error.message.includes("grant revoked or expired") &&
+            error.cause instanceof GoogleGrantError &&
+            String(error.cause.message).includes("grant for this user"));
+        if (!noGrant || (await getGoogleAccessMode()) !== "gateway") {
+          throw error;
+        }
+      }
+    }
     if ((await getGoogleAccessMode()) === "gateway") {
       const gatewayFetch = await getGatewayGoogleFetch(opts.userId);
       if (!gatewayFetch) {

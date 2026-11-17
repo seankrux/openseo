@@ -16,7 +16,7 @@ export function hasBingWorkspaceAccess(organizationId: string): boolean {
   if (mode === "local_noauth")
     return organizationId === getDelegatedOrganizationId(LOCAL_ADMIN_USER_ID);
   return (
-    mode === "cloudflare_access" &&
+    (mode === "cloudflare_access" || mode === "everyapp") &&
     organizationId === SHARED_WORKSPACE_ORGANIZATION_ID
   );
 }

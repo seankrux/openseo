@@ -47,6 +47,9 @@ const deniedWorkspaces = [
   ["local_noauth", "org-b"],
   ["cloudflare_access", scope.organizationId],
   ["cloudflare_access", "org-b"],
+  ["everyapp", scope.organizationId],
+  ["everyapp", "org-b"],
+  ["everyapp", "delegated-local-admin"],
 ] as const;
 
 describe.each(deniedWorkspaces)(
@@ -128,6 +131,39 @@ describe("canonical Access Bing connection", () => {
     ).rejects.toMatchObject({ code: "FORBIDDEN" });
     expect(withPgClient).not.toHaveBeenCalled();
     expect(fetchMock).not.toHaveBeenCalled();
+  });
+});
+
+describe("canonical Every App Bing connection", () => {
+  it("supports the shared workspace on AUTH_MODE=everyapp", async () => {
+    settings.AUTH_MODE = "everyapp";
+    const organizationId = "shared-workspace";
+    await client.execute(
+      "INSERT INTO organization VALUES ('shared-workspace')",
+    );
+    await client.execute("INSERT INTO user VALUES ('gateway-member')");
+    await client.execute(
+      "UPDATE projects SET organization_id = 'shared-workspace' WHERE id = 'project-a'",
+    );
+    getProject.mockResolvedValue({ ...project, organizationId });
+    getMembership.mockResolvedValue(null);
+    const input = {
+      ...bindingInput,
+      organizationId,
+      userId: "gateway-member",
+    };
+    expect(await BingWebmasterService.listSites(input)).toEqual({
+      sites: [{ siteUrl: bindingInput.siteUrl, isSelected: false }],
+    });
+    expect(await BingWebmasterService.bindSite(input)).toMatchObject({
+      connectedByUserId: input.userId,
+      organizationId,
+    });
+    useMetrics();
+    const snapshot = await BingWebmasterService.refreshSnapshot(input);
+    expect(await BingWebmasterService.getStoredSnapshot(input)).toEqual(
+      snapshot,
+    );
   });
 });
 

@@ -166,6 +166,7 @@ describe("GscService.listSitesForUserWithGrantStatus", () => {
         accounts: [
           {
             accountId: "sub-a",
+            ownerUserId: "u1",
             email: "sub-a@example.com",
             requiresReconnect: false,
             propertiesUnavailable: false,
@@ -174,6 +175,7 @@ describe("GscService.listSitesForUserWithGrantStatus", () => {
           },
           {
             accountId: "sub-b",
+            ownerUserId: "u1",
             email: null,
             requiresReconnect: true,
             propertiesUnavailable: false,
@@ -202,6 +204,7 @@ describe("GscService.listSitesForUserWithGrantStatus", () => {
       accounts: [
         {
           accountId: "sub-a",
+            ownerUserId: "u1",
           email: null,
           requiresReconnect: false,
           propertiesUnavailable: false,
@@ -242,6 +245,7 @@ describe("GscService.listSitesForUserWithGrantStatus", () => {
         accounts: [
           {
             accountId: "sub-a",
+            ownerUserId: "u1",
             email: "sub-a@example.com",
             requiresReconnect: false,
             propertiesUnavailable: false,
@@ -250,6 +254,7 @@ describe("GscService.listSitesForUserWithGrantStatus", () => {
           },
           {
             accountId: "sub-b",
+            ownerUserId: "u1",
             email: null,
             requiresReconnect: false,
             propertiesUnavailable: true,

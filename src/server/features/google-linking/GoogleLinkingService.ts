@@ -8,8 +8,6 @@ import { ga4Connections, gscConnections } from "@/db/schema";
 import { AppError } from "@/server/lib/errors";
 import { GscService } from "@/server/features/gsc/services/GscService";
 import { Ga4Service } from "@/server/features/ga4/services/Ga4Service";
-import { GscConnectionRepository } from "@/server/features/gsc/repositories/GscConnectionRepository";
-import { Ga4ConnectionRepository } from "@/server/features/ga4/repositories/Ga4ConnectionRepository";
 import { createGa4AdminClient, createGa4DataClient } from "@/server/lib/ga4Client";
 import { listProjects } from "@/server/features/projects/services/projects";
 import { bareHost, gscCandidatesFor } from "./domain";
@@ -230,7 +228,6 @@ async function autoLink(input: {
       if (s.permissionLevel === "siteUnverifiedUser") continue;
       if (!bySite.has(s.siteUrl)) bySite.set(s.siteUrl, s);
     }
-    const emailBy = new Map(sites.map((s) => [s.accountId, s.email]));
     for (const p of projects) {
       const domain = bareHost(p.domain)!;
       const existing = gscBy.get(p.id);
@@ -252,13 +249,12 @@ async function autoLink(input: {
         continue;
       }
       try {
-        await GscConnectionRepository.upsert({
+        await GscService.setSite({
           projectId: p.id,
           organizationId: input.organizationId,
           siteUrl: hit.siteUrl,
-          connectedByUserId: input.userId,
-          gscAccountId: hit.accountId,
-          connectedAccountEmail: emailBy.get(hit.accountId) ?? null,
+          accountId: hit.accountId,
+          userId: input.userId,
         });
         budget--;
         rows.push({ projectId: p.id, domain, kind: "gsc", action: "linked", target: hit.siteUrl, accountId: hit.accountId, email: hit.email });
@@ -318,21 +314,15 @@ async function autoLink(input: {
           continue;
         }
         try {
-          const client = createGa4AdminClient({ userId: input.userId, ga4AccountId: hit.accountId });
-          const property = await client.getProperty(hit.propertyId);
-          await Ga4ConnectionRepository.upsert({
+          const linked = await Ga4Service.setProperty({
             projectId: p.id,
             organizationId: input.organizationId,
-            propertyId: property.name,
-            propertyDisplayName: property.displayName,
-            propertyTimeZone: property.timeZone,
-            propertyCurrencyCode: property.currencyCode,
-            connectedByUserId: input.userId,
-            ga4AccountId: hit.accountId,
-            connectedAccountEmail: hit.email,
+            propertyId: hit.propertyId,
+            accountId: hit.accountId,
+            userId: input.userId,
           });
           budget--;
-          rows.push({ projectId: p.id, domain, kind: "ga4", action: "linked", target: property.name, accountId: hit.accountId, email: hit.email });
+          rows.push({ projectId: p.id, domain, kind: "ga4", action: "linked", target: linked.propertyId, accountId: hit.accountId, email: hit.email });
         } catch (e) {
           rows.push({ projectId: p.id, domain, kind: "ga4", action: "error", target: hit.propertyId, error: e instanceof Error ? e.message : String(e) });
         }

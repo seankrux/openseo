@@ -95,14 +95,14 @@ export default {
   // OpenSEO's own, on its Workers (`pnpm everyapp secret set <NAME> --app
   // seo-sean`). The deploy generates CRAWLER_ACCESS_SECRET when it's unset.
   // OpenRouter and DataForSEO stay gateway keys (providers / capabilities).
-  // Google reads use the google-workspace capability; this install does not
-  // declare GOOGLE_CLIENT_ID or GOOGLE_CLIENT_SECRET, because EveryApp mode
-  // ignores an app-owned Google client.
+  // New Google connections use the google-workspace capability. Imported
+  // Search Console / Analytics grants still refresh with the app-owned
+  // Google client and BETTER_AUTH_SECRET declared on the google feature.
   secrets: [
     {
       name: "CRAWLER_ACCESS_SECRET",
       generate: true,
-      why: "Encrypts the Shopify crawler-access signatures that audits of protected stores send.",
+      why: "Encrypts Shopify crawler-access signatures for protected-store audits.",
     },
   ],
   // Optional, each all or nothing: OpenSEO opens without them.
@@ -123,11 +123,28 @@ export default {
       why: "Search Console and GA4 reads for your sites, with the Google account each member connects in OpenSEO.",
       steps: [
         "Enable the Search Console API: https://console.cloud.google.com/apis/library/searchconsole.googleapis.com",
-        "Enable the Analytics Admin and Data APIs: https://console.cloud.google.com/apis/library/analyticsadmin.googleapis.com and https://console.cloud.google.com/apis/library/analyticsdata.googleapis.com",
+        "Enable the Analytics Admin and Data APIs in Google Cloud.",
         "Create an OAuth client of type Web application: https://console.cloud.google.com/apis/credentials",
         "Redirect URI: {gatewayUrl}/connect/google-workspace/callback. Consent screen scopes: webmasters.readonly and analytics.readonly.",
       ],
       capabilities: ["google-workspace"],
+      // Imported self-host grants (account table, user local-admin) refresh
+      // with the original OAuth client and decrypt with this secret.
+      // EveryApp mode still uses the gateway Connect button for new links.
+      secrets: [
+        {
+          name: "BETTER_AUTH_SECRET",
+          how: "Encrypts imported Google tokens (same as the self-host).",
+        },
+        {
+          name: "GOOGLE_CLIENT_ID",
+          how: "OAuth client ID for imported Google grants.",
+        },
+        {
+          name: "GOOGLE_CLIENT_SECRET",
+          how: "OAuth client secret for imported Google grants.",
+        },
+      ],
     },
     // Without it the default in src/server/lib/openrouter.ts is used.
     model: {

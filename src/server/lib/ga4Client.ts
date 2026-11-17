@@ -2,6 +2,8 @@
 import { z } from "zod";
 import { getGoogleAccessToken } from "@/server/features/google/googleOAuth";
 import { getGoogleAccessMode } from "@/server/features/google/googleAccess";
+import { getGoogleOAuthClientConfig } from "@/server/features/google/oauth-config";
+import { GoogleGrantError } from "@/server/features/google/googleOAuthErrors";
 import { getGatewayGoogleFetch } from "@/server/features/google/gatewayGoogle";
 import {
   Ga4AdminApiError,
@@ -175,6 +177,22 @@ async function authenticateGa4(opts: {
   userId: string;
   ga4AccountId: string;
 }): Promise<Authenticated> {
+  if (await getGoogleOAuthClientConfig()) {
+    try {
+      return {
+        fetch,
+        headers: { Authorization: `Bearer ${await getGa4AccessToken(opts)}` },
+      };
+    } catch (error) {
+      const cause = error instanceof Ga4TokenError ? error.cause : error;
+      const noGrant =
+        cause instanceof GoogleGrantError &&
+        String(cause.message).includes("grant for this user");
+      if (!noGrant || (await getGoogleAccessMode()) !== "gateway") {
+        throw error;
+      }
+    }
+  }
   if ((await getGoogleAccessMode()) === "gateway") {
     const gatewayFetch = await getGatewayGoogleFetch(opts.userId);
     if (!gatewayFetch) {

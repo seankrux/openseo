@@ -1,13 +1,6 @@
-import { and, eq } from "drizzle-orm";
-import { db } from "@/db";
-import { account } from "@/db/schema";
 import { GSC_OAUTH_PROVIDER_ID } from "@/shared/gsc";
 import { AppError } from "@/server/lib/errors";
-import { getGoogleAccessMode } from "@/server/features/google/googleAccess";
-import {
-  GATEWAY_GOOGLE_ACCOUNT_ID,
-  getGatewayGoogleStatus,
-} from "@/server/features/google/gatewayGoogle";
+import { listGoogleGrantsForUser } from "@/server/features/google/listGrants";
 import {
   createGscClient,
   type GscRequestOptions,
@@ -46,6 +39,7 @@ type GscPerformanceResult = {
 type GscSiteListResult = {
   accounts: Array<{
     accountId: string;
+    ownerUserId: string;
     email: string | null;
     requiresReconnect: boolean;
     propertiesUnavailable: boolean;
@@ -62,47 +56,14 @@ async function getConnection(projectId: string): Promise<GscConnection | null> {
 /** Whether this user has linked a google-search-console grant (regardless of
  *  whether they've picked a property yet). Drives the connect-vs-pick UI. */
 async function userHasGrant(userId: string): Promise<boolean> {
-  if ((await getGoogleAccessMode()) === "gateway") {
-    return (await getGatewayGoogleStatus()).connected;
-  }
-  const rows = await db
-    .select({ id: account.id })
-    .from(account)
-    .where(
-      and(
-        eq(account.userId, userId),
-        eq(account.providerId, GSC_OAUTH_PROVIDER_ID),
-      ),
-    )
-    .limit(1);
-  return rows.length > 0;
+  const grants = await listGrantsForUser(userId);
+  return grants.length > 0;
 }
 
-/**
- * The Google accounts a member may pick a property from. Behind the gateway
- * there is one, their gateway connection (gatewayGoogle.ts), and only while
- * it is connected.
- */
+/** The Google accounts a member may pick a property from, including imported
+ *  self-host grants on local-admin when running behind the Every App gateway. */
 async function listGrantsForUser(userId: string) {
-  if ((await getGoogleAccessMode()) === "gateway") {
-    return (await getGatewayGoogleStatus()).connected
-      ? [
-          {
-            id: GATEWAY_GOOGLE_ACCOUNT_ID,
-            accountId: GATEWAY_GOOGLE_ACCOUNT_ID,
-          },
-        ]
-      : [];
-  }
-  return db
-    .select({ id: account.id, accountId: account.accountId })
-    .from(account)
-    .where(
-      and(
-        eq(account.userId, userId),
-        eq(account.providerId, GSC_OAUTH_PROVIDER_ID),
-      ),
-    );
+  return listGoogleGrantsForUser(userId, GSC_OAUTH_PROVIDER_ID);
 }
 
 /** Expected ways a stored grant fails to reach Search Console: no token could be
@@ -123,7 +84,7 @@ async function listSitesForUserWithGrantStatus(
   const accounts = await Promise.all(
     grants.map(async (grant) => {
       const client = createGscClient({
-        userId,
+        userId: grant.ownerUserId,
         gscAccountId: grant.accountId,
       });
 
@@ -137,6 +98,7 @@ async function listSitesForUserWithGrantStatus(
         }
         return {
           accountId: grant.accountId,
+          ownerUserId: grant.ownerUserId,
           email,
           requiresReconnect: false,
           propertiesUnavailable: false,
@@ -157,6 +119,7 @@ async function listSitesForUserWithGrantStatus(
         }
         return {
           accountId: grant.accountId,
+          ownerUserId: grant.ownerUserId,
           email: null,
           requiresReconnect,
           propertiesUnavailable: !requiresReconnect,
@@ -179,7 +142,8 @@ async function setSite(input: {
   userId: string;
 }): Promise<GscConnection> {
   const grants = await listGrantsForUser(input.userId);
-  if (!grants.some((grant) => grant.accountId === input.accountId)) {
+  const grant = grants.find((row) => row.accountId === input.accountId);
+  if (!grant) {
     throw new AppError(
       "NOT_FOUND",
       "That Google account isn't connected to your OpenSEO account.",
@@ -187,8 +151,8 @@ async function setSite(input: {
   }
 
   const client = createGscClient({
-    userId: input.userId,
-    gscAccountId: input.accountId,
+    userId: grant.ownerUserId,
+    gscAccountId: grant.accountId,
   });
   const sites = await client.listSites();
   const match = sites.find((s) => s.siteUrl === input.siteUrl);
@@ -214,8 +178,8 @@ async function setSite(input: {
     projectId: input.projectId,
     organizationId: input.organizationId,
     siteUrl: input.siteUrl,
-    connectedByUserId: input.userId,
-    gscAccountId: input.accountId,
+    connectedByUserId: grant.ownerUserId,
+    gscAccountId: grant.accountId,
     connectedAccountEmail,
   });
 }
