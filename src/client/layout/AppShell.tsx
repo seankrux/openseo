@@ -115,6 +115,7 @@ export function AuthenticatedAppLayout({
   const requiresSerpProvider =
     Boolean(projectId) && projectTool === "rank-tracking";
   const shouldShowSeoApiWarning =
+    requiresMeasuredSeoData &&
     !seoApiKeyStatusError &&
     !showMissingSeoApiKeyModal &&
     ((requiresMeasuredSeoData && isSeoApiKeyConfigured === false) ||
