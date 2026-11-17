@@ -23,19 +23,21 @@ export type GoogleGrantRef = {
  * the grant owner's user id (the one `account` and `connected_by_user_id`
  * already store) instead of falling through to a single gateway login.
  */
+function asGrant(
+  row: { id: string; accountId: string; ownerUserId?: string },
+  fallbackUserId: string,
+): GoogleGrantRef {
+  return {
+    id: row.id,
+    accountId: row.accountId,
+    ownerUserId: row.ownerUserId || fallbackUserId,
+  };
+}
+
 export async function listGoogleGrantsForUser(
   userId: string,
   providerId: string,
 ): Promise<GoogleGrantRef[]> {
-  const asGrant = (
-    row: { id: string; accountId: string; ownerUserId?: string },
-    fallbackUserId: string,
-  ): GoogleGrantRef => ({
-    id: row.id,
-    accountId: row.accountId,
-    ownerUserId: row.ownerUserId || fallbackUserId,
-  });
-
   if ((await getGoogleAccessMode()) === "gateway") {
     const ownerIds = Array.from(new Set([userId, LOCAL_ADMIN_USER_ID]));
     const stored = await db
