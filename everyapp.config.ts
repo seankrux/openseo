@@ -140,7 +140,7 @@ export default {
         },
       ],
     },
-    openrouterProxy: {
+    "openrouter-proxy": {
       name: "OpenRouter-compatible proxy",
       why: "Sends SAM and research to an OpenAI-compatible base URL instead of OpenRouter. Unused behind the gateway AI proxy.",
       secrets: [
@@ -177,7 +177,7 @@ export default {
         },
       ],
     },
-    ga4Setup: {
+    "ga4-setup": {
       name: "GA4 property setup",
       why: "Creates a GA4 property and installs its tag through Cloudflare. Stays idle unless GA4_AUTOSETUP is 1.",
       settings: [
@@ -206,7 +206,7 @@ export default {
         },
       ],
     },
-    searchConsoleDns: {
+    "search-console-dns": {
       name: "Search Console DNS verification",
       why: "Adds the Search Console DNS TXT record when gsc_onboard_domain runs.",
       secrets: [
