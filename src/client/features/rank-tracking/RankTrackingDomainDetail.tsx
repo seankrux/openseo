@@ -379,6 +379,7 @@ export function RankTrackingDomainDetail({
           devices={config.devices}
           costUsd={costEstimate?.costUsd}
           isScheduled={isScheduledRankTrackingInterval(config.scheduleInterval)}
+          costNotice={costEstimate?.costNotice}
           isPending={isPending}
           onRunNow={() =>
             startCheck({

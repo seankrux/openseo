@@ -1,0 +1,21 @@
+sdo,url,page_title,form_fields,openseo_class,notes
+analyze_google_reviewer,https://www.pleper.com/index.php?do=tools&sdo=analyze_google_reviewer,PlePer Tools - Analyze Single Google Reviewer,,scrape_or_paid,Prefer DataForSEO MCP; avoid direct scrape
+apple_maps_categories,https://www.pleper.com/index.php?do=tools&sdo=apple_maps_categories,PlePer Tools - Apple Maps Business Categories - Full List (2026),,reference_b,Cache DataForSEO categories or static list
+bookmarklets,https://www.pleper.com/index.php?do=tools&sdo=bookmarklets,PlePer Tools - Local SEO Bookmarklets,,utility_a,OpenSEO P1 client or thin wrapper
+category_helper,https://www.pleper.com/index.php?do=tools&sdo=category_helper,GMB Category Helper - PlePer Tools,city; place_id; keyword,reference_b,Cache DataForSEO categories or static list
+cid_converter,https://www.pleper.com/index.php?do=tools&sdo=cid_converter,Google CID converter and link generator - PlePer Tools,url; osint,utility_a,OpenSEO P1 client or thin wrapper
+dupe_search,https://www.pleper.com/index.php?do=tools&sdo=dupe_search,PlePer Tools - Find duplicate listings in Google My Business,city; place_id,scrape_or_paid,Prefer DataForSEO MCP; avoid direct scrape
+gmb_categories,https://www.pleper.com/index.php?do=tools&sdo=gmb_categories,Google Business Profile Categories - Full List (2026) - PlePer Tools,do; sdo; go; lang; country; show_table,reference_b,Cache DataForSEO categories or static list
+google_faq_link,https://www.pleper.com/index.php?do=tools&sdo=google_faq_link,Google Questions and Answers Link Generator - Direct link to Q&A - PlePer Tools,city; place_id; url; phrase; selected_google,utility_a,OpenSEO P1 client or thin wrapper
+google_knowledge_graph_raw,https://www.pleper.com/index.php?do=tools&sdo=google_knowledge_graph_raw,PlePer Tools - Google Knowledge Graph Search,q; adv_options; types; selected_google; limit; as_prefix,other,
+google_review_link,https://www.pleper.com/index.php?do=tools&sdo=google_review_link,Google Review Link Generator - Direct link to reviews - PlePer Tools,url; phrase; selected_google,utility_a,OpenSEO P1 client or thin wrapper
+local_rank_tracker,https://www.pleper.com/index.php?do=tools&sdo=local_rank_tracker,Local Rank Tracker - PlePer Tools,city; place_id; keyword; distance_option; grid,scrape_or_paid,Prefer DataForSEO MCP; avoid direct scrape
+scrape_google_listing,https://www.pleper.com/index.php?do=tools&sdo=scrape_google_listing,PlePer Tools - Scrape Google Listing Information,,scrape_or_paid,Prefer DataForSEO MCP; avoid direct scrape
+scrape_google_listing_images,https://www.pleper.com/index.php?do=tools&sdo=scrape_google_listing_images,PlePer Tools - Scrape Google Listing Images,,scrape_or_paid,Prefer DataForSEO MCP; avoid direct scrape
+scrape_google_listing_menu,https://www.pleper.com/index.php?do=tools&sdo=scrape_google_listing_menu,PlePer Tools - Scrape Google Listing Services,,scrape_or_paid,Prefer DataForSEO MCP; avoid direct scrape
+scrape_google_listing_posts,https://www.pleper.com/index.php?do=tools&sdo=scrape_google_listing_posts,PlePer Tools - Scrape Google Listing Posts,,scrape_or_paid,Prefer DataForSEO MCP; avoid direct scrape
+scrape_google_listing_products,https://www.pleper.com/index.php?do=tools&sdo=scrape_google_listing_products,PlePer Tools - Scrape Google Listing Products,,scrape_or_paid,Prefer DataForSEO MCP; avoid direct scrape
+scrape_google_listing_qa,https://www.pleper.com/index.php?do=tools&sdo=scrape_google_listing_qa,PlePer Tools - Scrape Google Listing Question and Answers,,scrape_or_paid,Prefer DataForSEO MCP; avoid direct scrape
+scrape_google_listing_reviews,https://www.pleper.com/index.php?do=tools&sdo=scrape_google_listing_reviews,PlePer Tools - Scrape Google Listing Reviews,,scrape_or_paid,Prefer DataForSEO MCP; avoid direct scrape
+scrape_google_listing_services,https://www.pleper.com/index.php?do=tools&sdo=scrape_google_listing_services,PlePer Tools - Scrape Google Listing Services,,scrape_or_paid,Prefer DataForSEO MCP; avoid direct scrape
+wikipedia_near_by_search,https://www.pleper.com/index.php?do=tools&sdo=wikipedia_near_by_search,PlePer Tools - Wikipedia Near By Search,city; lat; lng,other,

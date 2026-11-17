@@ -12,6 +12,7 @@ const mocks = vi.hoisted(() => ({
   beginRankCheckRun: vi.fn(),
   createDataforseoClient: vi.fn(),
   fetchKeywordMetricsForList: vi.fn(),
+  resolveSerpProvider: vi.fn(),
 }));
 
 vi.mock("cloudflare:workers", () => ({ env: { RANK_CHECK_WORKFLOW: {} } }));
@@ -32,6 +33,9 @@ vi.mock("@/server/features/rank-tracking/services/rankCheckRunGuards", () => ({
 vi.mock("@/server/lib/dataforseo", () => ({
   createDataforseoClient: mocks.createDataforseoClient,
   fetchKeywordMetricsForList: mocks.fetchKeywordMetricsForList,
+}));
+vi.mock("@/server/lib/serp-provider", () => ({
+  resolveSerpProvider: mocks.resolveSerpProvider,
 }));
 
 const config = {
@@ -64,6 +68,22 @@ describe("RankTrackingService management invariants", () => {
     // explicit defaults; the plan tests override them per case.
     mocks.isHostedServerAuthMode.mockResolvedValue(true);
     mocks.customerHasPaidPlan.mockResolvedValue(true);
+    mocks.resolveSerpProvider.mockResolvedValue({ kind: "dataforseo" });
+  });
+
+  it("identifies dollar estimates as references when Semrush is selected", async () => {
+    mocks.resolveSerpProvider.mockResolvedValue({ kind: "semrush" });
+
+    const estimate = await RankTrackingService.estimateCost(
+      "config_1",
+      "project_1",
+    );
+
+    expect(estimate).toMatchObject({
+      provider: "semrush",
+      costBasis: "dataforseo",
+      costNotice: expect.stringContaining("Semrush bills API units"),
+    });
   });
 
   it("reports only keyword rows actually inserted", async () => {

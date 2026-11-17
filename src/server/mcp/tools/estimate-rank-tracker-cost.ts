@@ -37,11 +37,14 @@ export const estimateRankTrackerCostTool = {
   config: {
     title: "Estimate rank tracker cost",
     description:
-      "Estimate what a rank tracker check costs, without spending credits or starting a check. The estimate is the most a check can cost: every keyword and device gets 3 to 6 reads, and most checks use nearly all of them. It covers one run_rank_tracker check; for a scheduled tracker, the response adds the per-check and approximate monthly cost. Pass additionalKeywords to price the tracker after adding keywords. Pass the estimate the user approves as maxCostCredits to run_rank_tracker, or as maxEstimatedScheduledCheckCredits to add_rank_tracking_keywords.",
+      "Estimate what a rank tracker check costs, without spending credits or starting a check. The estimate is the most a check can cost: every keyword and device gets 3 to 6 reads, and most checks use nearly all of them. Dollar and credit figures use DataForSEO pricing; when provider is semrush they are references only, and costNotice explains that Semrush bills API units according to your plan. It covers one run_rank_tracker check; for a scheduled tracker, the response adds the per-check and approximate monthly cost. Pass additionalKeywords to price the tracker after adding keywords. Pass the estimate the user approves as maxCostCredits to run_rank_tracker, or as maxEstimatedScheduledCheckCredits to add_rank_tracking_keywords.",
     inputSchema,
     outputSchema: z
       .object({
         trackerId: z.string(),
+        provider: z.enum(["dataforseo", "semrush"]).nullable().optional(),
+        costBasis: z.literal("dataforseo").optional(),
+        costNotice: z.string().optional(),
         costUsd: z.number(),
         costCredits: z.number(),
         keywordCount: z.number(),
@@ -77,7 +80,9 @@ export const estimateRankTrackerCostTool = {
         Array<string>(args.additionalKeywordCount ?? 0).fill(""),
     );
     return mcpResponse({
-      text: `One check for tracker ${args.trackerId} costs at most $${estimate.costUsd.toFixed(4)} (${estimate.costCredits} credits, for up to 6 reads each):${estimate.keywordCount} keyword${estimate.keywordCount === 1 ? "" : "s"} × ${estimate.devicesCount} device${estimate.devicesCount === 1 ? "" : "s"} = ${estimate.totalChecks} SERP checks.${estimate.additionalKeywordCount > 0 ? ` This projects ${estimate.additionalKeywordCount} additional keyword${estimate.additionalKeywordCount === 1 ? "" : "s"}.` : ""}${estimate.scheduledEstimate ? ` Its ${estimate.scheduledEstimate.scheduleInterval} checks cost at most $${estimate.scheduledEstimate.costUsd.toFixed(4)} (${estimate.scheduledEstimate.costCredits} credits) each, or up to about $${estimate.scheduledEstimate.monthlyCostUsd.toFixed(4)} (${estimate.scheduledEstimate.monthlyCostCredits} credits) per month. Use the per-check estimate as maxEstimatedScheduledCheckCredits when adding keywords.` : ""} No check was started.`,
+      text: estimate.costNotice
+        ? `${estimate.costNotice} Tracker ${args.trackerId}: ${estimate.keywordCount} keywords × ${estimate.devicesCount} devices = ${estimate.totalChecks} SERP checks. No check was started.`
+        : `One check for tracker ${args.trackerId} costs at most $${estimate.costUsd.toFixed(4)} (${estimate.costCredits} credits, for up to 6 reads each): ${estimate.keywordCount} keyword${estimate.keywordCount === 1 ? "" : "s"} × ${estimate.devicesCount} device${estimate.devicesCount === 1 ? "" : "s"} = ${estimate.totalChecks} SERP checks.${estimate.additionalKeywordCount > 0 ? ` This projects ${estimate.additionalKeywordCount} additional keyword${estimate.additionalKeywordCount === 1 ? "" : "s"}.` : ""}${estimate.scheduledEstimate ? ` Its ${estimate.scheduledEstimate.scheduleInterval} checks cost at most $${estimate.scheduledEstimate.costUsd.toFixed(4)} (${estimate.scheduledEstimate.costCredits} credits) each, or up to about $${estimate.scheduledEstimate.monthlyCostUsd.toFixed(4)} (${estimate.scheduledEstimate.monthlyCostCredits} credits) per month. Use the per-check estimate as maxEstimatedScheduledCheckCredits when adding keywords.` : ""} No check was started.`,
       meta: buildProjectMeta(
         context,
         args.projectId,

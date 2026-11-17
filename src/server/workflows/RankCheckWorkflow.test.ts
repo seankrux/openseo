@@ -16,6 +16,8 @@ const mocks = vi.hoisted(() => ({
   autumnCheck: vi.fn(),
   createDataforseoClient: vi.fn(),
   runQueuedCheck: vi.fn(),
+  runSerpLookupCheck: vi.fn(),
+  resolveSerpProvider: vi.fn(),
   failRunIfActive: vi.fn(),
   captureServerEvent: vi.fn(),
   isHostedServerAuthMode: vi.fn(),
@@ -42,6 +44,12 @@ vi.mock("@/server/workflows/rankCheckPaths", () => ({
 vi.mock("@/server/workflows/rankCheckRetries", () => ({
   READ_WINDOW_MS: 0,
   retryRankChecks: vi.fn(),
+}));
+vi.mock("@/server/workflows/rankCheckLookupPath", () => ({
+  runSerpLookupCheck: mocks.runSerpLookupCheck,
+}));
+vi.mock("@/server/lib/serp-provider", () => ({
+  resolveSerpProvider: mocks.resolveSerpProvider,
 }));
 vi.mock("@/server/workflows/pgStep", () => ({
   // Like the engine, run() gets a rebuilt Error, never the thrown object.
@@ -126,6 +134,11 @@ function runWorkflow(
     {} as WorkflowStep,
   );
 }
+
+beforeEach(() => {
+  vi.clearAllMocks();
+  mocks.resolveSerpProvider.mockResolvedValue({ kind: "dataforseo" });
+});
 
 describe("rank check workflow credit ceiling", () => {
   beforeEach(() => {
@@ -391,5 +404,51 @@ describe("rank check goto URLs", () => {
       "run_1",
       expect.objectContaining({ status: "completed", errorMessage: null }),
     );
+  });
+});
+
+describe("rank check SERP provider", () => {
+  beforeEach(() => {
+    mocks.getConfigById.mockResolvedValue({ isActive: true });
+    mocks.getRunById.mockResolvedValue(activeRun);
+    mocks.getKeywordsForConfig.mockResolvedValue(keywords(2));
+    mocks.getSnapshotsForRun.mockResolvedValue([]);
+    mocks.updateRun.mockResolvedValue(undefined);
+    mocks.isHostedServerAuthMode.mockResolvedValue(false);
+  });
+
+  it.each(["manual", "scheduled"] as const)(
+    "checks %s runs through Semrush without touching DataForSEO",
+    async (trigger) => {
+      const provider = { id: "semrush", organicSerp: vi.fn() };
+      mocks.resolveSerpProvider.mockResolvedValue({
+        kind: "semrush",
+        provider,
+      });
+
+      // oxlint-disable-next-line typescript/no-unsafe-type-assertion -- the payload type pins trigger to the manual default
+      await runWorkflow({ trigger: trigger as "manual" });
+
+      expect(mocks.runSerpLookupCheck).toHaveBeenCalledWith(
+        expect.anything(),
+        expect.objectContaining({
+          provider,
+          keywords: keywords(2),
+          domain: "example.com",
+        }),
+      );
+      expect(mocks.createDataforseoClient).not.toHaveBeenCalled();
+      expect(mocks.runQueuedCheck).not.toHaveBeenCalled();
+    },
+  );
+
+  it("keeps the DataForSEO path when no provider is configured", async () => {
+    mocks.resolveSerpProvider.mockResolvedValue(null);
+
+    await runWorkflow({});
+
+    expect(mocks.createDataforseoClient).toHaveBeenCalledOnce();
+    expect(mocks.runQueuedCheck).toHaveBeenCalledOnce();
+    expect(mocks.runSerpLookupCheck).not.toHaveBeenCalled();
   });
 });

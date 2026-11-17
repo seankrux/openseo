@@ -9,6 +9,8 @@ const {
   listSections,
   listCompetitors,
   listKeywords,
+  envValue,
+  hasDataforseo,
 } = vi.hoisted(() => ({
   generateText:
     vi.fn<
@@ -23,6 +25,10 @@ const {
   listSections: vi.fn(),
   listCompetitors: vi.fn(),
   listKeywords: vi.fn(),
+  envValue: vi.fn(async (key: string) =>
+    key === "DATAFORSEO_API_KEY" ? "test-key" : undefined,
+  ),
+  hasDataforseo: vi.fn(async () => true),
 }));
 vi.mock("ai", async (importOriginal) => ({
   NoObjectGeneratedError: (await importOriginal<typeof Ai>())
@@ -36,7 +42,10 @@ vi.mock("@/server/lib/scrape", () => ({ readSite }));
 vi.mock("@/server/lib/dataforseo/serp", () => ({ fetchLiveSerp: search }));
 vi.mock("@/server/lib/runtime-env", () => ({
   getRequiredEnvValue: vi.fn(),
-  getOptionalEnvValue: vi.fn(),
+  getOptionalEnvValue: envValue,
+}));
+vi.mock("@/server/lib/provider-access", () => ({
+  hasDataforseoAccess: hasDataforseo,
 }));
 vi.mock("@/server/lib/openrouter", () => ({
   buildChatAgentModel: vi.fn(),
@@ -98,6 +107,7 @@ type ResearchTools = {
 };
 
 beforeEach(() => {
+  hasDataforseo.mockResolvedValue(true);
   listSections.mockResolvedValue([
     { key: "business_overview", content: overview },
   ]);
@@ -438,5 +448,19 @@ describe("researchWebsite", () => {
     expect(billResearchSpend).toHaveBeenCalledWith(customer, [
       expect.objectContaining({ provider: "context", costUsd: 0.0025 }),
     ]);
+  });
+
+  it("keeps the research and skips competitors when DataForSEO is not configured", async () => {
+    hasDataforseo.mockResolvedValue(false);
+    listCompetitors.mockResolvedValue([]);
+
+    const result = await researchWebsite(
+      "https://saved.com",
+      project,
+      customer,
+    );
+
+    expect(search).not.toHaveBeenCalled();
+    expect(result.competitors).toEqual([]);
   });
 });

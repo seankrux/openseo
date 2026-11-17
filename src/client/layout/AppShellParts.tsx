@@ -27,7 +27,7 @@ function SeoApiStatusBanners({
       {...dataforseoHelpLinkOptions}
       className="font-medium text-primary underline-offset-4 hover:underline"
     >
-      help page
+      DataForSEO setup guide
     </Link>
   );
   return (

@@ -1,5 +1,8 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { freeToolList } from "@/lib/free-tools/tool-pages";
+import {
+  freeToolsByCategory,
+  type FreeToolCategory,
+} from "@/lib/free-tools/tool-pages";
 import { buildBreadcrumbJsonLd, buildPageSeo } from "@/lib/seo";
 
 export const Route = createFileRoute("/_marketing/tools")({
@@ -31,35 +34,50 @@ function ToolsPage() {
           Free SEO Tools
         </h1>
         <p className="mt-5 text-lg leading-8 text-[var(--color-brand-muted)]">
-          Check backlinks, rankings, traffic, and domain details, or preview a
-          search result. Use these tools without an account.
+          Research competitors, fix on-page snippets, or build local GBP links.
+          Use these tools without an account.
         </p>
       </header>
 
-      <div className="mt-10 grid gap-4 md:grid-cols-2">
-        {freeToolList.map((tool) => (
-          <a
-            key={tool.slug}
-            href={tool.path}
-            className="rounded-lg border border-[var(--color-border-subtle)] bg-white p-5 transition-colors hover:border-neutral-900"
-          >
-            <div className="flex items-baseline justify-between gap-3">
-              <h2 className="text-base font-semibold text-neutral-950">
-                {tool.name}
-                <span
-                  aria-hidden="true"
-                  className="ml-1 text-[var(--color-brand-accent)]"
-                >
-                  &rarr;
-                </span>
-              </h2>
-            </div>
-            <p className="mt-2 text-sm leading-6 text-[var(--color-brand-muted)]">
-              {tool.shortDescription}
+      {(
+        ["research", "local", "technical"] satisfies FreeToolCategory[]
+      ).map((key) => {
+        const section = freeToolsByCategory[key];
+        return (
+          <section key={key} className="mt-10">
+            <h2 className="text-xl font-semibold text-neutral-950">
+              {section.title}
+            </h2>
+            <p className="mt-2 max-w-2xl text-sm leading-6 text-[var(--color-brand-muted)]">
+              {section.description}
             </p>
-          </a>
-        ))}
-      </div>
+            <div className="mt-4 grid gap-4 md:grid-cols-2">
+              {section.tools.map((tool) => (
+                <a
+                  key={tool.slug}
+                  href={tool.path}
+                  className="rounded-lg border border-[var(--color-border-subtle)] bg-white p-5 transition-colors hover:border-neutral-900"
+                >
+                  <div className="flex items-baseline justify-between gap-3">
+                    <h3 className="text-base font-semibold text-neutral-950">
+                      {tool.name}
+                      <span
+                        aria-hidden="true"
+                        className="ml-1 text-[var(--color-brand-accent)]"
+                      >
+                        &rarr;
+                      </span>
+                    </h3>
+                  </div>
+                  <p className="mt-2 text-sm leading-6 text-[var(--color-brand-muted)]">
+                    {tool.shortDescription}
+                  </p>
+                </a>
+              ))}
+            </div>
+          </section>
+        );
+      })}
 
       <section className="mt-10">
         <h2 className="text-xl font-semibold text-neutral-950">

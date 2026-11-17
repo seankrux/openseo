@@ -182,7 +182,7 @@ export function SamSidebarPanel({
                     {/* The age and the Archive button share one grid cell, so the
                     button takes the place of the age when it shows. */}
                     <div className="grid shrink-0 place-items-center *:col-start-1 *:row-start-1">
-                      <span className="pointer-events-none text-xs text-muted-foreground/75 transition-opacity group-hover:opacity-0 group-focus-within:opacity-0 pointer-coarse:opacity-0">
+                      <span className="pointer-events-none text-xs text-muted-foreground transition-opacity group-hover:opacity-0 group-focus-within:opacity-0 pointer-coarse:opacity-0">
                         {ageLabel(session.updatedAt)}
                       </span>
                       <Button

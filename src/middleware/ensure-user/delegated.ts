@@ -3,11 +3,11 @@ import { user } from "@/db/schema";
 import {
   ensureDelegatedOrganizationForUser,
   ensureSharedWorkspaceOrganization,
+  LOCAL_ADMIN_USER_ID,
 } from "@/server/auth/delegated-organization";
 import { eq } from "drizzle-orm";
 import type { EnsuredUserContext } from "./types";
 
-const LOCAL_ADMIN_USER_ID = "local-admin";
 const LOCAL_ADMIN_EMAIL = "admin@localhost";
 
 // Externally-authenticated users (Cloudflare Access, local_noauth) are stored

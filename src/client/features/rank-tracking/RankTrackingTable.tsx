@@ -4,6 +4,7 @@ import { FileDown, Plus, Sheet, Trash2 } from "lucide-react";
 import { ConfirmDialog } from "@/client/components/ConfirmDialog";
 import { Button } from "@/client/components/ui/button";
 import { DataTable, useDataTable } from "@/client/components/table/DataTable";
+import { TablePagination } from "@/client/components/table/TablePagination";
 import {
   TableBulkActionBar,
   TableBulkActionButton,
@@ -24,6 +25,8 @@ import {
   type KeywordTrendTarget,
 } from "./KeywordTrendModal";
 import type { SelectionAnchor } from "@/client/components/table/tableSelection";
+
+const KEYWORDS_PER_PAGE = 100;
 
 export function RankTrackingTable({
   totalCount,
@@ -60,6 +63,11 @@ export function RankTrackingTable({
 }) {
   const queryClient = useQueryClient();
   const [showConfirm, setShowConfirm] = useState(false);
+  const [page, setPage] = useState(1);
+  const currentPage = Math.min(
+    page,
+    Math.max(1, Math.ceil(rows.length / KEYWORDS_PER_PAGE)),
+  );
   const [trendTarget, setTrendTarget] = useState<KeywordTrendTarget | null>(
     null,
   );
@@ -98,17 +106,22 @@ export function RankTrackingTable({
     state: {
       sorting: tableSorting,
       columnVisibility: { [PINNED_COLUMN_ID]: false },
+      pagination: { pageIndex: currentPage - 1, pageSize: KEYWORDS_PER_PAGE },
     },
-    onSortingChange: (updater) =>
+    onSortingChange: (updater) => {
+      setPage(1);
       onSortingChange(
         (typeof updater === "function"
           ? updater(tableSorting)
           : updater
         ).filter((sort) => sort.id !== PINNED_COLUMN_ID),
-      ),
+      );
+    },
     // The URL has no value for "unsorted", so a column stays sorted.
     enableSortingRemoval: false,
     withSorting: true,
+    withPagination: true,
+    autoResetPageIndex: false,
     getRowId: (row) => row.trackingKeywordId,
     enableRowSelection: true,
   });
@@ -224,9 +237,19 @@ export function RankTrackingTable({
         }}
         footer={
           rows.length > 0 ? (
-            <p className="border-t border-border px-4 py-2 text-xs text-muted-foreground">
-              {rows.length} of {totalCount} keywords
-            </p>
+            <>
+              {rows.length > KEYWORDS_PER_PAGE ? (
+                <TablePagination
+                  page={currentPage}
+                  pageSize={KEYWORDS_PER_PAGE}
+                  totalCount={rows.length}
+                  onPageChange={setPage}
+                />
+              ) : null}
+              <p className="border-t border-border px-4 py-2 text-xs text-muted-foreground">
+                {rows.length} of {totalCount} keywords
+              </p>
+            </>
           ) : null
         }
       />

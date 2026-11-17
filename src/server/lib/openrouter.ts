@@ -4,6 +4,7 @@ import {
   type LanguageModelV3,
   type OpenRouterProvider,
 } from "@openrouter/ai-sdk-provider";
+import { createOpenAICompatible } from "@ai-sdk/openai-compatible";
 import { wrapLanguageModel } from "ai";
 import { isEveryAppAuthMode } from "@/lib/auth-mode";
 import { gatewayCallFor } from "@/server/lib/gateway-attribution";
@@ -143,9 +144,20 @@ export function buildChatAgentModel(
   reasoningEffort: "max" | "low" = "max",
 ): LanguageModelV3 {
   const model = modelId ?? DEFAULT_CHAT_AGENT_MODEL;
+  // A custom base URL is an OpenAI-compatible proxy. Those servers reply
+  // with null fields the OpenRouter SDK rejects, so they use the generic
+  // client. The gateway path never sets baseURL.
+  if ("apiKey" in access && access.baseURL?.trim()) {
+    return openAiCompatibleModel(
+      access.apiKey,
+      access.baseURL.trim(),
+      model,
+      reasoningEffort,
+    );
+  }
   const openrouter =
     "apiKey" in access
-      ? createOpenRouter({ apiKey: access.apiKey, baseURL: access.baseURL })
+      ? createOpenRouter({ apiKey: access.apiKey })
       : createOpenRouter({
           apiKey: "gateway-managed",
           baseURL: GATEWAY_BASE_URL,
@@ -198,5 +210,44 @@ function openRouterModel(
   return openrouter(model, {
     usage: { include: true },
     extraBody: { reasoning: { effort: reasoningEffort } },
+  });
+}
+
+// Generic OpenAI-compatible chat model for self-hosted proxies. The proxy is
+// metered elsewhere (or free), so no OpenRouter cost metadata is produced;
+// cost readers treat missing metadata as 0.
+function openAiCompatibleModel(
+  apiKey: string,
+  baseURL: string,
+  model: string,
+  reasoningEffort: "max" | "low",
+): LanguageModelV3 {
+  const provider = createOpenAICompatible({
+    name: "openaiCompatible",
+    baseURL,
+    apiKey,
+    includeUsage: true,
+    supportsStructuredOutputs: true,
+  });
+  // Proxies expect plain model ids ("gpt-5.6-luna"), not OpenRouter slugs.
+  const id = model.includes("/") ? model.slice(model.indexOf("/") + 1) : model;
+  const base = provider.chatModel(id) as unknown as LanguageModelV3;
+  // OpenAI-style effort values; "max" is OpenRouter-only.
+  const effort = reasoningEffort === "low" ? "low" : "medium";
+  return wrapLanguageModel({
+    model: base,
+    middleware: {
+      specificationVersion: "v3",
+      transformParams: async ({ params }) => ({
+        ...params,
+        providerOptions: {
+          ...params.providerOptions,
+          openaiCompatible: {
+            reasoningEffort: effort,
+            ...params.providerOptions?.openaiCompatible,
+          },
+        },
+      }),
+    },
   });
 }

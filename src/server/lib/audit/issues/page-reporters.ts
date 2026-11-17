@@ -10,6 +10,56 @@
  */
 import type { AuditIssueType } from "@/shared/audit-issues";
 import type { CrawledPageResult } from "@/server/lib/audit/types";
+import {
+  hasLocalBusinessSchema,
+  isMalformedTel,
+  otherCityRefs,
+} from "@/server/lib/audit/local-signals";
+
+function isHomepage(page: CrawledPageResult): boolean {
+  try {
+    return new URL(page.url).pathname === "/" || page.crawlDepth === 0;
+  } catch {
+    return page.crawlDepth === 0;
+  }
+}
+
+/** CityThrive local-service checks (ported from the Crawl4AI audit). */
+function runLocalReporters(
+  page: CrawledPageResult,
+  report: (t: AuditIssueType, d?: Record<string, unknown>) => void,
+) {
+  const local = page.local;
+  if (!local) return;
+  const badTel = local.telHrefs.filter(isMalformedTel);
+  const malformed = [...badTel, ...local.phoneLikeHrefs];
+  if (malformed.length) report("malformed-tel-link", { hrefs: malformed.slice(0, 10) });
+  let host = "";
+  try {
+    host = new URL(page.url).hostname;
+  } catch {
+    host = "";
+  }
+  if (host) {
+    let ownPath = "/";
+    try {
+      ownPath = new URL(page.url).pathname;
+    } catch {
+      ownPath = "/";
+    }
+    // Links on the homepage (nav/footer repeat site-wide); own URL on every page.
+    const cities = otherCityRefs(isHomepage(page) ? [ownPath, ...local.linkPaths] : [ownPath], host);
+    if (cities.length) report("other-city-reference", { cities });
+  }
+  if (isHomepage(page)) {
+    if (!page.isIndexable) report("homepage-noindex", { robotsMeta: page.robotsMeta, xRobotsTag: page.xRobotsTag });
+    if (local.telHrefs.length === 0) report("missing-click-to-call");
+    if (!local.callrail) report("missing-callrail");
+    if (!hasLocalBusinessSchema(local.schemaTypes)) {
+      report("missing-local-business-schema", { schemaTypes: local.schemaTypes.slice(0, 20) });
+    }
+  }
+}
 
 export interface DetectedIssue {
   issueType: AuditIssueType;
@@ -121,6 +171,8 @@ export function runPageReporters(page: CrawledPageResult): DetectedIssue[] {
     report("javascript-rendering-suspected", { wordCount: page.wordCount });
     return issues;
   }
+
+  runLocalReporters(page, report);
 
   // Titles
   if (!page.title) {

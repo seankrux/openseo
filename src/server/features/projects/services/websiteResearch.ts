@@ -20,6 +20,7 @@ import {
   buildChatAgentModel,
   requireOpenRouterAccess,
 } from "@/server/lib/openrouter";
+import { hasDataforseoAccess } from "@/server/lib/provider-access";
 import { getOptionalEnvValue } from "@/server/lib/runtime-env";
 import { readSite } from "@/server/lib/scrape";
 import {
@@ -149,6 +150,9 @@ export async function researchWebsite(
   const sources = new Set<string>();
   let searchSucceeded = false;
   let searchOutage = false;
+  // Without DataForSEO there is no live SERP. Treat that as a search outage so
+  // the rest of the research is kept and competitors start empty.
+  const noLiveSerp = !(await hasDataforseoAccess());
   const outputSchema = z.object({
     ...(project.brandName ? {} : { name: websiteResearchSchema.shape.name }),
     ...(missingOverview
@@ -261,6 +265,13 @@ export async function researchWebsite(
                       "The search budget is exhausted. Use the existing results.",
                     );
                   searched = true;
+                  if (noLiveSerp) {
+                    searchOutage = true;
+                    return {
+                      error:
+                        "Live search is unavailable. Skip competitor research and return no competitors.",
+                    };
+                  }
                   const results = await Promise.allSettled(
                     queries.map(async (keyword) => {
                       // Searches belong to the already-admitted research task; collect
@@ -377,6 +388,7 @@ export async function researchWebsite(
         },
       });
     });
+    if (noLiveSerp) searchOutage = true;
     const output = outputSchema.parse(result.output);
     const suggestedKeywords = z
       .array(z.string())

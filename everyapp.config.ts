@@ -14,8 +14,9 @@
  *                           # onto your Gateway, from an Every App checkout
  */
 export default {
-  id: "openseo",
-  name: "OpenSEO",
+  // Distinct from the stock `openseo` app so both can be installed.
+  id: "seo-sean",
+  name: "OpenSEO (Sean)",
   description: "SEO research you pay for by use, not by the month.",
   icon: "/everyapp-icon.svg",
   // wrangler.jsonc's, so every build of OpenSEO runs on the same runtime.
@@ -92,7 +93,11 @@ export default {
     },
   },
   // OpenSEO's own, on its Workers (`pnpm everyapp secret set <NAME> --app
-  // openseo`). The deploy generates CRAWLER_ACCESS_SECRET when it's unset.
+  // seo-sean`). The deploy generates CRAWLER_ACCESS_SECRET when it's unset.
+  // OpenRouter and DataForSEO stay gateway keys (providers / capabilities).
+  // Google reads use the google-workspace capability; this install does not
+  // declare GOOGLE_CLIENT_ID or GOOGLE_CLIENT_SECRET, because EveryApp mode
+  // ignores an app-owned Google client.
   secrets: [
     {
       name: "CRAWLER_ACCESS_SECRET",
@@ -132,6 +137,82 @@ export default {
         {
           name: "OPENROUTER_MODEL",
           how: "An OpenRouter model id, e.g. openai/gpt-5.6-luna: https://openrouter.ai/models",
+        },
+      ],
+    },
+    openrouterProxy: {
+      name: "OpenRouter-compatible proxy",
+      why: "Sends SAM and research to an OpenAI-compatible base URL instead of OpenRouter. Unused behind the gateway AI proxy.",
+      secrets: [
+        {
+          name: "OPENROUTER_BASE_URL",
+          how: "Base URL of an OpenAI-compatible chat API, without a trailing path beyond /v1.",
+        },
+      ],
+    },
+    bing: {
+      name: "Bing Webmaster",
+      why: "Reads Bing Webmaster performance for the fleet table and project integrations.",
+      settings: [
+        {
+          name: "BING_WEBMASTER_ENABLED",
+          type: "text",
+          how: "Set true to read Bing. The key alone does not turn calls on.",
+        },
+      ],
+      secrets: [
+        {
+          name: "BING_WEBMASTER_API_KEY",
+          how: "Bing Webmaster API key from https://www.bing.com/webmasters/apikey. It must be allowed to read every site in the fleet.",
+        },
+      ],
+    },
+    semrush: {
+      name: "Semrush rank checks",
+      why: "Country-level rank checks when DataForSEO access is missing. No city SERPs.",
+      secrets: [
+        {
+          name: "SEMRUSH_API_KEY",
+          how: "Semrush API key from https://www.semrush.com/accounts/subscription-info/api-units/.",
+        },
+      ],
+    },
+    ga4Setup: {
+      name: "GA4 property setup",
+      why: "Creates a GA4 property and installs its tag through Cloudflare. Stays idle unless GA4_AUTOSETUP is 1.",
+      settings: [
+        {
+          name: "GA4_SETUP_PARENT_ACCOUNT",
+          how: "GA4 Admin parent, accounts/<id>.",
+        },
+        {
+          name: "GA4_SETUP_CLOUDFLARE_ACCOUNT_ID",
+          how: "Cloudflare account id that owns the fleet Workers.",
+        },
+        {
+          name: "GA4_SETUP_GOOGLE_EMAIL",
+          how: "Email of the connected Google login that should own new properties.",
+        },
+        {
+          name: "GA4_AUTOSETUP",
+          type: "text",
+          how: "1 runs a small batch on the cron. Leave unset to use the tools only.",
+        },
+      ],
+      secrets: [
+        {
+          name: "GA4_SETUP_CLOUDFLARE_TOKEN",
+          how: "Cloudflare API token that can edit Workers routes and the tag KV namespace.",
+        },
+      ],
+    },
+    searchConsoleDns: {
+      name: "Search Console DNS verification",
+      why: "Adds the Search Console DNS TXT record when gsc_onboard_domain runs.",
+      secrets: [
+        {
+          name: "CLOUDFLARE_DNS_TOKEN",
+          how: "Cloudflare API token with DNS edit on the zones you verify.",
         },
       ],
     },

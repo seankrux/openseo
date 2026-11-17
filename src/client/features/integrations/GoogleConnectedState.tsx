@@ -1,3 +1,4 @@
+import { InlineConfirm } from "@/client/components/InlineConfirm";
 import { Button } from "@/client/components/ui/button";
 
 export function GoogleConnectedState({
@@ -6,6 +7,7 @@ export function GoogleConnectedState({
   email,
   onChange,
   onDisconnect,
+  onReconnect,
   disconnecting,
   canManage,
   canManageAccounts,
@@ -16,6 +18,7 @@ export function GoogleConnectedState({
   email?: string | null;
   onChange: () => void;
   onDisconnect: () => void;
+  onReconnect: () => void;
   disconnecting: boolean;
   canManage: boolean;
   canManageAccounts: boolean;
@@ -49,9 +52,20 @@ export function GoogleConnectedState({
               : "Manage Google accounts"}
           </Button>
           {canManage ? (
-            <Button variant="destructive" size="sm" onClick={onDisconnect}>
-              {disconnecting ? "Disconnecting…" : "Disconnect project"}
+            <Button variant="outline" size="sm" onClick={onReconnect}>
+              Reconnect Google account
             </Button>
+          ) : null}
+          {canManage ? (
+            <InlineConfirm
+              label="Disconnect project"
+              triggerLabel={
+                disconnecting ? "Disconnecting…" : "Disconnect project"
+              }
+              confirmLabel="Disconnect"
+              pending={disconnecting}
+              onConfirm={onDisconnect}
+            />
           ) : null}
         </fieldset>
       ) : null}

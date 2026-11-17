@@ -8,6 +8,7 @@ import { resolveUserContextFromHeaders } from "@/middleware/ensure-user/resolve"
 import { AppError } from "@/server/lib/errors";
 import { responseForAppError } from "@/server/lib/http-errors";
 import { getPublicOrigin } from "@/server/mcp/public-origin";
+import { getOptionalEnvValue } from "@/server/lib/runtime-env";
 import {
   GA4_DATA_SCOPE,
   GA4_OAUTH_PROVIDER_ID,
@@ -26,6 +27,10 @@ import {
   getGoogleOAuthClientConfig,
   hasGoogleOAuthConfig,
 } from "./oauth-config";
+import {
+  GoogleGrantError,
+  GoogleTokenEndpointError,
+} from "./googleOAuthErrors";
 import { getGoogleAccountId } from "./googleIdToken";
 import {
   consumeState,
@@ -84,6 +89,40 @@ export const GA4_INTEGRATION: GoogleOAuthIntegration = {
   scopes: GA4_OAUTH_SCOPES,
   requiredScope: GA4_DATA_SCOPE,
 };
+
+/** CityThrive fork: when GSC_OAUTH_MANAGE_SCOPES=1, the Search Console connect
+ *  also asks for `webmasters` (add sites) and `siteverification` (DNS TXT
+ *  verification) so the gsc_onboard_domain MCP tool can add and verify new
+ *  properties with that login. Off by default (read-only, upstream behaviour). */
+export const GSC_MANAGE_SCOPES = [
+  "https://www.googleapis.com/auth/webmasters",
+  "https://www.googleapis.com/auth/siteverification",
+] as const;
+
+/** CityThrive fork: GA4_OAUTH_MANAGE_SCOPES=1 adds analytics.edit so GA4 setup can create
+ *  properties and web streams with the connected login. */
+export const GA4_MANAGE_SCOPES = [
+  "https://www.googleapis.com/auth/analytics.edit",
+] as const;
+
+async function getRequestedScopes(
+  integration: GoogleOAuthIntegration,
+): Promise<string[]> {
+  const scopes = [...integration.scopes];
+  const on = async (name: string) => {
+    const f = (await getOptionalEnvValue(name))?.trim();
+    // CityThrive fork: full edit scopes are the default; set the flag to 0/false to opt out.
+    return !(f === "0" || f?.toLowerCase() === "false");
+  };
+  const extra =
+    integration.provider === "gsc" && (await on("GSC_OAUTH_MANAGE_SCOPES"))
+      ? GSC_MANAGE_SCOPES
+      : integration.provider === "ga4" && (await on("GA4_OAUTH_MANAGE_SCOPES"))
+        ? GA4_MANAGE_SCOPES
+        : [];
+  for (const s of extra) if (!scopes.includes(s)) scopes.push(s);
+  return scopes;
+}
 
 const googleTokenResponseSchema = z.object({
   access_token: z.string().min(1),
@@ -182,14 +221,30 @@ async function upsertGrant(input: {
 /** Google's token endpoint; null when it rejects the grant. A slow endpoint
  *  rejects with a TimeoutError instead, which callers must not read as a
  *  revoked grant. */
-async function fetchTokens(params: Record<string, string>) {
+async function fetchTokens(
+  params: Record<string, string>,
+  signal?: AbortSignal,
+) {
   const response = await fetch(GOOGLE_TOKEN_URL, {
     method: "POST",
     headers: { "Content-Type": "application/x-www-form-urlencoded" },
     body: new URLSearchParams(params),
-    signal: AbortSignal.timeout(TOKEN_TIMEOUT_MS),
+    signal: signal
+      ? AbortSignal.any([AbortSignal.timeout(TOKEN_TIMEOUT_MS), signal])
+      : AbortSignal.timeout(TOKEN_TIMEOUT_MS),
   });
-  if (!response.ok) return null;
+  if (!response.ok) {
+    const body = z
+      .object({ error: z.string() })
+      .safeParse(await response.json().catch(() => null));
+    if (
+      response.status === 400 &&
+      body.success &&
+      body.data.error === "invalid_grant"
+    )
+      return null;
+    throw new GoogleTokenEndpointError(response.status);
+  }
   return googleTokenResponseSchema.parse(await response.json());
 }
 
@@ -218,7 +273,10 @@ export async function createGoogleAuthorizationUrl(input: {
     getRedirectUri(input.publicOrigin, input.integration),
   );
   url.searchParams.set("response_type", "code");
-  url.searchParams.set("scope", input.integration.scopes.join(" "));
+  url.searchParams.set(
+    "scope",
+    (await getRequestedScopes(input.integration)).join(" "),
+  );
   url.searchParams.set("access_type", "offline");
   url.searchParams.set("prompt", "select_account consent");
   url.searchParams.set("state", state);
@@ -344,6 +402,7 @@ export async function getGoogleAccessToken(input: {
   userId: string;
   providerId: string;
   accountId?: string;
+  signal?: AbortSignal;
 }): Promise<string> {
   const [grant] = await db
     .select({
@@ -361,7 +420,9 @@ export async function getGoogleAccessToken(input: {
       ),
     )
     .limit(1);
-  if (!grant) throw new Error(`No ${input.providerId} grant for this user.`);
+  input.signal?.throwIfAborted();
+  if (!grant)
+    throw new GoogleGrantError(`No ${input.providerId} grant for this user.`);
   const { encrypt, decrypt } = await tokenCrypto();
   const expiresAt = grant.accessTokenExpiresAt?.getTime();
   const fresh =
@@ -372,7 +433,7 @@ export async function getGoogleAccessToken(input: {
     // without one cannot recover once its access token expires. Failing here
     // lets the GSC/GA4 clients ask for a reconnect instead of sending a dead
     // token to Google.
-    throw new Error(
+    throw new GoogleGrantError(
       `The ${input.providerId} grant has expired and cannot be refreshed.`,
     );
   }
@@ -383,26 +444,34 @@ export async function getGoogleAccessToken(input: {
       "Google OAuth is not configured.",
     );
   }
-  const tokens = await fetchTokens({
-    client_id: config.clientId,
-    client_secret: config.clientSecret,
-    refresh_token: await decrypt(grant.refreshToken),
-    grant_type: "refresh_token",
-  });
+  const tokens = await fetchTokens(
+    {
+      client_id: config.clientId,
+      client_secret: config.clientSecret,
+      refresh_token: await decrypt(grant.refreshToken),
+      grant_type: "refresh_token",
+    },
+    input.signal,
+  );
   if (!tokens) {
-    throw new Error(`Google refused to refresh the ${input.providerId} grant.`);
+    throw new GoogleGrantError(
+      `Google refused to refresh the ${input.providerId} grant.`,
+    );
   }
+  const accessToken = await encrypt(tokens.access_token);
+  const refreshToken = tokens.refresh_token
+    ? await encrypt(tokens.refresh_token)
+    : undefined;
+  input.signal?.throwIfAborted();
   await db
     .update(account)
     .set({
-      accessToken: await encrypt(tokens.access_token),
+      accessToken,
       accessTokenExpiresAt: new Date(
         Date.now() + (tokens.expires_in ?? 3600) * 1_000,
       ),
       // Google rarely rotates refresh tokens; keep a new one when it does.
-      ...(tokens.refresh_token
-        ? { refreshToken: await encrypt(tokens.refresh_token) }
-        : {}),
+      ...(refreshToken ? { refreshToken } : {}),
       updatedAt: new Date(),
     })
     .where(eq(account.id, grant.id));

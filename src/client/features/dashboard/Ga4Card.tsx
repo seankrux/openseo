@@ -51,8 +51,8 @@ export function Ga4Card({
     return <Ga4ConnectCard projectId={projectId} connected={connected} />;
   }
 
-  // The empty state covers null sessions (no report row) and 0: a zero-session
-  // period would otherwise render an all-zero flatline chart in an empty box.
+  // Missing evidence is not zero traffic. A real zero-session period still
+  // gets an empty state instead of an all-zero flatline chart.
   return (
     <CardShell
       title="Google Analytics"
@@ -77,7 +77,12 @@ export function Ga4Card({
         </p>
       ) : !report ? (
         <MetricsSkeleton />
-      ) : !report.totals.sessions ? (
+      ) : report.totals.sessions === null ? (
+        <p className="text-sm text-muted-foreground">
+          Organic traffic data is unavailable for this period. No traffic total
+          can be inferred.
+        </p>
+      ) : report.totals.sessions === 0 ? (
         <p className="text-sm text-muted-foreground">
           No organic search traffic recorded in the last 28 days yet.
         </p>

@@ -117,6 +117,8 @@ export function SearchPerformancePage({
   const tab = isWeb ? (search.tab ?? "striking") : "pages";
   const page = search.page ?? 1;
   const pageSize = search.size ?? SEARCH_PERFORMANCE_DEFAULT_PAGE_SIZE;
+  const sort = search.sort ?? "clicks";
+  const order = search.order ?? "desc";
 
   const filterInput = {
     ...buildFilterInput({ type, range, device, country }),
@@ -134,7 +136,15 @@ export function SearchPerformancePage({
   const isTableTab = tab === "queries" || tab === "pages";
   const dimension = tabDimension(tab);
   const tableQuery = useQuery({
-    ...tableQueryOptions(projectId, dimension, page, pageSize, filterInput),
+    ...tableQueryOptions(
+      projectId,
+      dimension,
+      page,
+      pageSize,
+      filterInput,
+      sort,
+      order,
+    ),
     enabled: report?.connected === true && isTableTab,
     // Hold the current rows while paging or filtering, but not across a tab
     // or project change: Query rows must not render under the Pages header.
@@ -159,6 +169,8 @@ export function SearchPerformancePage({
           ...buildFilterInput({ type, range, device, country }),
           ...textFilters,
         },
+        sort,
+        order,
       ),
     );
   }, [
@@ -170,6 +182,8 @@ export function SearchPerformancePage({
     device,
     country,
     textFilters,
+    sort,
+    order,
     queryClient,
   ]);
 
@@ -192,6 +206,11 @@ export function SearchPerformancePage({
         target,
         isWeb,
       );
+      if (data.limitReached) {
+        toast.info(
+          `Export includes the first ${data.rowLimit.toLocaleString()} ${dimension === "query" ? "queries" : "pages"} returned by Search Console. More may exist.`,
+        );
+      }
     } catch (error) {
       toast.error(getStandardErrorMessage(error, "Export failed"));
     } finally {
@@ -245,7 +264,7 @@ export function SearchPerformancePage({
       <div className="mx-auto max-w-7xl space-y-4">
         <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
           <div>
-            <h1 className="text-2xl font-semibold">Search Performance</h1>
+            <h1 className="text-2xl font-semibold">GSC Insights</h1>
             <p className="text-sm text-muted-foreground">
               See your site&apos;s clicks, impressions, CTR, and position from
               Google Search Console.
@@ -255,7 +274,7 @@ export function SearchPerformancePage({
             <Link
               to="/p/$projectId/settings/integrations"
               params={{ projectId }}
-              className="shrink-0 self-start text-sm font-medium text-muted-foreground underline-offset-4 hover:text-foreground hover:underline sm:mt-1"
+              className="inline-flex min-h-6 shrink-0 items-center self-start text-sm font-medium text-muted-foreground underline-offset-4 hover:text-foreground hover:underline sm:mt-1"
             >
               Change property
             </Link>
@@ -364,6 +383,15 @@ export function SearchPerformancePage({
                   tableQuery={tableQuery}
                   keyLabel={tab === "queries" ? "Query" : "Page"}
                   showPosition={isWeb}
+                  sort={sort}
+                  order={order}
+                  onSortChange={(nextSort, nextOrder) =>
+                    onSearchChange({
+                      sort: nextSort,
+                      order: nextOrder,
+                      page: undefined,
+                    })
+                  }
                   page={page}
                   pageSize={pageSize}
                   onPageChange={(nextPage) =>

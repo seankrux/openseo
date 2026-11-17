@@ -8,7 +8,7 @@ import { getLatestRankRun } from "@/serverFunctions/rank-tracking";
  */
 export function useRankRunPolling(projectId: string, configId: string) {
   const queryClient = useQueryClient();
-  const lastTerminalRunRef = useRef<string | undefined>(undefined);
+  const lastTerminalRunRef = useRef<string | null>(null);
 
   const { data: latestRun } = useQuery({
     queryKey: ["rankTrackingLatestRun", projectId, configId],
@@ -19,7 +19,13 @@ export function useRankRunPolling(projectId: string, configId: string) {
       const isTerminal =
         run?.status === "completed" || run?.status === "failed";
       const terminalRunKey = `${projectId}:${configId}:${run?.id}:${run?.status}`;
-      if (isTerminal && lastTerminalRunRef.current !== terminalRunKey) {
+      if (query.state.status === "success" && !isTerminal) {
+        lastTerminalRunRef.current ??= "";
+      }
+      if (isTerminal && lastTerminalRunRef.current === null) {
+        // The run finished before this page opened, so its queries are fresh.
+        lastTerminalRunRef.current = terminalRunKey;
+      } else if (isTerminal && lastTerminalRunRef.current !== terminalRunKey) {
         lastTerminalRunRef.current = terminalRunKey;
         void queryClient.invalidateQueries({
           queryKey: ["rankTrackingResults", projectId, configId],

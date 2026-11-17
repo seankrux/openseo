@@ -122,7 +122,7 @@ export function TrackerTrackingFields({
       )}
       {engineGroup(
         "API responses",
-        "Answers from each model's API, with web search.",
+        "Answers from each model's API. Search and sources depend on the provider's returned evidence.",
         state.capabilities.filter((capability) => capability.modelApi),
       )}
       <ProjectMarketFields

@@ -7,6 +7,7 @@ export function CheckConfirmModal({
   devices,
   costUsd,
   isScheduled,
+  costNotice,
   isPending,
   onRunNow,
   onCancel,
@@ -17,6 +18,8 @@ export function CheckConfirmModal({
   costUsd: number | undefined;
   /** Whether the tracker also checks on a schedule. */
   isScheduled: boolean;
+  /** Replaces the dollar figure when the provider does not bill in dollars. */
+  costNotice?: string;
   isPending: boolean;
   onRunNow: () => void;
   onCancel: () => void;
@@ -36,7 +39,9 @@ export function CheckConfirmModal({
           {keywordCount} keyword{keywordCount !== 1 ? "s" : ""} &times; {dc}{" "}
           device{dc !== 1 ? "s" : ""}
         </span>
-        {costUsd != null ? (
+        {costNotice ? (
+          <span>{costNotice}</span>
+        ) : costUsd != null ? (
           <span>
             Costs up to{" "}
             <span className="font-mono font-semibold text-foreground">

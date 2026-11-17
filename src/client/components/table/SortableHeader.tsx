@@ -26,7 +26,7 @@ export function SortableHeader({
   const content = (
     <button
       type="button"
-      className={`inline-flex items-center gap-1 font-medium transition-colors hover:text-foreground ${className ?? ""}`}
+      className={`inline-flex min-h-6 items-center gap-1 font-medium transition-colors hover:text-foreground ${className ?? ""}`}
       onClick={column.getToggleSortingHandler()}
       title={title}
       aria-label={`Sort by ${label}`}

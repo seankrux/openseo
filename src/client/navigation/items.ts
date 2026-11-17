@@ -3,9 +3,14 @@ import {
   Bot,
   Brain,
   ChartLine,
+  ChartPie,
   ClipboardCheck,
+  FileSpreadsheet,
   FileText,
   Globe,
+  HeartPulse,
+  KeyRound,
+  LayoutList,
   LayoutDashboard,
   Link2,
   MapPin,
@@ -15,6 +20,10 @@ import {
 } from "lucide-react";
 import { linkOptions } from "@tanstack/react-router";
 import { GoogleGlyphMuted } from "@/client/features/gsc/GoogleGlyph";
+import {
+  fleetChartsLabel,
+  fleetSiteTableLabel,
+} from "@/client/navigation/fleetNav";
 
 const projectNavItems = [
   {
@@ -93,7 +102,29 @@ const projectNavItems = [
   },
 ] as const;
 
-// Project-independent. Rendered inside the project "AI Tools" group when a project
+// CityThrive fork: fleet-wide shortcuts, pinned at the top of the sidebar
+// whether or not a project is selected.
+export const allSitesNavGroup = {
+  label: "All sites",
+  items: linkOptions([
+    { to: "/overview" as const, label: fleetSiteTableLabel, icon: LayoutList },
+    { to: "/dashboard" as const, label: fleetChartsLabel, icon: ChartPie },
+    { to: "/domain-health" as const, label: "Domain health", icon: HeartPulse },
+    {
+      to: "/ga4-setup" as const,
+      search: { projectId: undefined },
+      label: "GA4 setup status",
+      icon: ChartLine,
+    },
+    {
+      to: "/all-reports" as const,
+      label: "Reports and CSV export",
+      icon: FileSpreadsheet,
+    },
+  ]),
+};
+
+// Project-independent. Rendered inside the project "Reports & setup" group when a project
 // is selected, and on its own (connectNavGroup) when none is.
 const aiNavItem = linkOptions({
   to: "/ai" as const,
@@ -102,9 +133,9 @@ const aiNavItem = linkOptions({
 });
 
 // Shown only when no project is selected; with a project, Agent setup lives in
-// the "AI Tools" group below.
+// the "Reports & setup" group below.
 export const connectNavGroup = {
-  label: "AI Tools",
+  label: "Setup",
   items: [aiNavItem],
 };
 
@@ -118,50 +149,71 @@ function getProjectNavItems(projectId: string) {
   );
 }
 
+// CityThrive fork: on an install without a DataForSEO key, the paid research
+// tools cannot return anything. One row in "Reports & setup" keeps them
+// discoverable instead of eight dead links.
+const dataforseoNavItem = linkOptions({
+  to: "/help/dataforseo-api-key" as const,
+  label: "More tools need DataForSEO",
+  icon: KeyRound,
+});
+
 // Grouped by scope: "My Site" is the project's own domain (tracked data),
 // "Research" is point-at-anything lookup tools.
-export function getProjectNavGroups(projectId: string) {
+export function getProjectNavGroups(
+  projectId: string,
+  options: {
+    /** `false` hides DataForSEO-backed tools; `null` means not known yet. */
+    dataforseoConfigured?: boolean | null;
+  } = {},
+) {
   const all = getProjectNavItems(projectId);
   const byPath = (path: (typeof projectNavItems)[number]["to"]) =>
     all.find((i) => i.to === path)!;
+  const measured = options.dataforseoConfigured !== false;
 
   return [
     {
-      label: "Overview",
+      label: "This project",
       items: [byPath("/p/$projectId")],
     },
-    {
-      label: "Research",
-      items: [
-        byPath("/p/$projectId/keywords"),
-        byPath("/p/$projectId/domain"),
-        byPath("/p/$projectId/backlinks"),
-      ],
-    },
-    {
-      label: "AI Visibility",
-      items: [
-        byPath("/p/$projectId/ai-visibility/research"),
-        byPath("/p/$projectId/prompt-explorer"),
-        byPath("/p/$projectId/ai-visibility"),
-      ],
-    },
+    ...(measured
+      ? [
+          {
+            label: "Research",
+            items: [
+              byPath("/p/$projectId/keywords"),
+              byPath("/p/$projectId/domain"),
+              byPath("/p/$projectId/backlinks"),
+            ],
+          },
+          {
+            label: "AI Visibility",
+            items: [
+              byPath("/p/$projectId/ai-visibility"),
+              byPath("/p/$projectId/ai-visibility/research"),
+              byPath("/p/$projectId/prompt-explorer"),
+            ],
+          },
+        ]
+      : []),
     {
       label: "My Site",
       items: [
         byPath("/p/$projectId/search-performance"),
         byPath("/p/$projectId/rank-tracking"),
         byPath("/p/$projectId/local-seo"),
-        byPath("/p/$projectId/saved"),
+        ...(measured ? [byPath("/p/$projectId/saved")] : []),
         byPath("/p/$projectId/audit"),
       ],
     },
     {
-      label: "AI Tools",
+      label: "Reports & setup",
       items: [
         byPath("/p/$projectId/reports"),
         byPath("/p/$projectId/context"),
         aiNavItem,
+        ...(measured ? [] : [dataforseoNavItem]),
       ],
     },
   ];

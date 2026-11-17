@@ -15,6 +15,12 @@ import * as sqliteAuth from "./better-auth-schema";
 import * as sqliteBilling from "./billing.schema";
 import * as sqliteGa4 from "./ga4.schema";
 import * as sqliteGsc from "./gsc.schema";
+import * as sqliteBing from "./bing.schema";
+import * as pgBing from "./pg/bing.schema";
+import * as sqliteDomainHealth from "./domain-health.schema";
+import * as pgDomainHealth from "./pg/domain-health.schema";
+import * as sqliteStripeProjects from "./stripe-projects.schema";
+import * as pgStripeProjects from "./pg/stripe-projects.schema";
 import * as sqliteTelemetry from "./telemetry.schema";
 import * as sqliteAiVisibility from "./ai-visibility.schema";
 import * as sqliteLocalSeo from "./local-seo.schema";
@@ -162,6 +168,9 @@ const sqliteAppTables = tablesFrom(
   sqliteBilling,
   sqliteGa4,
   sqliteGsc,
+  sqliteBing,
+  sqliteDomainHealth,
+  sqliteStripeProjects,
   sqliteTelemetry,
   sqliteAiVisibility,
   sqliteLocalSeo,
@@ -176,6 +185,9 @@ const pgAppTables = tablesFrom(
   pgBilling,
   pgGa4,
   pgGsc,
+  pgBing,
+  pgDomainHealth,
+  pgStripeProjects,
   pgTelemetry,
   pgAiVisibility,
   pgLocalSeo,

@@ -1,5 +1,8 @@
 import { useState } from "react";
-import { projectsQueryOptions } from "@/client/features/projects/projectQueries";
+import {
+  projectsQueryOptions,
+  useMissingProjectCheck,
+} from "@/client/features/projects/projectQueries";
 import { useNavigate } from "@tanstack/react-router";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
@@ -8,6 +11,7 @@ import { revalidateLogic } from "@tanstack/react-form";
 import { useAppForm } from "@/client/components/form/useAppForm";
 import { Button } from "@/client/components/ui/button";
 import { InlineConfirm } from "@/client/components/InlineConfirm";
+import { SkeletonPageContent } from "@/client/components/SkeletonPresets";
 import { SectionHeader } from "@/client/components/PageHeader";
 import { QueryError, QueryState } from "@/client/components/QueryState";
 import {
@@ -27,6 +31,7 @@ import type { ProjectSummary } from "./types";
 
 export function ProjectGeneralSettings({ projectId }: { projectId: string }) {
   const projectsQuery = useQuery(projectsQueryOptions());
+  const checkingMissing = useMissingProjectCheck(projectsQuery, projectId);
 
   return (
     <QueryState
@@ -35,6 +40,7 @@ export function ProjectGeneralSettings({ projectId }: { projectId: string }) {
     >
       {(projects) => {
         const project = projects.find((entry) => entry.id === projectId);
+        if (!project && checkingMissing) return <SkeletonPageContent />;
         if (!project) {
           return <QueryError fallback="This project was not found." />;
         }
@@ -261,13 +267,13 @@ function DangerSection({
   return (
     <section className="space-y-3 border-t border-border pt-8">
       <SectionHeader title="Archive project" />
-      <div className="flex items-center justify-between gap-4">
-        <p className="text-sm text-muted-foreground">
+      <div className="flex flex-col items-start gap-4 sm:flex-row sm:items-center sm:justify-between">
+        <p className="min-w-0 text-sm text-muted-foreground">
           {canArchive
             ? "Archiving removes the project from your workspace and stops its scheduled rank tracking. You can restore it later from the Projects page."
             : "You can't archive your only project."}
         </p>
-        <div className="flex shrink-0 gap-2">
+        <div className="flex shrink-0 flex-wrap gap-2">
           <InlineConfirm
             label={`Archive ${project.name}`}
             triggerLabel="Archive project"

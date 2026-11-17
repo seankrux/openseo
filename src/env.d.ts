@@ -83,6 +83,30 @@ declare namespace Cloudflare {
     // is set. Only a client OpenAI registered as confidential has a secret.
     OPENAI_SIWC_CLIENT_ID?: string;
     OPENAI_SIWC_CLIENT_SECRET?: string;
+    // Server-only Bing reads require exact opt-in and this multisite-capable key.
+    BING_WEBMASTER_ENABLED?: string;
+    BING_WEBMASTER_API_KEY?: string;
+    BING_WEBMASTER_DAILY_CALL_BUDGET?: string;
+    // Semrush Analytics API key. Rank checks use it when DataForSEO access is
+    // absent (country-level positions, no city data).
+    SEMRUSH_API_KEY?: string;
+    // GA4 property creation and tag install. Off unless GA4_AUTOSETUP=1.
+    GA4_SETUP_GOOGLE_EMAIL?: string;
+    GA4_SETUP_PARENT_ACCOUNT?: string;
+    GA4_SETUP_TIMEZONE?: string;
+    GA4_SETUP_CLOUDFLARE_TOKEN?: string;
+    GA4_SETUP_CLOUDFLARE_ACCOUNT_ID?: string;
+    GA4_SETUP_KV_NAMESPACE_ID?: string;
+    GA4_SETUP_COMPATIBLE_WORKERS?: string;
+    GA4_AUTOSETUP?: string;
+    GA4_AUTOSETUP_EVERY_MIN?: string;
+    GA4_AUTOSETUP_BATCH?: string;
+    GA4_AUTOSETUP_RETAG_BATCH?: string;
+    // Set to 0 or false to keep Search Console / GA4 connects read-only.
+    GSC_OAUTH_MANAGE_SCOPES?: string;
+    GA4_OAUTH_MANAGE_SCOPES?: string;
+    // DNS TXT for Search Console domain verification.
+    CLOUDFLARE_DNS_TOKEN?: string;
     LOOPS_API_KEY?: string;
     LOOPS_TRANSACTIONAL_VERIFY_EMAIL_ID?: string;
     LOOPS_TRANSACTIONAL_RESET_PASSWORD_ID?: string;

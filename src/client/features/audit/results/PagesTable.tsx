@@ -9,6 +9,7 @@ import { ExternalLink } from "lucide-react";
 import { Badge } from "@/client/components/ui/badge";
 import { DataTable, useDataTable } from "@/client/components/table/DataTable";
 import { SortableHeader } from "@/client/components/table/SortableHeader";
+import { TablePagination } from "@/client/components/table/TablePagination";
 import {
   extractHostname,
   extractPathname,
@@ -26,7 +27,6 @@ import {
   type PagesFilters,
 } from "@/client/features/audit/results/AuditResultsTableFilterLogic";
 import { QueryError } from "@/client/components/QueryState";
-import { TablePagination } from "@/client/components/table/TablePagination";
 import { useDebouncedDraft } from "@/client/hooks/useDebouncedDraft";
 import { getAuditPages } from "@/serverFunctions/audit";
 import { auditPagesSortFields } from "@/types/schemas/audit";

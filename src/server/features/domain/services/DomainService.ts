@@ -11,15 +11,12 @@ import type { ResearchScope } from "@/shared/researchScope";
 import { mapKeywordItem } from "@/server/features/domain/services/domainKeywordMapper";
 import { getKeywordsPage } from "@/server/features/domain/services/domainKeywordsPage";
 import { getPagesPage } from "@/server/features/domain/services/domainPagesPage";
+import { requireDataforseoApiKey } from "@/server/lib/dataforseo/config";
 
-// Lets a caller attribute spend to its own feature (e.g. the SAM agent). Applied
-// to the DataForSEO call, not the cache key, so cached results are shared
-// across callers.
 type MeteringOverrides = {
   creditFeature?: CreditFeature;
 };
 
-/** Domain overview data is refreshed every 12 hours. */
 const DOMAIN_OVERVIEW_TTL_SECONDS = 12 * 60 * 60;
 
 const domainOverviewResultSchema = z.object({
@@ -31,7 +28,6 @@ const domainOverviewResultSchema = z.object({
 });
 
 type DomainOverviewResult = z.infer<typeof domainOverviewResultSchema> & {
-  /** Requested research scope, echoed for display. */
   scope: ResearchScope;
   displayTarget: string;
 };
@@ -50,10 +46,7 @@ async function getOverview(
   const target = parseResearchTargetOrThrow(input.domain, input.scope);
   const domain = target.hostname;
 
-  // domain_rank_overview has no filters and always covers the hostname plus
-  // all of its subdomains, so every scope shares one cache entry per hostname.
-  // Callers label the metrics as domain-wide for narrower scopes.
-  const cacheKey = await buildCacheKey("domain:overview", {
+  const cacheKey = await buildCacheKey("domain:overview:v2", {
     organizationId: billingCustomer.organizationId,
     projectId: input.projectId,
     domain,
@@ -72,8 +65,8 @@ async function getOverview(
   }
 
   const nowIso = new Date().toISOString();
+  await requireDataforseoApiKey();
   const dataforseo = createDataforseoClient(billingCustomer);
-
   const metricsResponse = await dataforseo.domain.rankOverview({
     target: domain,
     locationCode: input.locationCode,
@@ -82,7 +75,6 @@ async function getOverview(
   });
 
   const metrics = metricsResponse[0];
-
   const organicTraffic =
     metrics?.metrics?.organic?.etv != null
       ? Math.round(metrics.metrics.organic.etv)
@@ -101,8 +93,6 @@ async function getOverview(
   };
 
   if (stored.hasData) {
-    // waitUntil, not void: workerd cancels unregistered pending I/O once the
-    // response is sent, so a fire-and-forget put never persists the cache.
     waitUntil(
       setCached(cacheKey, stored, DOMAIN_OVERVIEW_TTL_SECONDS).catch(
         (error) => {
@@ -139,7 +129,7 @@ async function getSuggestedKeywords(
   const target = parseResearchTargetOrThrow(input.domain, input.scope);
   const scopeFilter = buildRankedKeywordsScopeFilter(target);
 
-  const cacheKey = await buildCacheKey("domain:keyword-suggestions", {
+  const cacheKey = await buildCacheKey("domain:keyword-suggestions:v2", {
     organizationId: billingCustomer.organizationId,
     projectId: input.projectId,
     domain: target.hostname,
@@ -166,8 +156,8 @@ async function getSuggestedKeywords(
     return cached.data;
   }
 
+  await requireDataforseoApiKey();
   const dataforseo = createDataforseoClient(billingCustomer);
-
   const rankedKeywordsResponse = await dataforseo.domain.rankedKeywords({
     target: target.hostname,
     locationCode: input.locationCode,
@@ -217,4 +207,4 @@ export const DomainService = {
   getSuggestedKeywords,
   getKeywordsPage,
   getPagesPage,
-} as const;
+};

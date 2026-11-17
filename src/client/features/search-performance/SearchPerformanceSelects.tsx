@@ -124,7 +124,11 @@ export function SearchPerformanceSelects({
           });
         }}
       >
-        <SelectTrigger size="sm" className="w-36" aria-label="Device filter">
+        <SelectTrigger
+          size="sm"
+          className="w-36"
+          aria-label={`Device filter: ${device === ALL ? "All devices" : DEVICE_LABELS[device]}`}
+        >
           <SelectValue />
         </SelectTrigger>
         <SelectContent>
@@ -146,7 +150,11 @@ export function SearchPerformanceSelects({
           });
         }}
       >
-        <SelectTrigger size="sm" className="w-36" aria-label="Country filter">
+        <SelectTrigger
+          size="sm"
+          className="w-36"
+          aria-label={`Country filter: ${country === ALL ? "All countries" : country.toUpperCase()}`}
+        >
           <SelectValue />
         </SelectTrigger>
         <SelectContent>
@@ -161,6 +169,7 @@ export function SearchPerformanceSelects({
         value={range}
         onChange={(value) => onSearchChange({ page: undefined, range: value })}
         triggerClassName="w-36"
+        ariaLabel={`Date range: ${RANGE_LABELS[range]}`}
       />
     </div>
   );
@@ -170,10 +179,12 @@ export function DateRangeSelect({
   value,
   onChange,
   triggerClassName,
+  ariaLabel = "Date range",
 }: {
   value: SearchPerformanceDateRange;
   onChange: (value: SearchPerformanceDateRange) => void;
   triggerClassName?: string;
+  ariaLabel?: string;
 }) {
   return (
     <Select
@@ -186,7 +197,7 @@ export function DateRangeSelect({
       <SelectTrigger
         size="sm"
         className={triggerClassName}
-        aria-label="Date range"
+        aria-label={ariaLabel}
       >
         <SelectValue />
       </SelectTrigger>

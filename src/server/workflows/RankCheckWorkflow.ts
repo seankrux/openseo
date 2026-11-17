@@ -13,13 +13,15 @@ import {
 import { RankTrackingRepository } from "@/server/features/rank-tracking/repositories/RankTrackingRepository";
 import { failRunIfActive } from "@/server/features/rank-tracking/services/rankCheckRunGuards";
 import { runQueuedCheck } from "@/server/workflows/rankCheckPaths";
+import { resolveRunGotoUrls } from "@/server/workflows/rankCheckGotoUrls";
+import { runSerpLookupCheck } from "@/server/workflows/rankCheckLookupPath";
 import {
   READ_WINDOW_MS,
   retryRankChecks,
 } from "@/server/workflows/rankCheckRetries";
-import { resolveRunGotoUrls } from "@/server/workflows/rankCheckGotoUrls";
 import { pgStep } from "@/server/workflows/pgStep";
 import { createDataforseoClient } from "@/server/lib/dataforseo";
+import { resolveSerpProvider } from "@/server/lib/serp-provider";
 import { captureServerEvent } from "@/server/lib/posthog";
 import { sendCreditsExhaustedEvent } from "@/server/email/onboarding-drip";
 import { describeError } from "@/server/lib/errors";
@@ -382,15 +384,18 @@ export class RankCheckWorkflow extends WorkflowEntrypoint<
       );
 
       const keywords = prepareResult.keywords;
-      const client = createDataforseoClient(billingCustomer);
+      // No provider configured keeps the DataForSEO path. Those calls fail
+      // through provider access when DataForSEO is not set up.
+      const serpProvider = await resolveSerpProvider();
 
-      console.log(`[rank-check] ${runId} loaded ${keywords.length} keywords`);
+      console.log(
+        `[rank-check] ${runId} loaded ${keywords.length} keywords (serp=${serpProvider?.kind ?? "none"})`,
+      );
 
       let batchError: string | null = null;
 
       try {
         const checkContext = {
-          client,
           keywords,
           devices,
           serpDepth,
@@ -400,17 +405,26 @@ export class RankCheckWorkflow extends WorkflowEntrypoint<
           locationName,
           runId,
         };
-        // Shown only if no keyword gets a result: a run that got some reports
-        // the rest as not checked.
-        if (await runQueuedCheck(step, checkContext)) {
-          batchError = RANK_CHECK_DELAYED_ERROR;
+        if (serpProvider?.kind === "semrush") {
+          await runSerpLookupCheck(step, {
+            ...checkContext,
+            provider: serpProvider.provider,
+          });
+        } else {
+          const client = createDataforseoClient(billingCustomer);
+          const dataforseoContext = { ...checkContext, client };
+          // Shown only if no keyword gets a result: a run that got some reports
+          // the rest as not checked.
+          if (await runQueuedCheck(step, dataforseoContext)) {
+            batchError = RANK_CHECK_DELAYED_ERROR;
+          }
+          await retryRankChecks(
+            step,
+            dataforseoContext,
+            configId,
+            prepareResult.readsEndAt,
+          );
         }
-        await retryRankChecks(
-          step,
-          checkContext,
-          configId,
-          prepareResult.readsEndAt,
-        );
       } catch (error) {
         // Batch failure — snapshots for completed batches are already
         // persisted incrementally. Continue to finalization.

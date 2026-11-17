@@ -21,7 +21,11 @@ import {
   type AuditErrorInfo,
 } from "@/server/lib/audit/audit-errors";
 import { captureServerEvent } from "@/server/lib/posthog";
-import { readWorkflowStatus } from "@/server/lib/startWorkflow";
+import { getOptionalEnvValue } from "@/server/lib/runtime-env";
+import {
+  readWorkflowStatus,
+  terminateStuckWorkflow,
+} from "@/server/lib/startWorkflow";
 
 /**
  * Don't declare an instance "lost" until the audit is comfortably older than
@@ -35,12 +39,57 @@ const STALE_RUNNING_AFTER_MS = 15 * 60 * 1000;
 
 const WATCHDOG_BATCH_LIMIT = 100;
 
+/**
+ * Hard ceiling for a "running" audit whose instance still claims to be alive.
+ * The self-hosted (Docker/miniflare) runtime does not resume workflow engines
+ * after the process dies mid-step, so such instances report "running"
+ * forever and the status check alone never fails them. A 50-page audit
+ * normally finishes in minutes; anything past this ceiling is a zombie.
+ * Override with AUDIT_STALE_FAIL_AFTER_HOURS (default 6).
+ */
+const DEFAULT_STALE_FAIL_AFTER_HOURS = 6;
+
+export async function getStaleFailAfterMs(): Promise<number> {
+  const raw = await getOptionalEnvValue("AUDIT_STALE_FAIL_AFTER_HOURS");
+  const hours = raw === undefined ? NaN : Number(raw);
+  return (Number.isFinite(hours) && hours > 0
+    ? hours
+    : DEFAULT_STALE_FAIL_AFTER_HOURS) * 60 * 60 * 1000;
+}
+
+const NON_TERMINAL_STATUSES = new Set([
+  "queued",
+  "running",
+  "paused",
+  "waiting",
+  "waitingForPause",
+  "unknown",
+]);
+
 type RunningAudit = {
   id: string;
   workflowInstanceId: string | null;
   startedAt: string;
   currentPhase: string | null;
 };
+
+async function failStale(
+  audit: RunningAudit,
+  detail: string,
+): Promise<AuditErrorInfo> {
+  const errorInfo: AuditErrorInfo = {
+    errorCode: "stalled",
+    errorDetail: `${detail}; no progress since start ${audit.startedAt} (stale ceiling reached)`.slice(
+      0,
+      500,
+    ),
+  };
+  await AuditRepository.failAudit(audit.id, audit.workflowInstanceId!, {
+    ...errorInfo,
+    failedPhase: audit.currentPhase,
+  });
+  return errorInfo;
+}
 
 /**
  * If the audit's workflow instance is dead (errored/terminated) or gone,
@@ -56,6 +105,28 @@ export async function reconcileRunningAudit(
     env.SITE_AUDIT_WORKFLOW,
     audit.workflowInstanceId,
   );
+  if (
+    status &&
+    status !== "missing" &&
+    NON_TERMINAL_STATUSES.has(status.status) &&
+    isOlderThan(audit.startedAt, await getStaleFailAfterMs())
+  ) {
+    // Best-effort: stop the zombie engine so it cannot wake up later and
+    // write into an audit we've already failed.
+    await terminateStuckWorkflow(
+      env.SITE_AUDIT_WORKFLOW,
+      audit.workflowInstanceId,
+    );
+    return failStale(audit, `Workflow instance still ${status.status}`);
+  }
+  // A status read that failed for a reason other than "not found". Transient
+  // errors must not fail a live audit; a very old one is a zombie.
+  if (
+    status === null &&
+    isOlderThan(audit.startedAt, await getStaleFailAfterMs())
+  ) {
+    return failStale(audit, "Workflow status unavailable");
+  }
   let errorInfo: AuditErrorInfo | null = null;
   if (status === "missing") {
     // Never created, or expired from Workflows retention. Past the grace

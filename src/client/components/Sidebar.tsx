@@ -18,6 +18,7 @@ import { organizationContextQueryOptions } from "@/client/features/team/organiza
 import { switchOrganization } from "@/serverFunctions/organization";
 import { clearLastProjectId } from "@/client/lib/active-project";
 import {
+  allSitesNavGroup,
   connectNavGroup,
   getProjectNavGroups,
 } from "@/client/navigation/items";
@@ -123,22 +124,32 @@ export function Sidebar({
   projectId,
   projectPending,
   ready,
+  dataforseoConfigured = null,
 }: {
   projectId: string | null;
   /** No project is known yet, but the projects list may still name one. */
   projectPending: boolean;
   /** The session is confirmed, so the sidebar's own data can load. */
   ready: boolean;
+  /** `false` hides the tools that need a DataForSEO key; `null` is unknown. */
+  dataforseoConfigured?: boolean | null;
 }) {
   // Until a project is known, show the project nav as rows without links, so
   // the sidebar has its full shape from the first paint instead of growing
   // once projects load. The placeholder rows never render these links.
-  const navPlaceholder = projectId === null && projectPending;
-  const navGroups =
-    projectId !== null || navPlaceholder
-      ? getProjectNavGroups(projectId ?? "")
-      : [connectNavGroup];
   const { pathname } = useLocation();
+  const navPlaceholder = projectId === null && projectPending;
+  // Keep the selected project's tools visible on fleet routes too. The
+  // pinned All sites group is additive, not a reason to hide project tools.
+  const projectGroups =
+    projectId !== null || navPlaceholder
+      ? getProjectNavGroups(projectId ?? "", { dataforseoConfigured })
+      : [connectNavGroup];
+  // CityThrive fork: the fleet group is pinned first and never a placeholder.
+  const navGroups = [
+    { ...allSitesNavGroup, pinned: true as const },
+    ...projectGroups.map((g) => ({ ...g, pinned: false as const })),
+  ];
   const { setOpenMobile } = useSidebar();
   // SAM is hidden from navigation: the chat route is only reachable by URL,
   // and while it is open its chat list takes the nav's place.
@@ -147,6 +158,8 @@ export function Sidebar({
   return (
     <UiSidebar variant="inset" collapsible="offcanvas" className="md:!p-0">
       <SidebarHeader
+        role="navigation"
+        aria-label="Workspace"
         className={cn("gap-0 px-3 pb-1", everyApp ? "pt-2" : "pt-3")}
       >
         {everyApp ? <EveryAppLink /> : null}
@@ -196,7 +209,7 @@ export function Sidebar({
                           icon={icon}
                           label={label}
                           linkProps={linkProps}
-                          placeholder={navPlaceholder}
+                          placeholder={navPlaceholder && !group.pinned}
                         />
                       );
                     })}
@@ -276,7 +289,11 @@ function AccountFooter({ ready }: { ready: boolean }) {
   }
 
   return (
-    <UiSidebarFooter className="gap-0 border-t border-sidebar-border pb-safe">
+    <UiSidebarFooter
+      role="navigation"
+      aria-label="Account"
+      className="gap-0 border-t border-sidebar-border pb-safe"
+    >
       <SidebarMenu>
         <SidebarNavLink
           icon={CircleHelp}

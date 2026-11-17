@@ -324,11 +324,37 @@ export default {
       console.error("[cron] Stale-audit reconcile failed:", err);
     }
     // Scope a per-request Postgres client for the cron run (no-op in D1 mode).
-    // The cron itself calls no provider: it starts Workflows, each carrying
-    // the organization that owns the tracker, which every gateway call the
-    // run makes names (gateway-attribution.ts).
+    // Fleet snapshot jobs are database-heavy, so they run one after another.
+    const runFleetJobsInSequence = async () => {
+      await withPgClient(async () => {
+        const { runScheduledFleetDashboard } =
+          await import("@/server/features/portfolio/FleetDashboardService");
+        await runScheduledFleetDashboard();
+      }).catch((err) => console.error("[cron] fleet dashboard failed:", err));
+      await withPgClient(async () => {
+        const { runScheduledFleetReaudit } =
+          await import("@/server/features/portfolio/FleetReauditService");
+        await runScheduledFleetReaudit();
+      }).catch((err) => console.error("[cron] fleet re-audit failed:", err));
+    };
+    // Rank checks start Workflows. Each carries the organization that owns
+    // the tracker, which every gateway call the run makes names
+    // (gateway-attribution.ts). GA4 setup is a no-op unless GA4_AUTOSETUP=1.
     const checks = await Promise.allSettled([
+      withPgClient(async () => {
+        const { runScheduledGa4Setup } =
+          await import("@/server/features/ga4-setup/Ga4SetupService");
+        await runScheduledGa4Setup();
+      }).catch((err) =>
+        console.error("[cron] GA4 setup autopilot failed:", err),
+      ),
       withPgClient(() => runScheduledRankChecks(env)),
+      withPgClient(async () => {
+        const { runDomainHealthTick } =
+          await import("@/server/features/domain-health/services/domainHealthTick");
+        await runDomainHealthTick();
+      }).catch((err) => console.error("[cron] domain health failed:", err)),
+      runFleetJobsInSequence(),
       withPgClient(async () => {
         const { runScheduledAiVisibility } =
           await import("@/server/features/ai-visibility/services/scheduledAiVisibility");

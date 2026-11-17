@@ -7,37 +7,24 @@ import {
 import type {
   createDataforseoClient,
   PostedRankCheckTask,
-  RankCheckResult,
   RankCheckTaskInput,
 } from "@/server/lib/dataforseo";
 import type { RankTrackingConfig } from "@/types/schemas/rank-tracking";
 import { pgStep } from "@/server/workflows/pgStep";
+import {
+  expandToTaskInputs,
+  mapResultsToSnapshotRows,
+  type KeywordEntry,
+  type RankCheckResultWithDevice,
+} from "@/server/workflows/rankCheckSnapshots";
 
 const SINGLE_ATTEMPT_STEP_CONFIG = {
   retries: { limit: 0, delay: "1 second" as const },
   timeout: "2 minutes" as const,
 };
 
-type KeywordEntry = { id: string; keyword: string };
-export type RankCheckResultWithDevice = RankCheckResult & {
-  device: "desktop" | "mobile";
-};
-
-export function mapResultsToSnapshotRows(
-  runId: string,
-  results: RankCheckResultWithDevice[],
-) {
-  return results.map((r) => ({
-    runId,
-    trackingKeywordId: r.keywordId,
-    keyword: r.keyword,
-    device: r.device,
-    position: r.position,
-    url: r.url,
-    serpFeatures:
-      r.serpFeatures.length > 0 ? JSON.stringify(r.serpFeatures) : null,
-  }));
-}
+export { expandToTaskInputs, mapResultsToSnapshotRows };
+export type { RankCheckResultWithDevice };
 
 export interface CheckContext {
   client: ReturnType<typeof createDataforseoClient>;
@@ -49,22 +36,6 @@ export interface CheckContext {
   languageCode: string;
   locationName?: string;
   runId: string;
-}
-
-/** Expand keywords into one task input per keyword/device pair. */
-export function expandToTaskInputs(
-  keywords: KeywordEntry[],
-  devices: RankTrackingConfig["devices"],
-): RankCheckTaskInput[] {
-  const deviceList: Array<"desktop" | "mobile"> =
-    devices === "both" ? ["desktop", "mobile"] : [devices];
-  return keywords.flatMap((kw) =>
-    deviceList.map((device) => ({
-      keyword: kw.keyword,
-      keywordId: kw.id,
-      device,
-    })),
-  );
 }
 
 // Poll cadence for queued tasks. Standard-priority tasks usually complete in

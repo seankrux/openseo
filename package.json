@@ -51,6 +51,7 @@
     "test:standalone:gateway": "node --test scripts/celld/runtime/crawl-gateway.test.mjs",
     "test:standalone:runtime": "sh scripts/celld/conformance/conformance.sh",
     "test:e2e": "playwright test -c tests/playwright.config.ts",
+    "test:components": "playwright test -c tests/playwright.components.config.ts",
     "test:e2e:free-tools": "playwright test -c tests/playwright.free-tools.config.ts",
     "test:e2e:mcp-isolation": "playwright test -c tests/playwright.mcp-isolation.config.ts",
     "test:e2e:domain": "playwright test -c tests/playwright.config.ts tests/domain-overview-filters.spec.ts",
@@ -87,6 +88,7 @@
     }
   },
   "dependencies": {
+    "@ai-sdk/openai-compatible": "2.0.75",
     "@ai-sdk/react": "^3.0.211",
     "@base-ui/react": "^1.8.0",
     "@better-auth/api-key": "1.6.22",

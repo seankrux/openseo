@@ -1,9 +1,10 @@
 import { env } from "cloudflare:workers";
 import { drizzle } from "drizzle-orm/d1";
 import * as schema from "./schema";
+import { cooperativeD1 } from "@/server/lib/cooperative-yield";
 
 function createDatabase(binding: D1Database) {
-  return drizzle(binding, { schema });
+  return drizzle(cooperativeD1(binding), { schema });
 }
 
 let binding: D1Database | undefined;

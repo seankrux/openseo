@@ -1,5 +1,5 @@
 import { gzipSync } from "node:zlib";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 vi.mock("@/server/lib/runtime-env", () => ({
   // AUTH_MODE unset: the deployment holds the DataForSEO key.
@@ -8,12 +8,31 @@ vi.mock("@/server/lib/runtime-env", () => ({
 }));
 
 import { dataforseoPost } from "@/server/lib/dataforseo/core";
+import { getRequiredEnvValue } from "@/server/lib/runtime-env";
+
+beforeEach(() => {
+  vi.mocked(getRequiredEnvValue).mockResolvedValue("encoded-credentials");
+});
 
 afterEach(() => {
   vi.unstubAllGlobals();
 });
 
 describe("DataForSEO transport", () => {
+  it("returns a clear configuration error before any provider request", async () => {
+    vi.mocked(getRequiredEnvValue).mockRejectedValue(
+      new Error("Missing required environment variable: DATAFORSEO_API_KEY"),
+    );
+    const fetchMock = vi.fn<typeof fetch>();
+    vi.stubGlobal("fetch", fetchMock);
+
+    await expect(
+      dataforseoPost("/v3/backlinks/summary/live", []),
+    ).rejects.toThrow(
+      "Missing required environment variable: DATAFORSEO_API_KEY",
+    );
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
   it("retries a transient 5xx on idempotent reads and returns the parsed envelope", async () => {
     const fetchMock = vi
       .fn<typeof fetch>()
