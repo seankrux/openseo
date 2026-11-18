@@ -4,13 +4,13 @@
 
 ## Done
 
-| Item | Artifact |
-|------|----------|
-| P1 local free tools (2/4) | `web/` review link + CID converter, categorized `/tools` hub |
-| Intel doc | `ops/competitive-intel-openseo-20261026.md` |
-| Skills | `local-seo` → openseo.so tool links |
-| Phase A catalog | `node ops/scripts/pleper-catalog.mjs` → `ops/pleper-tool-matrix.csv` |
-| P2 fleet bridge | Site table **Local** menu on `/overview` |
+| Item                      | Artifact                                                             |
+| ------------------------- | -------------------------------------------------------------------- |
+| P1 local free tools (2/4) | `web/` review link + CID converter, categorized `/tools` hub         |
+| Intel doc                 | `ops/competitive-intel-openseo-20261026.md`                          |
+| Skills                    | `local-seo` → openseo.so tool links                                  |
+| Phase A catalog           | `node ops/scripts/pleper-catalog.mjs` → `ops/pleper-tool-matrix.csv` |
+| P2 fleet bridge           | Site table **Local** menu on `/overview`                             |
 
 ## Next (ordered)
 
