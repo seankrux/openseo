@@ -138,7 +138,7 @@
     "@cloudflare/vite-plugin": "^1.63.1",
     "@cloudflare/workers-types": "^4.20260702.1",
     "@distilled.cloud/cloudflare": "0.28.2",
-    "@effect/platform-node": "4.0.0-beta.93",
+    "@effect/platform-node": "4.0.0-beta.103",
     "@libsql/client": "^0.15.15",
     "@playwright/test": "^1.59.1",
     "@tailwindcss/vite": "^4.1.11",
@@ -154,22 +154,17 @@
     "chalk": "^5.6.2",
     "cheerio": "^1.2.0",
     "drizzle-kit": "^0.31.10",
-    "effect": "4.0.0-beta.93",
+    "effect": "4.0.0-beta.103",
     "knip": "^5.88.1",
     "oxlint": "^1.50.0",
     "oxlint-tsgolint": "^0.15.0",
     "portless": "^0.5.2",
     "prettier": "^3.6.2",
-    "shadcn": "^4.21.0",
+    "shadcn": "^4.23.0",
     "tsx": "^4.22.4",
     "typescript": "^5.9.3",
     "vite": "^8.3.4",
     "vitest": "^5.0.4",
     "wrangler": "^4.149.0"
-  },
-  "pnpm": {
-    "overrides": {
-      "zod@4": "4.6.7"
-    }
   }
 }

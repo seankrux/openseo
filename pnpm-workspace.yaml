@@ -57,7 +57,7 @@ overrides:
   # GHSA-737v-mqg7-c878 — waiting on better-auth
   defu: "^6.1.5"
   # GHSA-p98j-92pf-mc4p plus earlier XSS advisories — waiting on posthog-js
-  dompurify: "^3.4.16"
+  dompurify: "^3.4.17"
   # GHSA-v2hh-gcrm-f6hx, GHSA-7p8r-x3mc-p8w7, GHSA-4c8g-83qw-93j6 — waiting on @modelcontextprotocol/sdk
   fast-uri: "^3.1.9"
   # 9 advisories incl. GHSA-88fw-hqm2-52qc (CORS) — waiting on @modelcontextprotocol/sdk
@@ -67,42 +67,49 @@ overrides:
   # GHSA-5p4m-2wfm-xmqj — waiting on @tanstack/start-plugin-core
   js-yaml: "^4.3.2"
   # GHSA-v6wh-96g9-6wx3 — waiting on @tanstack/devtools-vite
-  launch-editor: "^2.14.1"
+  launch-editor: "^2.14.2"
   # GHSA-qx2v-qp2m-jg93, GHSA-r28c-9q8g-f849 — waiting on vite
   postcss: "^8.5.23"
   # GHSA-q8mj-m7cp-5q26 — waiting on @modelcontextprotocol/sdk
   qs: "^6.16.1"
   # GHSA-w7jw-789q-3m8p — waiting on @tanstack/devtools-vite
-  shell-quote: "^1.8.4"
+  shell-quote: "^1.11.0"
   # GHSA-v3rj-xjv7-4jmq — waiting on knip
-  smol-toml: "^1.7.1"
+  smol-toml: "^1.9.0"
   # September 2026 TLS/cache/DoS fixes plus earlier advisories — cheerio/miniflare
-  undici: "^7.29.1"
   # GHSA-67mh-4wv8-2f99 — update drizzle-kit's legacy loader instead of ignoring it.
   "@esbuild-kit/core-utils>esbuild": "^0.25.12"
   # GHSA-rgj7-g3m4-5g8c — Miniflare 4 pins 0.34.5; 0.35.4 fixes bundled libheif.
   "miniflare>sharp": "0.35.5"
   # September 2026 advisories: keep these fixes within each supported major.
   "@ai-sdk/provider-utils@4": "^4.0.33"
-  "@hono/node-server@1": "^1.19.18"
+  "@hono/node-server@1": "^2.1.3"
   "body-parser@2": "^2.4.0"
   browserslist: "^4.28.7"
   baseline-browser-mapping: "^2.11.0"
   # autumn-js uses query-string 9, which supports the patched ESM decoder.
-  "query-string>decode-uri-component": "^0.5.0"
+  "query-string>decode-uri-component": "^0.5.1"
   "fflate@0.4": "~0.4.9"
   mysql2: "^3.23.1"
   "nanoid@3": "^3.3.18"
-  "toml@4": "^4.2.0"
+  "toml@4": "^5.0.1"
 
   "@modelcontextprotocol/client": "2.4.0"
   "@modelcontextprotocol/server": "2.4.0"
   "@modelcontextprotocol/sdk": "1.32.2"
   "proxy-addr": "^2.0.8"
   "source-map-js": "^1.2.2"
-  "seroval": "^1.5.3"
+  "seroval": "^1.6.11"
   "@vitest/mocker@4": "^4.1.12"
 
+  "undici@7": "^7.30.1"
+  "undici@8": "^8.12.2"
+  "vite@7": "^7.3.7"
+  "zod@4": "4.6.7"
+  "fast-xml-parser": "^5.12.0"
+  "isomorphic-git": "^1.38.6"
+  "minimatch@10": "^11.0.1"
+  "systeminformation": "^5.33.16"
 # Cloudflare echoes targeted placement back as `{ mode: "targeted" }` without
 # `region`; 0.28.2's response schema requires it, so alchemy fails a deploy
 # that actually succeeded. Fixed upstream in 1.0.0-rc; drop on upgrade.
