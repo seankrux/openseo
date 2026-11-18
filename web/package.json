@@ -28,7 +28,7 @@
     "react": "^19.3.0",
     "react-dom": "^19.3.0",
     "vite": "^7.3.6",
-    "zod": "^4.6.1",
+    "zod": "^4.6.7",
     "@radix-ui/react-popover": "^1.1.15"
   },
   "devDependencies": {
@@ -46,7 +46,7 @@
     "takumi-js": "2.13.7",
     "typescript": "^5.9.3",
     "vite-tsconfig-paths": "^6.0.5",
-    "vitest": "^4.1.11",
+    "vitest": "^4.1.12",
     "wrangler": "^4.67.0"
   }
 }
