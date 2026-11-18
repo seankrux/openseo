@@ -23,6 +23,7 @@
     "src/db/pg/schema.ts",
     // Standalone CLI/dev scripts, invoked via package.json scripts
     "scripts/**",
+    "ops/scripts/pleper-catalog.mjs",
     // shadcn components are copied in whole; pages use only some exports
     "src/client/components/ui/**",
   ],
@@ -32,6 +33,7 @@
     "**/*.{js,mjs,ts,tsx}",
     "!src/routeTree.gen.ts",
     "!web/**",
+    "!fork-build-tools-review-20261021/**",
     // Alchemy state/bundle artifacts (gitignored)
     "!.alchemy/**",
     "!tests/badseo/**",
