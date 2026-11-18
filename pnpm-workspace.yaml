@@ -50,6 +50,8 @@ minimumReleaseAgeExclude:
 # To prune once a parent catches up: delete the line, run `pnpm install`, and
 # keep it deleted if `pnpm audit` stays clean.
 overrides:
+  # Better Auth plugins must share the same JOSE peer and core type identity.
+  "jose@6": "6.2.17"
   # GHSA-4x5r-pxfx-6jf8 — waiting on @tanstack/devtools-vite
   "@babel/core": "^7.29.6"
   # September 2026 recursion/CPU DoS fixes plus earlier advisories — just-bash/shadcn
