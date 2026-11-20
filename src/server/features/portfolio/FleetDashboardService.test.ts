@@ -21,6 +21,7 @@ import {
   gscConnections,
   projects,
 } from "@/db/schema";
+import { AppError } from "@/server/lib/errors";
 import { getCached, setCached } from "@/server/lib/r2-cache";
 import type { BingSnapshot } from "@/server/features/bing/BingSnapshot";
 import { GA4_OAUTH_PROVIDER_ID } from "@/shared/ga4";
@@ -519,6 +520,43 @@ describe("Bing inventory", () => {
       organizationId: org,
       projectId: id(0),
     });
+  });
+
+  it("pauses every Bing call after a throttle and keeps sites out of the error state", async () => {
+    await seed(8, { bing: true, gsc: false });
+    mocks.refreshBing.mockRejectedValue(new AppError("RATE_LIMITED"));
+    await warmFleetCaches(org, 40);
+    const firstRun = mocks.refreshBing.mock.calls.length;
+    expect(firstRun).toBeGreaterThan(0);
+    expect(firstRun).toBeLessThan(8); // The cooldown stops the rest.
+    mocks.refreshBing.mockClear();
+    await warmFleetCaches(org, 40);
+    expect(mocks.refreshBing).not.toHaveBeenCalled();
+    const dashboard = await buildFleetDashboard(org);
+    expect(dashboard.inventory.some((r) => r.bing.status === "error")).toBe(
+      false,
+    );
+  });
+
+  it("stops at the daily Bing call budget", async () => {
+    await seed(6, { bing: true, gsc: false });
+    const day = new Date().toISOString().slice(0, 10);
+    await setCached(`fleet-bing-calls:v1:${org}:${day}`, { calls: 1_496 }, 3600);
+    await warmFleetCaches(org, 40);
+    expect(mocks.refreshBing).toHaveBeenCalledTimes(2); // 1,496 + 2 x 2 = 1,500.
+    mocks.refreshBing.mockClear();
+    await warmFleetCaches(org, 40);
+    expect(mocks.refreshBing).not.toHaveBeenCalled();
+  });
+
+  it("does not refresh a Bing snapshot younger than 48 hours and still reports it available", async () => {
+    await seed(1, { bing: true, gsc: false });
+    const fetchedAt = new Date(Date.now() - 30 * 3600 * 1000).toISOString();
+    mocks.bing.set(id(0), bing(0, { fetchedAt }));
+    await warmFleetCaches(org, 40);
+    expect(mocks.refreshBing).not.toHaveBeenCalled();
+    const dashboard = await buildFleetDashboard(org);
+    expect(dashboard.inventory[0]!.bing.status).toBe("available");
   });
 });
 

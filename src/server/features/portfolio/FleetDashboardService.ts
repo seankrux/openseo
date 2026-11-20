@@ -5,6 +5,7 @@
 // snapshot, so a page view is a single object read.
 import { aliasedTable, and, eq, inArray, isNull, sql } from "drizzle-orm";
 import { z } from "zod";
+import { AppError } from "@/server/lib/errors";
 import { db } from "@/db";
 import {
   projects,
@@ -57,8 +58,18 @@ const WARM_SCAN_ROWS = 150;
 const WARM_MAX_MS = 100_000;
 const ERROR_RETRY_MS = 30 * 60 * 1000;
 const AUTH_CHECK_TTL_SECONDS = 30 * 60;
-const BING_REFRESH_AFTER_MS = REFRESH_AFTER_MS;
-const BING_MAX_AGE_MS = TTL_SECONDS * 1000;
+/**
+ * The shared Bing key allows about 1,800 calls per UTC day and a refresh costs
+ * two (traffic + crawl). Keep headroom for interactive and MCP use, so the
+ * fleet can refresh about 750 sites a day: a 1,627-site fleet needs about 52
+ * hours per pass. Refresh after 48h and accept up to 72h before "stale".
+ */
+const BING_CALLS_PER_REFRESH = 2;
+const BING_DAILY_CALL_BUDGET = 1_500;
+const BING_REFRESH_AFTER_MS = 48 * 60 * 60 * 1000;
+const BING_MAX_AGE_MS = 72 * 60 * 60 * 1000;
+/** After a throttle, make no Bing calls for this long, then probe again. */
+const BING_THROTTLE_COOLDOWN_MS = 60 * 60 * 1000;
 /** Parallel R2 reads while assembling the snapshot (1,600+ sites x 3 keys). */
 const READ_CONCURRENCY = 32;
 /** Rows kept for the CSV export (the dashboard shows the first 15). */
@@ -686,6 +697,23 @@ async function warmFleetCachesOnce(
       !!(updatedAt && Date.parse(v.fetchedAt) < connectionTime(updatedAt))
     );
   };
+  // Bing quota guard: a per-UTC-day call counter and a throttle cooldown,
+  // both persisted so every 5-minute scheduler run shares them.
+  const bingDay = new Date().toISOString().slice(0, 10);
+  const bingUsageKey = `fleet-bing-calls:v1:${organizationId}:${bingDay}`;
+  const bingCooldownKey = `fleet-bing-cooldown:v1:${organizationId}`;
+  const savedBingUsage = z
+    .object({ calls: z.number().int().nonnegative() })
+    .safeParse(await getCached(bingUsageKey));
+  let bingCalls = savedBingUsage.success ? savedBingUsage.data.calls : 0;
+  const savedCooldown = z
+    .object({ until: z.number() })
+    .safeParse(await getCached(bingCooldownKey));
+  let bingCooldownUntil = savedCooldown.success ? savedCooldown.data.until : 0;
+  let bingDirty = false;
+  const bingBlocked = () =>
+    Date.now() < bingCooldownUntil ||
+    bingCalls + BING_CALLS_PER_REFRESH > BING_DAILY_CALL_BUDGET;
   const cursorKey = `fleet-warm-cursor:v1:${organizationId}`;
   const savedCursor = await getCached(cursorKey);
   const cursorProject =
@@ -888,6 +916,7 @@ async function warmFleetCachesOnce(
         r.bingSiteUrl &&
         hasBingWorkspaceAccess(organizationId) &&
         !bingFailedRecently &&
+        !bingBlocked() &&
         (!e.bing || ageMs(e.bing.fetchedAt) >= BING_REFRESH_AFTER_MS)
       )
         tasks.push({
@@ -895,6 +924,11 @@ async function warmFleetCachesOnce(
           id: `${r.projectId}:bing`,
           cost: 2,
           run: async () => {
+            // Re-check at run time: three tasks run at once and one may have
+            // been throttled or used the last of the daily budget.
+            if (bingBlocked()) return;
+            bingCalls += BING_CALLS_PER_REFRESH;
+            bingDirty = true;
             try {
               await BingWebmasterService.refreshSnapshot({
                 projectId: r.projectId,
@@ -907,6 +941,17 @@ async function warmFleetCachesOnce(
                   ERROR_RETRY_MS / 1000,
                 );
             } catch (error) {
+              if (error instanceof AppError && error.code === "RATE_LIMITED") {
+                // The key is throttled, not this site. Pause all Bing calls and
+                // keep the site's earlier snapshot instead of marking it failed.
+                bingCooldownUntil = Date.now() + BING_THROTTLE_COOLDOWN_MS;
+                await setCached(
+                  bingCooldownKey,
+                  { until: bingCooldownUntil },
+                  BING_THROTTLE_COOLDOWN_MS / 1000,
+                );
+                return;
+              }
               // Keep the provider's reason (capped) so the fleet alert says
               // what is wrong instead of a generic retry hint.
               const reason =
@@ -984,6 +1029,8 @@ async function warmFleetCachesOnce(
     lastId = `${rows.at(-1)!.projectId}:~`;
   }
   if (lastId) await setCached(cursorKey, lastId, 7 * 24 * 3600);
+  if (bingDirty)
+    await setCached(bingUsageKey, { calls: bingCalls }, 36 * 60 * 60);
   if (ran > 0) {
     const snap = (await getCached(
       snapshotKey(organizationId),
