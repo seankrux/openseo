@@ -16,16 +16,32 @@ jobs:
       POSTHOG_CLI_ENV_ID: ${{ vars.POSTHOG_CLI_ENV_ID }}
       POSTHOG_CLI_TOKEN: ${{ secrets.POSTHOG_CLI_TOKEN }}
     steps:
+      # Forks and mirrors without PostHog credentials have nothing to upload to,
+      # so skip the build instead of failing on an empty API key.
+      - name: Check PostHog credentials
+        id: posthog
+        run: |
+          if [ -n "$POSTHOG_CLI_TOKEN" ] && [ -n "$POSTHOG_CLI_ENV_ID" ]; then
+            echo "enabled=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "enabled=false" >> "$GITHUB_OUTPUT"
+            echo "::notice title=Sourcemaps skipped::Set the POSTHOG_CLI_TOKEN secret and POSTHOG_CLI_ENV_ID variable to upload sourcemaps."
+          fi
       - name: Checkout
+        if: steps.posthog.outputs.enabled == 'true'
         uses: actions/checkout@v4
       - name: Setup pnpm
+        if: steps.posthog.outputs.enabled == 'true'
         uses: pnpm/action-setup@v4
       - name: Setup Node.js
+        if: steps.posthog.outputs.enabled == 'true'
         uses: actions/setup-node@v4
         with:
           node-version: 22
           cache: pnpm
       - name: Install dependencies
+        if: steps.posthog.outputs.enabled == 'true'
         run: pnpm install --frozen-lockfile
       - name: Build and upload sourcemaps
+        if: steps.posthog.outputs.enabled == 'true'
         run: pnpm run sourcemaps:upload
